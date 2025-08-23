@@ -32,11 +32,59 @@ async function main() {
     cm.setOption('extraKeys', { 'Ctrl-Enter': () => $('run').click() })
   }
 
-  const appendTerminal = (text) => {
-    const out = $('terminal-output')
-    out.textContent += '\n' + text
-    out.scrollTop = out.scrollHeight
+  // Append structured terminal lines. `kind` is one of: stdout, stderr, stdin, runtime
+  function appendTerminal(text, kind = 'stdout') {
+    try {
+      const out = $('terminal-output')
+      if (!out) { console.log(text); return }
+      // Normalize text to string
+      const s = (text === null || text === undefined) ? '' : String(text)
+      // Split into lines preserving empty lines
+      const lines = s.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const div = document.createElement('div')
+        div.className = 'terminal-line ' + ('term-' + (kind || 'stdout'))
+        // preserve empty lines visually
+        div.textContent = line || ''
+        out.appendChild(div)
+      }
+      // Auto-scroll to bottom
+      out.scrollTop = out.scrollHeight
+    } catch (e) { try { console.log(text) } catch (_e) { } }
   }
+
+  // Enable/disable the inline terminal input prompt.
+  function setTerminalInputEnabled(enabled, promptText) {
+    try {
+      const inpt = $('stdin-box')
+      const send = $('stdin-send')
+      const form = $('terminal-input-form')
+      if (inpt) {
+        inpt.disabled = !enabled
+        if (enabled) {
+          inpt.setAttribute('aria-disabled', 'false')
+          inpt.placeholder = promptText || inpt.getAttribute('data-default-placeholder') || inpt.placeholder || ''
+        } else {
+          inpt.setAttribute('aria-disabled', 'true')
+          // restore a neutral placeholder when disabled
+          inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
+        }
+      }
+      if (send) {
+        send.disabled = !enabled
+        if (enabled) send.setAttribute('aria-disabled', 'false')
+        else send.setAttribute('aria-disabled', 'true')
+      }
+      if (form) {
+        if (enabled) form.classList.remove('disabled')
+        else form.classList.add('disabled')
+      }
+    } catch (_e) { }
+  }
+
+  // On load, remember the default placeholder so we can restore it when disabling
+  try { const p = $('stdin-box'); if (p && !p.getAttribute('data-default-placeholder')) p.setAttribute('data-default-placeholder', p.placeholder || '') } catch (_e) { }
 
   // Side tab helpers: toggle between instructions and terminal
   function activateSideTab(name) {
@@ -131,12 +179,64 @@ async function main() {
   let backendRef = null
   let mem = null
 
+  // Expose a promise that resolves when the VFS/mem/backend has been initialized
+  // Consumers (tests/UI) can await window.__ssg_vfs_ready to know when files are available.
+  let vfsReadyResolve = null
+  let vfsReadyReject = null
+  let vfsReadySettled = false
+  window.__ssg_vfs_ready = new Promise((res, rej) => { vfsReadyResolve = res; vfsReadyReject = rej })
+
+  // Convenience helper: wait for a file to appear in mem/runtime/backend
+  window.waitForFile = async function (path, timeoutMs = 2000) {
+    const n = path && path.startsWith('/') ? path : ('/' + path)
+    const start = Date.now()
+    const td = new TextDecoder()
+    while (Date.now() - start < timeoutMs) {
+      try {
+        // check mem first (synchronous)
+        if (mem && Object.prototype.hasOwnProperty.call(mem, n)) return mem[n]
+      } catch (_e) { }
+      try {
+        const fs = window.__ssg_runtime_fs
+        if (fs) {
+          try {
+            if (typeof fs.readFile === 'function') {
+              const data = fs.readFile(n)
+              if (data !== undefined) return (typeof data === 'string') ? data : td.decode(data)
+            } else if (typeof fs.readFileSync === 'function') {
+              const data = fs.readFileSync(n)
+              if (data !== undefined) return (typeof data === 'string') ? data : td.decode(data)
+            }
+          } catch (_e) { }
+        }
+      } catch (_e) { }
+      try {
+        if (backendRef && typeof backendRef.read === 'function') {
+          const d = await backendRef.read(n).catch(() => null)
+          if (d != null) return d
+        }
+      } catch (_e) { }
+      await new Promise(r => setTimeout(r, 120))
+    }
+    throw new Error('waitForFile timeout: ' + path)
+  }
+
   // Track expected writes we performed into the runtime FS so notifications that
   // are simply echoes of our own sync/mount operations can be suppressed.
   try { window.__ssg_expected_writes = window.__ssg_expected_writes || new Map() } catch (_e) { }
   function _normPath(p) { if (!p) return p; return p.startsWith('/') ? p : ('/' + p) }
   function markExpectedWrite(p, content) { try { const n = _normPath(p); window.__ssg_expected_writes.set(n, { content: String(content || ''), ts: Date.now() }) } catch (_e) { } }
   function consumeExpectedWriteIfMatches(p, content, windowMs = 3000) { try { const n = _normPath(p); const rec = window.__ssg_expected_writes.get(n); if (!rec) return false; const now = Date.now(); if (now - rec.ts > windowMs) { window.__ssg_expected_writes.delete(n); return false } if (String(content || '') === String(rec.content || '')) { window.__ssg_expected_writes.delete(n); return true } return false } catch (_e) { return false } }
+
+  // Helper to settle the global VFS-ready promise when runtime FS becomes available
+  function settleVfsReady() {
+    try {
+      if (!vfsReadySettled && typeof vfsReadyResolve === 'function') {
+        vfsReadyResolve({ mem: (typeof mem !== 'undefined') ? mem : null, backend: backendRef || null, fs: window.__ssg_runtime_fs || null })
+        vfsReadySettled = true
+      }
+    } catch (_e) { }
+  }
 
   // Name of the protected main program file (normalized)
   const MAIN_FILE = '/main.py'
@@ -376,6 +476,11 @@ async function main() {
     }
   } catch (e) { /* VFS init failed; keep using local FileManager */ }
 
+  // If VFS init completed or failed, ensure the readiness promise is settled
+  try {
+    try { settleVfsReady() } catch (_e) { }
+  } catch (_e) { }
+
   // Simple modal editor (re-uses snapshot modal styles) -------------------------------------------------
   function openFileEditor(path) {
     // create modal elements lazily
@@ -592,6 +697,9 @@ async function main() {
     } catch (_e) { }
   }
 
+  // Start with terminal input disabled until a runtime requests it
+  try { setTerminalInputEnabled(false) } catch (_e) { }
+
   // (renderFilesList already attaches Open handlers when it builds the DOM)
 
 
@@ -800,6 +908,7 @@ async function main() {
           })
           // expose runtime FS for persistence sync
           try { window.__ssg_runtime_fs = mpInstance.FS } catch (e) { }
+          try { settleVfsReady() } catch (_e) { }
           // Wrap common FS ops to notify host when files are written
           try {
             const fs = mpInstance.FS
@@ -892,6 +1001,7 @@ async function main() {
             if (backend && typeof backend.mountToEmscripten === 'function') {
               await backend.mountToEmscripten(mpInstance.FS)
               appendTerminal('VFS mounted into MicroPython FS')
+              try { settleVfsReady() } catch (_e) { }
             }
           } catch (e) { appendTerminal('VFS mount error: ' + e) }
           // register a host module so transformed code can await host.get_input()
@@ -902,9 +1012,10 @@ async function main() {
                 return new Promise((resolve) => {
                   // store resolver temporarily on the window so UI handler can find it
                   window.__ssg_pending_input = { resolve, promptText }
-                  // focus the stdin-box for immediate typing
+                  // enable and focus the terminal inline input for immediate typing
+                  try { setTerminalInputEnabled(true, promptText || ''); } catch (_e) { }
                   const stdinBox = $('stdin-box')
-                  if (stdinBox) { stdinBox.focus(); }
+                  if (stdinBox) { try { stdinBox.focus() } catch (_e) { } }
                 })
               }
             }
@@ -1120,12 +1231,14 @@ async function main() {
                     const stderr = (c) => stdout(c)
                     const mp = await found.obj.loadMicroPython({ url: (cfg?.runtime?.wasm) || './vendor/micropython.wasm', stdout, stderr, linebuffer: true })
                     try { window.__ssg_runtime_fs = mp.FS } catch (e) { }
+                    try { settleVfsReady() } catch (_e) { }
                     // mount VFS if available
                     try {
                       const backend = window.__ssg_vfs_backend
                       if (backend && typeof backend.mountToEmscripten === 'function') {
                         await backend.mountToEmscripten(mp.FS)
                         appendTerminal('VFS mounted into MicroPython FS')
+                        try { settleVfsReady() } catch (_e) { }
                       }
                     } catch (e) { appendTerminal('VFS mount error: ' + e) }
                     appendTerminal('Bridge MicroPython initialized')
@@ -1181,7 +1294,9 @@ async function main() {
   }
 
   $('run').addEventListener('click', async () => {
-    appendTerminal('>>> Running...')
+    appendTerminal('>>> Running...', 'runtime')
+    // disable terminal input by default; enable only if runtime requests input
+    try { setTerminalInputEnabled(false) } catch (_e) { }
     // Activate terminal tab automatically when running
     try { activateSideTab('terminal') } catch (_e) { }
 
@@ -1203,7 +1318,7 @@ async function main() {
     // Always run the protected main program file
     const code = FileManager.read(MAIN_FILE) || ''
     // Ensure runtimeAdapter exists (no worker path supported)
-    if (!runtimeAdapter) { appendTerminal('ERROR: no runtime available'); return }
+    if (!runtimeAdapter) { appendTerminal('ERROR: no runtime available', 'runtime'); try { setTerminalInputEnabled(false) } catch (_e) { }; return }
 
     // Regex-based feedback: rules can target `code`, `output`, or `input`.
     // Prepare feedback/input/output variables
@@ -1234,23 +1349,9 @@ async function main() {
       const { code: transformed, headerLines } = transformAndWrap(code)
       // If transformed code expects input, focus the stdin box and wire Enter->send
       const stdinBox = $('stdin-box')
-      if (/\bawait host.get_input\(/.test(transformed) && stdinBox) {
-        stdinBox.focus()
-        // ensure Enter submits
-        const submitHandler = (ev) => {
-          if (ev.key === 'Enter') {
-            ev.preventDefault()
-            const val = stdinBox.value || ''
-            // resolve any pending promise created by host.get_input
-            if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
-              window.__ssg_pending_input.resolve(val)
-              delete window.__ssg_pending_input
-            }
-            appendTerminal('[UI] stdin sent: ' + JSON.stringify(val))
-            stdinBox.value = ''
-          }
-        }
-        stdinBox.addEventListener('keydown', submitHandler, { once: false })
+      if (/await host.get_input\(/.test(transformed) && stdinBox) {
+        // Let the terminal inline form handle Enter/submit. Just focus the input.
+        try { stdinBox.focus() } catch (_e) { }
       }
 
       if (runtimeAdapter && typeof runtimeAdapter.run === 'function') {
@@ -1305,6 +1406,7 @@ async function main() {
                   try { window.__ssg_suppress_notifier = false } catch (_e) { }
                   mounted = true
                   appendTerminal('VFS mounted into MicroPython FS (pre-run)')
+                  try { settleVfsReady() } catch (_e) { }
                 } catch (merr) {
                   appendTerminal('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
                   await new Promise(r => setTimeout(r, 150))
@@ -1317,7 +1419,8 @@ async function main() {
 
           const out = await runtimeAdapter.run(transformed)
           const runtimeOutput = out === undefined ? '' : String(out)
-          appendTerminal('Runtime result:\n' + runtimeOutput)
+          appendTerminal('Runtime result:', 'runtime')
+          if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
           // After run completes, sync any interpreter-side FS changes back to persistent VFS
           try {
             const backend = window.__ssg_vfs_backend
@@ -1452,6 +1555,8 @@ async function main() {
                 // wait for user submit via the existing pending_input mechanism
                 const val = await new Promise((resolve) => {
                   window.__ssg_pending_input = { resolve, promptText }
+                  try { setTerminalInputEnabled(true, promptText || '') } catch (_e) { }
+                  try { const stdinBoxLocal2 = $('stdin-box'); if (stdinBoxLocal2) stdinBoxLocal2.focus() } catch (_e) { }
                 })
 
                 // replace only the first occurrence of input(...) on this line with a Python literal
@@ -1489,7 +1594,7 @@ async function main() {
       } else {
         appendTerminal('[error] no runtime adapter available')
       }
-    } catch (e) { appendTerminal('Transform/run error: ' + e) }
+    } catch (e) { appendTerminal('Transform/run error: ' + e, 'runtime'); try { setTerminalInputEnabled(false) } catch (_e) { } }
 
     // Re-run regex feedback for rules targeting output now that runtimeOutput may be available
     try {
@@ -1506,16 +1611,39 @@ async function main() {
   // Wire stdin-send button to resolve pending host.get_input promises and clear the field
   const stdinSendBtn = $('stdin-send')
   const stdinBox = $('stdin-box')
+  // Wire terminal's inline form (and send button) to resolve pending input promises.
+  const termForm = $('terminal-input-form')
+  if (termForm && stdinBox) {
+    termForm.addEventListener('submit', (ev) => {
+      try {
+        ev.preventDefault()
+        const val = stdinBox.value || ''
+        if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
+          window.__ssg_pending_input.resolve(val)
+          delete window.__ssg_pending_input
+          try { setTerminalInputEnabled(false) } catch (_e) { }
+        }
+        // show user's stdin in the terminal with distinct styling
+        appendTerminal(val, 'stdin')
+        stdinBox.value = ''
+        try { stdinBox.focus() } catch (_e) { }
+      } catch (_e) { }
+    })
+  }
+
   if (stdinSendBtn && stdinBox) {
     stdinSendBtn.addEventListener('click', () => {
-      const val = stdinBox.value || ''
-      if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
-        window.__ssg_pending_input.resolve(val)
-        delete window.__ssg_pending_input
-      }
-      appendTerminal('[UI] stdin sent: ' + JSON.stringify(val))
-      stdinBox.value = ''
-      stdinBox.focus()
+      try {
+        const val = stdinBox.value || ''
+        if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
+          window.__ssg_pending_input.resolve(val)
+          delete window.__ssg_pending_input
+          try { setTerminalInputEnabled(false) } catch (_e) { }
+        }
+        appendTerminal(val, 'stdin')
+        stdinBox.value = ''
+        try { stdinBox.focus() } catch (_e) { }
+      } catch (_e) { }
     })
   }
 

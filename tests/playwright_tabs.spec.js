@@ -31,8 +31,11 @@ test('tabs: create, open, edit, autosave and delete', async ({ page }) => {
     if(window.cm) window.cm.setValue('# edited test file')
     else document.getElementById('code').value = '# edited test file'
   })
-  // wait for autosave debounce
-  await page.waitForTimeout(900)
+  // wait for autosave debounce to complete
+  await page.waitForFunction(() => {
+    const el = document.getElementById('autosave-indicator')
+    return el && el.textContent && el.textContent.indexOf('Saved') !== -1
+  }, { timeout: 2000 })
 
   // Confirm file saved to VFS/localStorage
   const saved = await page.evaluate(async ()=>{
@@ -48,7 +51,8 @@ test('tabs: create, open, edit, autosave and delete', async ({ page }) => {
     try{ if(window.FileManager) await window.FileManager.delete('testfile.py') }catch(e){}
     try{ if(window.TabManager && typeof window.TabManager.forceClose === 'function') window.TabManager.forceClose('/testfile.py') }catch(e){}
   })
-  await page.waitForTimeout(200)
+  // wait for any async tab cleanup to complete
+  await page.waitForFunction(() => !Array.from(document.querySelectorAll('.tab .tab-label')).some(e=> e.textContent && e.textContent.includes('testfile.py')), { timeout: 2000 })
   // Wait until the tab label no longer appears (handle async updates)
   await page.waitForFunction(()=> !Array.from(document.querySelectorAll('.tab .tab-label')).some(e=> e.textContent && e.textContent.includes('testfile.py')), { timeout: 2000 })
   const savedAfter = await page.evaluate(async ()=>{ try{ if(window.__ssg_vfs_backend) return await window.__ssg_vfs_backend.read('/testfile.py') }catch(e){} try{ const raw = localStorage.getItem('ssg_files_v1'); return raw && JSON.parse(raw)['/testfile.py'] }catch(e){} return null })

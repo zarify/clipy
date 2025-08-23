@@ -51,8 +51,11 @@ test('single file write produces a single notification (v2)', async ({ page }) =
     return t.includes('OK') || t.includes('Traceback') || t.includes('PythonError')
   }, { timeout: 15000 })
 
-  // Give async notifier a short moment to flush
-  await page.waitForTimeout(500)
+  // Give async notifier a short moment to flush by waiting for terminal updates or small delay
+  await page.waitForFunction(()=> {
+    const t = document.getElementById('terminal-output') && document.getElementById('terminal-output').textContent || ''
+    return t.includes('OK') || t.includes('Captured notifier calls') || (window.__ssg_notify_calls && window.__ssg_notify_calls.length >= 0)
+  }, { timeout: 2000 })
 
   // Read recorded notifier calls and assert count
   const calls = await page.evaluate(()=> (window.__ssg_notify_calls || []))

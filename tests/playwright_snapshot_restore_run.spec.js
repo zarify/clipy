@@ -11,8 +11,8 @@ test('restore snapshot then run main.py and observe output', async ({ page }) =>
     try{ if(window.FileManager) await window.FileManager.write('/helper.txt', 'snapshot-helper') }catch(e){}
   })
   await page.click('#save-snapshot')
-  // allow snapshot to be stored
-  await page.waitForTimeout(300)
+  // wait for snapshot to be stored (autosave writes to localStorage)
+  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
 
   // Clear current backend/mem to simulate fresh state
   await page.evaluate(async ()=>{

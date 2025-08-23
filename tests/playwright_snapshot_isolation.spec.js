@@ -25,15 +25,15 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
     try{ if(window.FileManager) await window.FileManager.write('/iso.txt', 'from-A') }catch(_e){}
   })
   await page.click('#save-snapshot')
-  // allow snapshot to persist
-  await page.waitForTimeout(200)
+  // wait for snapshot to persist
+  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
 
   // Delete /iso.txt and save snapshot B
   await page.evaluate(async ()=>{
     try{ if(window.FileManager) await window.FileManager.delete('/iso.txt') }catch(_e){}
   })
   await page.click('#save-snapshot')
-  await page.waitForTimeout(200)
+  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
 
   // Restore snapshot A (first saved)
   await page.click('#history')

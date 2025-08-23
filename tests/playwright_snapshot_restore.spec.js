@@ -11,7 +11,8 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
     try{ if(window.FileManager) await window.FileManager.write('/foo.txt', 'snapshot-file') }catch(e){}
   })
   await page.click('#save-snapshot')
-  await page.waitForTimeout(300)
+  // wait for snapshot to persist
+  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
 
   // Clear current backend/mem to simulate fresh state
   await page.evaluate(async ()=>{

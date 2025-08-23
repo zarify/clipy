@@ -31,7 +31,16 @@
         </div>
         <div id="terminal" class="panel-child" style="display:none">
           <h2>Terminal</h2>
-          <pre id="terminal-output" tabindex="0">(terminal)</pre>
+          <div id="terminal-output" class="terminal-output" tabindex="0" role="log" aria-live="polite">(terminal)</div>
+          <form id="terminal-input-form" class="term-input" action="#" onsubmit="return false;">
+            <label class="prompt" aria-hidden="true">$</label>
+            <input id="stdin-box" class="term-prompt-input" placeholder="Type input and press Enter" autocomplete="off"
+              aria-label="Program stdin input" />
+            <button id="stdin-send" class="btn btn-ghost" title="Send stdin">
+              <span class="icon" aria-hidden="true">✉️</span>
+              <span>Send</span>
+            </button>
+          </form>
         </div>
       </div>
     </section>
@@ -75,13 +84,7 @@
           </div>
         </div>
 
-        <div class="stdin-row">
-          <input id="stdin-box" placeholder="stdin: type a line here" aria-label="Program stdin input" />
-          <button id="stdin-send" class="btn btn-ghost" title="Send stdin">
-            <span class="icon" aria-hidden="true">✉️</span>
-            <span>Send</span>
-          </button>
-        </div>
+        <!-- legacy stdin controls removed; terminal now contains the inline stdin prompt -->
       </div>
     </section>
     <!-- Files panel removed: tabs are the primary UI for file visibility -->
