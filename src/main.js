@@ -54,6 +54,173 @@ async function main() {
     } catch (e) { try { console.log(text) } catch (_e) { } }
   }
 
+  // Track an active prompt line element when host.get_input is awaiting input
+  let __ssg_current_prompt = null
+  // Find and convert an existing printed prompt (single- or multi-line) into a structured prompt element.
+  // Returns the element if found/converted, or null if none matched.
+  function findPromptLine(promptText) {
+    try {
+      const out = $('terminal-output')
+      if (!out) return null
+      const children = Array.from(out.querySelectorAll('.terminal-line'))
+      const wantedRaw = (promptText || '')
+      const wanted = wantedRaw.trim()
+      if (!wanted) return null
+      const MAX_LOOKBACK = 12
+      for (let end = children.length - 1; end >= 0; end--) {
+        let acc = []
+        for (let start = end; start >= Math.max(0, end - MAX_LOOKBACK); start--) {
+          acc.unshift((children[start].textContent || ''))
+          const joined = acc.join('\n').trim()
+          if (joined === wanted || joined.endsWith(wanted)) {
+            // Convert the sequence children[start..end] into a single structured prompt element
+            try {
+              const nodesToRemove = children.slice(start, end + 1)
+              const div = document.createElement('div')
+              div.className = 'terminal-line term-prompt'
+              for (let k = 0; k < acc.length; k++) {
+                const pspan = document.createElement('span')
+                pspan.className = 'prompt-text'
+                pspan.textContent = acc[k]
+                div.appendChild(pspan)
+                if (k < acc.length - 1) div.appendChild(document.createElement('br'))
+              }
+              const inputSpan = document.createElement('span')
+              inputSpan.className = 'prompt-input'
+              div.appendChild(inputSpan)
+              const firstNode = nodesToRemove[0]
+              out.insertBefore(div, firstNode)
+              for (const n of nodesToRemove) {
+                try { out.removeChild(n) } catch (_e) { }
+              }
+              out.scrollTop = out.scrollHeight
+              return div
+            } catch (_e) { return null }
+          }
+        }
+      }
+      // Single-line fallback
+      for (let i = children.length - 1; i >= 0; i--) {
+        const el = children[i]
+        const rawText = (el.textContent || '')
+        const txt = rawText.trim()
+        if (!txt) continue
+        if (txt === wanted || txt.endsWith(wanted)) {
+          if (!el.querySelector('.prompt-text')) {
+            try {
+              const textNodes = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)
+              const existing = textNodes.map(n => n.textContent).join('').trim() || wanted
+              for (const n of textNodes) try { n.parentNode && n.parentNode.removeChild(n) } catch (_e) { }
+              const promptSpan = document.createElement('span')
+              promptSpan.className = 'prompt-text'
+              promptSpan.textContent = existing
+              if (el.firstChild) el.insertBefore(promptSpan, el.firstChild)
+              else el.appendChild(promptSpan)
+            } catch (_e) { }
+          }
+          if (!el.querySelector('.prompt-input')) {
+            const span = document.createElement('span')
+            span.className = 'prompt-input'
+            el.appendChild(span)
+          }
+          try { el.classList.add('term-prompt') } catch (_e) { }
+          return el
+        }
+      }
+      return null
+    } catch (e) { return null }
+  }
+  function findOrCreatePromptLine(promptText) {
+    try {
+      const out = $('terminal-output')
+      if (!out) return null
+      // Try to find a recent line or contiguous set of lines that matches the prompt text
+      const children = Array.from(out.querySelectorAll('.terminal-line'))
+      const wantedRaw = (promptText || '')
+      const wanted = wantedRaw.trim()
+      if (wanted) {
+        // Try multi-line match: look for a contiguous block of recent lines whose joined text equals the prompt
+        const MAX_LOOKBACK = 12
+        for (let end = children.length - 1; end >= 0; end--) {
+          let acc = []
+          for (let start = end; start >= Math.max(0, end - MAX_LOOKBACK); start--) {
+            acc.unshift((children[start].textContent || ''))
+            const joined = acc.join('\n').trim()
+            if (joined === wanted || joined.endsWith(wanted)) {
+              // Replace the sequence children[start..end] with a single structured prompt line.
+              try {
+                const nodesToRemove = children.slice(start, end + 1)
+                const div = document.createElement('div')
+                div.className = 'terminal-line term-prompt'
+                // For each line in acc, append a prompt-text span and a <br> except last line
+                for (let k = 0; k < acc.length; k++) {
+                  const pspan = document.createElement('span')
+                  pspan.className = 'prompt-text'
+                  pspan.textContent = acc[k]
+                  div.appendChild(pspan)
+                  if (k < acc.length - 1) div.appendChild(document.createElement('br'))
+                }
+                const inputSpan = document.createElement('span')
+                inputSpan.className = 'prompt-input'
+                div.appendChild(inputSpan)
+                // Insert before the first matched node then remove matched nodes
+                const firstNode = nodesToRemove[0]
+                out.insertBefore(div, firstNode)
+                for (const n of nodesToRemove) {
+                  try { out.removeChild(n) } catch (_e) { }
+                }
+                out.scrollTop = out.scrollHeight
+                return div
+              } catch (_e) { /* fallback to other strategies */ }
+            }
+          }
+        }
+        // Single-line fallback: find a single terminal-line that ends with the prompt
+        for (let i = children.length - 1; i >= 0; i--) {
+          const el = children[i]
+          const rawText = (el.textContent || '')
+          const txt = rawText.trim()
+          if (!txt) continue
+          if (txt === wanted || txt.endsWith(wanted)) {
+            // Ensure there is a .prompt-text span (convert plain text nodes into prompt-text)
+            if (!el.querySelector('.prompt-text')) {
+              try {
+                const textNodes = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)
+                const existing = textNodes.map(n => n.textContent).join('').trim() || wanted
+                for (const n of textNodes) try { n.parentNode && n.parentNode.removeChild(n) } catch (_e) { }
+                const promptSpan = document.createElement('span')
+                promptSpan.className = 'prompt-text'
+                promptSpan.textContent = existing
+                if (el.firstChild) el.insertBefore(promptSpan, el.firstChild)
+                else el.appendChild(promptSpan)
+              } catch (_e) { }
+            }
+            if (!el.querySelector('.prompt-input')) {
+              const span = document.createElement('span')
+              span.className = 'prompt-input'
+              el.appendChild(span)
+            }
+            try { el.classList.add('term-prompt') } catch (_e) { }
+            return el
+          }
+        }
+      }
+      // Not found: create a new prompt line
+      const div = document.createElement('div')
+      div.className = 'terminal-line term-prompt'
+      const promptSpan = document.createElement('span')
+      promptSpan.className = 'prompt-text'
+      promptSpan.textContent = promptText || ''
+      const inputSpan = document.createElement('span')
+      inputSpan.className = 'prompt-input'
+      div.appendChild(promptSpan)
+      div.appendChild(inputSpan)
+      out.appendChild(div)
+      out.scrollTop = out.scrollHeight
+      return div
+    } catch (e) { return null }
+  }
+
   // Enable/disable the inline terminal input prompt.
   function setTerminalInputEnabled(enabled, promptText) {
     try {
@@ -64,11 +231,36 @@ async function main() {
         inpt.disabled = !enabled
         if (enabled) {
           inpt.setAttribute('aria-disabled', 'false')
-          inpt.placeholder = promptText || inpt.getAttribute('data-default-placeholder') || inpt.placeholder || ''
+          // Do NOT use the prompt text as an input placeholder. The prompt must be printed
+          // to the terminal as stdout; keep the neutral/default placeholder instead.
+          inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
+          try {
+            // If promptText provided, ensure it's present in the terminal. Avoid dupes by
+            // checking recent lines first.
+            const wanted = (promptText || '').toString()
+            if (wanted) {
+              try {
+                const out = $('terminal-output')
+                const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
+                let found = false
+                for (let i = Math.max(0, children.length - 8); i < children.length; i++) {
+                  try { if ((children[i] && (children[i].textContent || '').trim()) === String(wanted).trim()) { found = true; break } } catch (_e) { }
+                }
+                if (!found) appendTerminal(wanted, 'stdout')
+              } catch (_e) { /* best-effort print */ }
+            }
+          } catch (_e) { }
+          // Convert an already-printed prompt into a structured prompt so live input can be mirrored
+          try {
+            const pl = findPromptLine(promptText || '')
+            if (pl) __ssg_current_prompt = pl
+          } catch (_e) { }
         } else {
           inpt.setAttribute('aria-disabled', 'true')
           // restore a neutral placeholder when disabled
           inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
+          // clear any tracked prompt when disabling input
+          try { __ssg_current_prompt = null } catch (_e) { }
         }
       }
       if (send) {
@@ -1000,7 +1192,7 @@ async function main() {
             const backend = window.__ssg_vfs_backend
             if (backend && typeof backend.mountToEmscripten === 'function') {
               await backend.mountToEmscripten(mpInstance.FS)
-              appendTerminal('VFS mounted into MicroPython FS')
+              appendTerminalDebug('VFS mounted into MicroPython FS')
               try { settleVfsReady() } catch (_e) { }
             }
           } catch (e) { appendTerminal('VFS mount error: ' + e) }
@@ -1047,9 +1239,9 @@ async function main() {
 
                   // If this notification matches an expected write we performed recently,
                   // consume it and skip further UI processing to avoid echo loops.
-                  try { if (consumeExpectedWriteIfMatches(n, content)) { appendTerminal && appendTerminal('[notify] ignored expected write: ' + n); return } } catch (_e) { }
-                  // Log the notification only after we've confirmed it's not an expected echo
-                  try { appendTerminal('notify: ' + n) } catch (_e) { }
+                  try { if (consumeExpectedWriteIfMatches(n, content)) { try { appendTerminalDebug && appendTerminalDebug('[notify] ignored expected write: ' + n) } catch (_e) { }; return } } catch (_e) { }
+                  // Log the notification only to debug logs (avoid noisy terminal output)
+                  try { appendTerminalDebug('notify: ' + n) } catch (_e) { }
                   // update mem and localStorage mirror for tests and fallbacks (always keep mem in sync)
                   try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
                   try { const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}'); map[n] = content; localStorage.setItem('ssg_files_v1', JSON.stringify(map)) } catch (_e) { }
@@ -1237,7 +1429,7 @@ async function main() {
                       const backend = window.__ssg_vfs_backend
                       if (backend && typeof backend.mountToEmscripten === 'function') {
                         await backend.mountToEmscripten(mp.FS)
-                        appendTerminal('VFS mounted into MicroPython FS')
+                        appendTerminalDebug('VFS mounted into MicroPython FS')
                         try { settleVfsReady() } catch (_e) { }
                       }
                     } catch (e) { appendTerminal('VFS mount error: ' + e) }
@@ -1335,14 +1527,16 @@ async function main() {
         const text = (target === 'code') ? code : (target === 'output') ? runtimeOutput : (target === 'input') ? providedInput : ''
         const re = new RegExp(r.pattern)
         if (re.test(text)) {
-          appendTerminal('Feedback (' + target + '): ' + r.message)
+          // Route feedback to a stub and debug logger; do not show in terminal
+          try { appendTerminalDebug('Feedback (' + target + '): ' + r.message) } catch (_e) { }
+          try { if (typeof window.__ssg_feedback_stub === 'function') window.__ssg_feedback_stub({ target, message: r.message, matchText: text }) } catch (_e) { }
         }
       }
     } catch (e) { appendTerminal('Feedback engine error: ' + e) }
 
     // Yield once to ensure the click event completes and the browser can update.
     await new Promise(r => setTimeout(r, 0))
-    appendTerminal('Run handler resumed after yield')
+    appendTerminalDebug('Run handler resumed after yield')
 
     // Transform code to async wrapper so input() becomes await host.get_input()
     try {
@@ -1374,7 +1568,7 @@ async function main() {
                     try { window.__ssg_suppress_notifier = false } catch (_e) { }
                   } catch (_e) { /* ignore per-file */ }
                 }
-                appendTerminal('Synced UI FileManager -> backend (pre-run)')
+                appendTerminalDebug('Synced UI FileManager -> backend (pre-run)')
               } else if (fs && typeof fs.writeFile === 'function' && typeof FileManager?.list === 'function') {
                 // no async backend available; write directly into runtime FS from UI FileManager
                 const files = FileManager.list()
@@ -1387,7 +1581,7 @@ async function main() {
                     try { window.__ssg_suppress_notifier = false } catch (_e) { }
                   } catch (_e) { }
                 }
-                appendTerminal('Synced UI FileManager -> runtime FS (pre-run)')
+                appendTerminalDebug('Synced UI FileManager -> runtime FS (pre-run)')
               }
             } catch (_e) { appendTerminal('Pre-run sync error: ' + _e) }
 
@@ -1405,7 +1599,7 @@ async function main() {
                   await backend.mountToEmscripten(fs)
                   try { window.__ssg_suppress_notifier = false } catch (_e) { }
                   mounted = true
-                  appendTerminal('VFS mounted into MicroPython FS (pre-run)')
+                  appendTerminalDebug('VFS mounted into MicroPython FS (pre-run)')
                   try { settleVfsReady() } catch (_e) { }
                 } catch (merr) {
                   appendTerminal('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
@@ -1548,9 +1742,11 @@ async function main() {
                 const inputLine = lines[nextInputLine]
                 const promptMatch = inputLine.match(/input\s*\(\s*(['\"])(.*?)\1\s*\)/)
                 const promptText = promptMatch ? promptMatch[2] : ''
-                appendTerminal(promptText)
-                const stdinBoxLocal = $('stdin-box')
-                if (stdinBoxLocal) stdinBoxLocal.focus()
+                try {
+                  try { setTerminalInputEnabled(true, promptText || '') } catch (_e) { }
+                  const stdinBoxLocal = $('stdin-box')
+                  if (stdinBoxLocal) try { stdinBoxLocal.focus() } catch (_e) { }
+                } catch (_e) { }
 
                 // wait for user submit via the existing pending_input mechanism
                 const val = await new Promise((resolve) => {
@@ -1602,7 +1798,10 @@ async function main() {
       for (const r of rules) {
         if ((r.target || 'code') === 'output') {
           const re = new RegExp(r.pattern)
-          if (re.test(runtimeOutput)) appendTerminal('Feedback (output): ' + r.message)
+          if (re.test(runtimeOutput)) {
+            try { appendTerminalDebug('Feedback (output): ' + r.message) } catch (_e) { }
+            try { if (typeof window.__ssg_feedback_stub === 'function') window.__ssg_feedback_stub({ target: 'output', message: r.message, matchText: runtimeOutput }) } catch (_e) { }
+          }
         }
       }
     } catch (e) { appendTerminal('Feedback engine error (output pass): ' + e) }
@@ -1618,29 +1817,110 @@ async function main() {
       try {
         ev.preventDefault()
         const val = stdinBox.value || ''
+        // Do not pre-create a prompt element here; the printed prompt should remain visible
+        // while the user types. Replacement will occur below when we resolve input.
+        // Ensure the printed prompt lines are replaced with a structured prompt+input element
+        try {
+          // Prefer the tracked prompt element
+          let pl = __ssg_current_prompt || null
+          const promptText = (window.__ssg_pending_input && window.__ssg_pending_input.promptText) ? window.__ssg_pending_input.promptText : ''
+          if (!pl) pl = findPromptLine(promptText || '')
+          if (!pl) {
+            // fallback: replace the last terminal line with a constructed prompt containing that line's text
+            try {
+              const out = $('terminal-output')
+              const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
+              if (children.length) {
+                const last = children[children.length - 1]
+                const lastText = (last.textContent || '').trim()
+                const div = document.createElement('div')
+                div.className = 'terminal-line term-prompt'
+                const pspan = document.createElement('span')
+                pspan.className = 'prompt-text'
+                pspan.textContent = lastText || promptText || ''
+                const inputSpan = document.createElement('span')
+                inputSpan.className = 'prompt-input'
+                inputSpan.textContent = val
+                div.appendChild(pspan)
+                div.appendChild(inputSpan)
+                out.insertBefore(div, last)
+                try { out.removeChild(last) } catch (_e) { }
+                pl = div
+              }
+            } catch (_e) { }
+          }
+          // If we now have a prompt element, set its input span
+          if (pl) {
+            try { const inputSpan = pl.querySelector('.prompt-input'); if (inputSpan) inputSpan.textContent = val } catch (_e) { }
+            try { __ssg_current_prompt = null } catch (_e) { }
+          }
+        } catch (_e) { }
         if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
           window.__ssg_pending_input.resolve(val)
           delete window.__ssg_pending_input
           try { setTerminalInputEnabled(false) } catch (_e) { }
         }
-        // show user's stdin in the terminal with distinct styling
-        appendTerminal(val, 'stdin')
         stdinBox.value = ''
         try { stdinBox.focus() } catch (_e) { }
       } catch (_e) { }
     })
   }
 
+  // Mirror live typing into the current prompt element so the prompt is visible while typing
+  try {
+    if (stdinBox) {
+      stdinBox.addEventListener('input', (ev) => {
+        try {
+          if (!__ssg_current_prompt) return
+          const inputSpan = __ssg_current_prompt.querySelector('.prompt-input')
+          if (!inputSpan) return
+          inputSpan.textContent = stdinBox.value || ''
+        } catch (_e) { }
+      })
+    }
+  } catch (_e) { }
+
   if (stdinSendBtn && stdinBox) {
     stdinSendBtn.addEventListener('click', () => {
       try {
         const val = stdinBox.value || ''
+        try {
+          let pl = __ssg_current_prompt || null
+          const promptText = (window.__ssg_pending_input && window.__ssg_pending_input.promptText) ? window.__ssg_pending_input.promptText : ''
+          if (!pl) pl = findPromptLine(promptText || '')
+          if (!pl) {
+            try {
+              const out = $('terminal-output')
+              const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
+              if (children.length) {
+                const last = children[children.length - 1]
+                const lastText = (last.textContent || '').trim()
+                const div = document.createElement('div')
+                div.className = 'terminal-line term-prompt'
+                const pspan = document.createElement('span')
+                pspan.className = 'prompt-text'
+                pspan.textContent = lastText || promptText || ''
+                const inputSpan = document.createElement('span')
+                inputSpan.className = 'prompt-input'
+                inputSpan.textContent = val
+                div.appendChild(pspan)
+                div.appendChild(inputSpan)
+                out.insertBefore(div, last)
+                try { out.removeChild(last) } catch (_e) { }
+                pl = div
+              }
+            } catch (_e) { }
+          }
+          if (pl) {
+            try { const inputSpan = pl.querySelector('.prompt-input'); if (inputSpan) inputSpan.textContent = val } catch (_e) { }
+            try { __ssg_current_prompt = null } catch (_e) { }
+          }
+        } catch (_e) { }
         if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
           window.__ssg_pending_input.resolve(val)
           delete window.__ssg_pending_input
           try { setTerminalInputEnabled(false) } catch (_e) { }
         }
-        appendTerminal(val, 'stdin')
         stdinBox.value = ''
         try { stdinBox.focus() } catch (_e) { }
       } catch (_e) { }
