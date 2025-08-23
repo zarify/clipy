@@ -235,6 +235,7 @@ async function main() {
           // to the terminal as stdout; keep the neutral/default placeholder instead.
           inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
           try {
+            fallbackLog('fallback:start', { codeLength: code.split('\n').length })
             // If promptText provided, ensure it's present in the terminal. Avoid dupes by
             // checking recent lines first.
             const wanted = (promptText || '').toString()
@@ -366,6 +367,27 @@ async function main() {
 
   // runtimeAdapter will provide a run(code) -> Promise<string> API if a runtime is available
   let runtimeAdapter = null
+
+  // Debug helper: allow tests to run transformed code directly and capture raw errors.
+  try {
+    window.__ssg_run = async function (code) {
+      if (!runtimeAdapter || typeof runtimeAdapter.run !== 'function') throw new Error('no runtime adapter')
+      return await runtimeAdapter.run(code)
+    }
+  } catch (_e) { }
+
+  // Testing aids: allow forcing the non-async split-run fallback and collect fallback logs
+  try { window.__ssg_force_no_async = window.__ssg_force_no_async || false } catch (_e) { }
+  try { window.__ssg_fallback_logs = window.__ssg_fallback_logs || [] } catch (_e) { }
+  function fallbackLog(ev, data) {
+    try {
+      const entry = { ts: Date.now(), event: ev, data: data }
+      try { window.__ssg_fallback_logs.push(entry) } catch (_e) { }
+      try { appendTerminalDebug && appendTerminalDebug('[fallback] ' + ev + ' ' + JSON.stringify(data || {})) } catch (_e) { }
+      // also append a visible runtime terminal line to aid test debugging
+      try { appendTerminal && appendTerminal('[fallback] ' + ev + ' ' + (typeof data === 'string' ? data : JSON.stringify(data || {})), 'runtime') } catch (_e) { }
+    } catch (_e) { }
+  }
 
   // VFS runtime references (populated during async VFS init)
   let backendRef = null
@@ -898,6 +920,23 @@ async function main() {
   // Helper: transform user source by replacing input(...) with await host.get_input(...)
   // and wrap in an async runner. Returns {code: wrappedCode, headerLines}
   function transformAndWrap(userCode) {
+    // Support-lift simple walrus patterns where input() is used inside an
+    // assignment expression in an `if` or `while` header. MicroPython may
+    // not support the walrus operator, and the split-run fallback that
+    // replaces input(...) with a literal can produce invalid syntax
+    // when used inside `if var := input(...):` patterns. Convert a common
+    // subset into an equivalent assignment + condition before further
+    // processing.
+    try {
+      // Pattern with quoted prompt: if var := input("prompt"):
+      userCode = userCode.replace(/^([ \t]*)(if|while)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*input\s*\(\s*(['\"])(.*?)\4\s*\)\s*:/gm, (m, indent, kw, vname, q, prompt) => {
+        return `${indent}${vname} = input(${q}${prompt}${q})\n${indent}${kw} ${vname}:`
+      })
+      // Pattern without prompt string: if var := input():
+      userCode = userCode.replace(/^([ \t]*)(if|while)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*input\s*\(\s*\)\s*:/gm, (m, indent, kw, vname) => {
+        return `${indent}${vname} = input()\n${indent}${kw} ${vname}:`
+      })
+    } catch (_e) { }
     // tokenizer-aware replacement: skip strings and comments and only replace
     // real code occurrences of `input(`. This behaves like an AST-aware rewrite
     // for the common cases while keeping everything in-client.
@@ -1037,11 +1076,31 @@ async function main() {
       "async def __ssg_main():"
     ]
     const indent = (line) => '    ' + line
-    const body = replaced.split('\n').map(indent).join('\n')
+    // Normalize leading whitespace on each user line to spaces only so that
+    // wrapping the code inside an indented async function doesn't produce
+    // mixed-tab/space indentation errors. We only touch leading whitespace
+    // (preserve interior tabs inside strings) and expand tabs to 4 spaces.
+    const body = replaced.split('\n').map((line) => {
+      // capture leading whitespace and the rest of the line
+      const m = line.match(/^([ \t]*)([\s\S]*)$/)
+      const leading = (m && m[1]) || ''
+      const rest = (m && m[2]) || ''
+      // convert leading tabs/spaces to a spaces-only indent (tab = 4 spaces)
+      let spaceCount = 0
+      for (let i = 0; i < leading.length; i++) {
+        spaceCount += (leading[i] === '\t') ? 4 : 1
+      }
+      const normalized = ' '.repeat(spaceCount) + rest
+      return indent(normalized)
+    }).join('\n')
     const footer = `if _run is None:\n    raise ImportError('no async runner available')\n_run(__ssg_main())`
     const full = headerLinesArr.join('\n') + '\n' + body + '\n' + footer
     return { code: full, headerLines: headerLinesArr.length }
   }
+
+  // Expose the transform helper for debugging/tests so tests can inspect
+  // the exact transformed code without running it.
+  try { window.__ssg_transform = transformAndWrap } catch (_e) { }
 
   // Prefer local vendored module: ./vendor/micropython.mjs if present (dynamic import)
   try {
@@ -1550,6 +1609,22 @@ async function main() {
 
       if (runtimeAdapter && typeof runtimeAdapter.run === 'function') {
         try {
+          // If transformed code uses `await host.get_input`, ensure the runtime
+          // can parse `async def`/`await` syntax before attempting to run it.
+          // If parsing fails, throw a sentinel error so the existing fallback
+          // path (which looks for /no async runner available/) is taken.
+          if (/\bawait host.get_input\(/.test(transformed)) {
+            try {
+              // Probe parse of a tiny async snippet; if runtime can't parse
+              // async/await syntax this will typically throw a SyntaxError.
+              await runtimeAdapter.run('async def __ssg_probe():\n    pass')
+            } catch (probeErr) {
+              const pm = String(probeErr || '')
+              if (/syntax|invalid|bad input|indent/i.test(pm)) {
+                throw new Error('no async runner available')
+              }
+            }
+          }
           // Ensure backend files are mounted into the interpreter FS before running.
           try {
             const backend = window.__ssg_vfs_backend
@@ -1713,13 +1788,71 @@ async function main() {
               // Iterative split-run fallback: handle multiple sequential input() calls.
               const lines = code.split('\n')
               let executedLine = 0
+              // Quick check: detect input() calls that live inside compound statements
+              // where sibling clauses (else/elif/except/finally) appear later in the file.
+              // The simple split-run strategy cannot safely split these across separate
+              // runs because `else:`/`elif:` must be in the same parse unit as the
+              // corresponding header. If detected, abort fallback and show a helpful
+              // message so the user knows to either enable an async-capable runtime
+              // or rewrite to avoid inline input inside such compound statements.
+              try {
+                for (let i = 0; i < lines.length; i++) {
+                  if (/\binput\s*\(/.test(lines[i])) {
+                    // If input is indented (i.e., inside a block) and there's any later
+                    // top-level sibling clause like `else:`/`elif`/`except`/`finally`,
+                    // then split-run is unsafe.
+                    const leading = (lines[i].match(/^([ \t]*)/) || [])[1] || ''
+                    const indentLen = leading.replace(/\t/g, '    ').length
+                    // scan forward for sibling clauses at indent <= the line's indent
+                    for (let j = i + 1; j < Math.min(lines.length, i + 200); j++) {
+                      const text = lines[j]
+                      if (!text) continue
+                      const tLeading = (text.match(/^([ \t]*)/) || [])[1] || ''
+                      const tIndent = tLeading.replace(/\t/g, '    ').length
+                      const trimmed = text.trim()
+                      if (/^(else:|elif\b|except\b|finally\b)/.test(trimmed) && tIndent <= indentLen) {
+                        appendTerminal('Fallback unsupported: inline input() inside compound statement (else/elif/except/finally present)')
+                        fallbackLog('unsupported:compound_input', { inputLine: i, clauseLine: j })
+                        throw new Error('fallback:unsupported-compound-input')
+                      }
+                    }
+                  }
+                }
+              } catch (decl) { throw decl }
               // Helper to run a block of lines [start, end) and append output
               const runBlock = async (start, end) => {
                 if (end <= start) return
                 const block = lines.slice(start, end).join('\n')
                 try {
-                  const out = await runtimeAdapter.run(block)
-                  if (out) appendTerminal(out)
+                  try {
+                    const out = await runtimeAdapter.run(block)
+                    if (out) appendTerminal(out)
+                  } catch (errRun) {
+                    const msg = String(errRun || '')
+                    // Common failure when running a partial block: "expected an indented block" or unexpected EOF
+                    // Also handle the case where running a single header line like `if True:` produces
+                    // a SyntaxError (invalid syntax) in some runtimes; if the block ends with ':' then
+                    // it's likely a partial block and we should retry by appending an indented pass.
+                    const looksLikePartialBlock = /expected an indented block|unexpected EOF|unexpected indent|unterminated|inconsistent use of tabs and spaces|inconsistent use of tabs/i.test(msg) || (/invalid syntax/i.test(msg) && /:\s*$/.test(block))
+                    if (looksLikePartialBlock) {
+                      // try again by appending a dummy indented pass to close any open block headers
+                      try {
+                        fallbackLog('runBlock:retry-padding', { start, end })
+                        // Normalize tabs to 4 spaces then retry; helps when code uses mixed tabs/spaces
+                        const normalized = block.replace(/\t/g, '    ')
+                        const padded = normalized + '\n' + '    pass'
+                        const out2 = await runtimeAdapter.run(padded)
+                        if (out2) appendTerminal(out2)
+                        fallbackLog('runBlock:retry-success', { start, end })
+                      } catch (_e) {
+                        // fallback to reporting original error if the retry fails
+                        fallbackLog('runBlock:retry-failed', { start, end, err: String(_e) })
+                        throw errRun
+                      }
+                    } else {
+                      throw errRun
+                    }
+                  }
                 } catch (err) {
                   // Map traceback with offset = start (lines already executed)
                   mapTracebackAndShow(String(err), start, code)
@@ -1736,7 +1869,9 @@ async function main() {
                 if (nextInputLine === -1) break // no more inputs
 
                 // run code up to the line with the input (non-inclusive)
+                fallbackLog('runBlock:pre', { start: executedLine, end: nextInputLine })
                 await runBlock(executedLine, nextInputLine)
+                fallbackLog('runBlock:post', { start: executedLine, end: nextInputLine })
 
                 // prepare prompt text (if input literal present on this line)
                 const inputLine = lines[nextInputLine]
@@ -1751,16 +1886,59 @@ async function main() {
                 // wait for user submit via the existing pending_input mechanism
                 const val = await new Promise((resolve) => {
                   window.__ssg_pending_input = { resolve, promptText }
+                  fallbackLog('pending_input:set', { promptText })
                   try { setTerminalInputEnabled(true, promptText || '') } catch (_e) { }
                   try { const stdinBoxLocal2 = $('stdin-box'); if (stdinBoxLocal2) stdinBoxLocal2.focus() } catch (_e) { }
                 })
+                fallbackLog('pending_input:resolved', { value: val })
 
                 // replace only the first occurrence of input(...) on this line with a Python literal
                 const literal = JSON.stringify(val)
                 lines[nextInputLine] = inputLine.replace(/input\s*\(.*?\)/, literal)
 
                 // execute the replaced line so any assignments/effects happen now
-                await runBlock(nextInputLine, nextInputLine + 1)
+                // single-line execution can fail if the line is indented; run it directly and only map tracebacks
+                // after both the original and a dedented retry fail to avoid false-positive tracebacks.
+                try {
+                  try {
+                    fallbackLog('execLine:pre', { line: nextInputLine, text: lines[nextInputLine] })
+                    const out = await runtimeAdapter.run(lines[nextInputLine])
+                    if (out) appendTerminal(out)
+                    fallbackLog('execLine:post', { line: nextInputLine })
+                  } catch (singleErr) {
+                    const msg = String(singleErr || '')
+                    if (/unexpected indent|unexpected EOF|invalid syntax|expected an indented block/i.test(msg)) {
+                      // attempt dedented retry
+                      try {
+                        const orig = lines[nextInputLine]
+                        // First try a simple dedent
+                        const dedented = orig.replace(/^[ \t]+/, '')
+                        try {
+                          const out2 = await runtimeAdapter.run(dedented)
+                          if (out2) appendTerminal(out2)
+                        } catch (_try2) {
+                          // If dedent failed, also try normalizing tabs to spaces then dedenting
+                          const normalized = orig.replace(/\t/g, '    ')
+                          const dedented2 = normalized.replace(/^[ \t]+/, '')
+                          const out3 = await runtimeAdapter.run(dedented2)
+                          if (out3) appendTerminal(out3)
+                        }
+                      } catch (dedentErr) {
+                        // Both attempts failed — map traceback relative to the original line offset
+                        fallbackLog('execLine:failed', { line: nextInputLine, err: String(singleErr || dedentErr) })
+                        mapTracebackAndShow(String(singleErr || dedentErr), nextInputLine, code)
+                        throw singleErr
+                      }
+                    } else {
+                      fallbackLog('execLine:failed', { line: nextInputLine, err: String(singleErr) })
+                      mapTracebackAndShow(String(singleErr), nextInputLine, code)
+                      throw singleErr
+                    }
+                  }
+                } catch (e) {
+                  // propagate after mapping was handled above
+                  throw e
+                }
 
                 // advance executedLine past the line we just executed
                 executedLine = nextInputLine + 1
