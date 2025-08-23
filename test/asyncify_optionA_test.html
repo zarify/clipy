@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Asyncify Option A test</title>
+  <style>
+    body{font-family: system-ui, sans-serif;padding:16px}
+    #term{white-space:pre-wrap;background:#111;color:#eee;padding:8px;height:220px;overflow:auto}
+    #controls{margin-top:8px}
+  </style>
+</head>
+<body>
+  <h1>Asyncify Option A test</h1>
+  <p>Tests JS &lt;-&gt; MicroPython promise interop using the vendored bundle's runPythonAsync.</p>
+  <div id="term">(output)</div>
+  <div id="controls">
+    <button id="load">Load runtime & Run</button>
+    <input id="stdin" placeholder="type input and press Send" />
+    <button id="send">Send</button>
+  </div>
+  <script type="module" src="./asyncify_optionA_test.js"></script>
+</body>
+</html>

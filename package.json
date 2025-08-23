@@ -1,0 +1,19 @@
+{
+  "name": "ssg_micro",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+  "test": "echo \"Error: no test specified\" && exit 1",
+  "test:playwright": "npx playwright test --project=firefox"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

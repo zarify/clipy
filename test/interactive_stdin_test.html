@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Interactive stdin test — MicroPython</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    #terminal { border: 1px solid #ccc; padding: .5rem; height: 200px; overflow:auto; white-space: pre-wrap; background:#111; color:#eee }
+    #controls { margin-top: 1rem }
+    button { margin-right: .5rem }
+  </style>
+</head>
+<body>
+  <h1>Interactive stdin test (MicroPython)</h1>
+  <p>Purpose: check whether the vendored MicroPython build supports a non-blocking async-style stdin when using <code>runPythonAsync</code>.</p>
+
+  <div id="terminal">(terminal)</div>
+  <div id="controls">
+    <input id="input-box" placeholder="type a line here" />
+    <button id="send">Send line</button>
+    <button id="run">Start program</button>
+    <button id="clear">Clear terminal</button>
+    <span id="tick">tick: 0</span>
+  </div>
+
+  <script type="module" src="./interactive_stdin_test.js"></script>
+</body>
+</html>

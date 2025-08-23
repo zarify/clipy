@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "starter": "print('Hello from MicroPython')\n",
+  "instructions": "This is a sample scenario. Edit the code and press Run to see output in the terminal.",
+  "links": ["https://docs.micropython.org/"],
+  "runtime": {
+  "type": "micropython",
+  "url": "./vendor/micropython.mjs",
+  "recommended": "./vendor/micropython.mjs",
+  "cdn_fallback": "https://cdn.jsdelivr.net/npm/@micropython/micropython-webassembly-pyscript/dist/micropython.min.js"
+  },
+  "feedback": {
+    "ast": [],
+    "regex": [
+      {"pattern": "print\\(|def ", "message": "Looks like you're using print or defining functions", "target": "code"},
+      {"pattern": "Hello from MicroPython", "message": "Sample output detected", "target": "output"},
+      {"pattern": "password", "message": "Avoid hard-coding passwords", "target": "code"}
+    ]
+  }
+}
