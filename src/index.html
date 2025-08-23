@@ -37,7 +37,12 @@
     </section>
 
     <section id="editor" class="panel">
-      <h2>Editor</h2>
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <h2 style="margin:0">Editor</h2>
+        <div class="editor-header-meta" style="min-width:120px;text-align:right">
+          <span id="autosave-indicator" aria-live="polite">Not saved</span>
+        </div>
+      </div>
       <div id="file-tabs" class="tabs" role="tablist" style="margin-bottom:8px">
         <div id="tabs-left" style="display:flex;gap:6px;align-items:center"></div>
         <button id="tab-new" title="New file" aria-label="New file">+</button>
@@ -65,7 +70,6 @@
           </button>
 
           <div class="editor-meta">
-            <span id="autosave-indicator" aria-live="polite">Not saved</span>
             <label style="margin-left:12px; font-size:0.9em"><input type="checkbox" id="show-raw-tb"> Show raw
               traceback</label>
           </div>

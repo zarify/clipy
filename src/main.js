@@ -1554,12 +1554,17 @@ async function main() {
   const autosaveIndicator = $('autosave-indicator')
   let autosaveTimer = null
   function scheduleAutosave() {
-    autosaveIndicator.textContent = 'Saving...'
+    // While saving, show a short status without filename to avoid width jumps
+    try { autosaveIndicator.textContent = 'Saving...' } catch (_e) { }
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = setTimeout(() => {
       const content = (cm ? cm.getValue() : textarea.value)
       localStorage.setItem('autosave', JSON.stringify({ ts: Date.now(), code: content }))
-      autosaveIndicator.textContent = 'Saved'
+      // After save, include the active filename if available
+      try {
+        const activePath = (window.TabManager && typeof window.TabManager.getActive === 'function') ? window.TabManager.getActive() : null
+        autosaveIndicator.textContent = activePath ? ('Saved (' + activePath + ')') : 'Saved'
+      } catch (_e) { try { autosaveIndicator.textContent = 'Saved' } catch (__e) { } }
     }, 300)
   }
   // Hook editor change events

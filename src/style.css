@@ -273,6 +273,31 @@ pre#terminal-output {
     margin-top: 0
 }
 
+/* Editor header layout: reserve space for autosave indicator to avoid layout shift */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between
+}
+
+.editor-header-meta {
+    min-width: 120px;
+    flex: 0 0 120px;
+    color: #666;
+    font-size: 0.95rem
+}
+
+.editor-header-meta span {
+    display: inline-block;
+    width: 100%;
+    text-align: right
+}
+
+/* Add right padding so the autosave text lines up with the editor content's right edge */
+.editor-header-meta {
+    padding-right: 12px
+}
+
 /* Modal for snapshots */
 .modal {
     display: none;
