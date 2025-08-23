@@ -6,8 +6,8 @@
     "test": "test"
   },
   "scripts": {
-  "test": "echo \"Error: no test specified\" && exit 1",
-  "test:playwright": "npx playwright test --project=firefox"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:playwright": "npx playwright test --project=firefox"
   },
   "keywords": [],
   "author": "",

@@ -1,49 +1,341 @@
-:root{--bg:#f6f7fb;--panel:#fff;--accent:#0b5cff}
-body{font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:var(--bg);color:#111}
-header{background:#fff;border-bottom:1px solid #e6e6e9;padding:12px 18px}
-main{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}
-.panel{background:var(--panel);padding:12px;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
-#files{min-width:220px}
-#code{width:100%}
-.cm-editor{height:320px;border:1px solid #e6e6e9;border-radius:4px}
-textarea#code{display:none}
-.tabs{display:flex;justify-content:space-between;align-items:center}
-.tabs .tab{background:#f4f6fb;border:1px solid #e6e6e9;padding:6px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:8px}
-.tabs .tab.active{background:var(--accent);color:#fff}
-.tabs .tab .close{background:transparent;border:0;color:inherit;cursor:pointer;padding:0 6px}
-.tabs button#tab-new{background:#fff;border:1px dashed #ccc;padding:6px 10px;border-radius:6px;cursor:pointer}
-.editor-controls{margin-top:8px}
+:root {
+    --bg: #f6f7fb;
+    --panel: #fff;
+    --accent: #0b5cff
+}
+
+body {
+    font-family: system-ui, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    margin: 0;
+    background: var(--bg);
+    color: #111
+}
+
+header {
+    background: #fff;
+    border-bottom: 1px solid #e6e6e9;
+    padding: 12px 18px
+}
+
+.main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 18px
+}
+
+/* Keep legacy selector working for simple pages */
+main,
+.main-grid {
+    display: block
+}
+
+/* Responsive main layout: stack on small screens, side-by-side on wider screens */
+main {
+    padding: 18px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+/* On wider viewports place editor and side panel side-by-side
+   Editor takes flexible space, side panel gets a fixed comfortable width */
+@media (min-width: 880px) {
+    main {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    /* place instructions/terminal (side) on the LEFT and editor on the RIGHT */
+    #side {
+        grid-column: 1;
+        grid-row: 1
+    }
+
+    #editor {
+        grid-column: 2;
+        grid-row: 1
+    }
+}
+
+/* On small viewports keep editor above side panel */
+@media (max-width: 879px) {
+
+    /* stack with side (instructions) first, then editor */
+    #side {
+        grid-column: 1;
+        grid-row: 1
+    }
+
+    #editor {
+        grid-column: 1;
+        grid-row: 2
+    }
+}
+
+.panel {
+    background: var(--panel);
+    padding: 12px;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03)
+}
+
+#files {
+    min-width: 220px
+}
+
+#code {
+    width: 100%
+}
+
+.cm-editor {
+    height: 320px;
+    border: 1px solid #e6e6e9;
+    border-radius: 4px
+}
+
+textarea#code {
+    display: none
+}
+
+.tabs {
+    display: flex;
+    justify-content: space-between;
+    align-items: center
+}
+
+.tabs .tab {
+    background: #f4f6fb;
+    border: 1px solid #e6e6e9;
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px
+}
+
+.tabs .tab.active {
+    background: var(--accent);
+    color: #fff
+}
+
+.tabs .tab .close {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 6px
+}
+
+.tabs button#tab-new {
+    background: #fff;
+    border: 1px dashed #ccc;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer
+}
+
+.editor-controls {
+    margin-top: 8px
+}
+
 /* Editor controls layout */
-.editor-controls{margin-top:8px;display:flex;flex-direction:column;gap:6px}
-.editor-actions{display:flex;gap:8px;align-items:center}
-.stdin-row{display:flex;gap:8px;align-items:center}
-.editor-meta{display:flex;align-items:center;margin-left:12px}
+.editor-controls {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px
+}
+
+.editor-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center
+}
+
+.stdin-row {
+    display: flex;
+    gap: 8px;
+    align-items: center
+}
+
+.editor-meta {
+    display: flex;
+    align-items: center;
+    margin-left: 12px
+}
 
 /* Button styles */
-.btn{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;border:1px solid #dfe6f7;background:#fff;color:#111;cursor:pointer;font-size:0.93rem}
-.btn .icon{font-size:18px;line-height:1}
-.btn span{line-height:1}
-.btn-primary{background:var(--accent);color:#fff;border-color:rgba(11,92,255,0.9)}
-.btn-danger{background:#fff;color:#b00020;border-color:#f1c0c6}
-.btn-ghost{background:transparent;border:1px solid transparent}
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #dfe6f7;
+    background: #fff;
+    color: #111;
+    cursor: pointer;
+    font-size: 0.93rem
+}
+
+.btn .icon {
+    font-size: 18px;
+    line-height: 1
+}
+
+.btn span {
+    line-height: 1
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: rgba(11, 92, 255, 0.9)
+}
+
+.btn-danger {
+    background: #fff;
+    color: #b00020;
+    border-color: #f1c0c6
+}
+
+.btn-ghost {
+    background: transparent;
+    border: 1px solid transparent
+}
 
 /* Reduce editor height so page fits without scrolling by default */
-.cm-editor{height:320px}
-pre#terminal-output{height:180px;overflow:auto;background:#0b1220;color:#d6f8ff;padding:8px;border-radius:4px}
+.cm-editor {
+    height: 320px
+}
 
-#autosave-indicator{margin-left:12px;font-size:0.9em;color:#666}
+/* Side tab UI */
+.side-tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 8px
+}
+
+.side-tab-btn {
+    background: transparent;
+    border: 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    color: #444
+}
+
+.side-tab-btn[aria-selected="true"] {
+    background: var(--accent);
+    color: #fff
+}
+
+.side-tab-content {
+    display: block
+}
+
+.side-tab-content .panel-child {
+    padding: 6px 0
+}
+
+/* Terminal styling: wrap long lines to avoid horizontal scrolling */
+pre#terminal-output {
+    height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    /* allow wrapping */
+    word-wrap: break-word;
+    /* break long words */
+    background: #0b1220;
+    color: #d6f8ff;
+    padding: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+
+/* Give the side panel a little more horizontal padding for readability */
+#side {
+    padding-left: 14px;
+    padding-right: 14px
+}
+
+#autosave-indicator {
+    margin-left: 12px;
+    font-size: 0.9em;
+    color: #666
+}
+
+.panel-child h2 {
+    margin-top: 0
+}
 
 /* Modal for snapshots */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center}
-.modal[aria-hidden="false"]{display:flex}
-.modal-content{background:var(--panel);padding:12px;border-radius:6px;max-width:720px;width:90%}
-.modal-actions{display:flex;justify-content:flex-end;margin-top:12px}
-.snapshot-item{padding:6px;border-bottom:1px solid #eee;display:flex;justify-content:space-between}
-.snapshot-item input{margin-right:8px}
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .4);
+    align-items: center;
+    justify-content: center
+}
+
+.modal[aria-hidden="false"] {
+    display: flex
+}
+
+.modal-content {
+    background: var(--panel);
+    padding: 12px;
+    border-radius: 6px;
+    max-width: 720px;
+    width: 90%
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px
+}
+
+.snapshot-item {
+    padding: 6px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between
+}
+
+.snapshot-item input {
+    margin-right: 8px
+}
 
 /* File editor modal */
-.file-modal .modal-content{max-width:820px}
-.files-list{max-height:360px;overflow:auto;border:1px solid #eee;padding:8px;border-radius:4px}
-.file-row{display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid #fafafa}
-.file-name{font-family:monospace}
-.file-actions button{margin-left:8px}
+.file-modal .modal-content {
+    max-width: 820px
+}
+
+.files-list {
+    max-height: 360px;
+    overflow: auto;
+    border: 1px solid #eee;
+    padding: 8px;
+    border-radius: 4px
+}
+
+.file-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px;
+    border-bottom: 1px solid #fafafa
+}
+
+.file-name {
+    font-family: monospace
+}
+
+.file-actions button {
+    margin-left: 8px
+}

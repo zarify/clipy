@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -10,14 +11,29 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/python/python.min.js"></script>
 </head>
+
 <body>
   <header>
     <h1>Client-side Python Playground</h1>
   </header>
   <main>
-    <section id="instructions" class="panel">
-      <h2>Instructions</h2>
-      <div id="instructions-content">Loading...</div>
+    <section id="side" class="panel">
+      <div class="side-tabs" role="tablist" aria-label="Side tabs">
+        <button id="tab-btn-instructions" class="side-tab-btn" data-target="instructions" role="tab"
+          aria-selected="true">Instructions</button>
+        <button id="tab-btn-terminal" class="side-tab-btn" data-target="terminal" role="tab"
+          aria-selected="false">Terminal</button>
+      </div>
+      <div class="side-tab-content">
+        <div id="instructions" class="panel-child">
+          <h2>Instructions</h2>
+          <div id="instructions-content">Loading...</div>
+        </div>
+        <div id="terminal" class="panel-child" style="display:none">
+          <h2>Terminal</h2>
+          <pre id="terminal-output" tabindex="0">(terminal)</pre>
+        </div>
+      </div>
     </section>
 
     <section id="editor" class="panel">
@@ -50,7 +66,8 @@
 
           <div class="editor-meta">
             <span id="autosave-indicator" aria-live="polite">Not saved</span>
-            <label style="margin-left:12px; font-size:0.9em"><input type="checkbox" id="show-raw-tb"> Show raw traceback</label>
+            <label style="margin-left:12px; font-size:0.9em"><input type="checkbox" id="show-raw-tb"> Show raw
+              traceback</label>
           </div>
         </div>
 
@@ -63,16 +80,14 @@
         </div>
       </div>
     </section>
-  <!-- Files panel removed: tabs are the primary UI for file visibility -->
+    <!-- Files panel removed: tabs are the primary UI for file visibility -->
 
-    <section id="terminal" class="panel">
-      <h2>Terminal</h2>
-      <pre id="terminal-output" tabindex="0">(terminal)</pre>
-    </section>
+    <!-- terminal moved into the side panel above -->
   </main>
 
   <!-- Snapshot history modal -->
-  <div id="snapshot-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="snapshot-modal-title" aria-describedby="snapshot-modal-list">
+  <div id="snapshot-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="snapshot-modal-title"
+    aria-describedby="snapshot-modal-list">
     <div class="modal-content">
       <h3 id="snapshot-modal-title">Snapshots</h3>
       <div id="snapshot-list">(loading)</div>
@@ -83,7 +98,8 @@
     </div>
   </div>
   <!-- Generic confirmation modal (used for clear-storage and other confirmations) -->
-  <div id="confirm-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+  <div id="confirm-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="confirm-modal-title"
+    aria-describedby="confirm-modal-message">
     <div class="modal-content">
       <h3 id="confirm-modal-title">Confirm</h3>
       <div id="confirm-modal-message">Are you sure?</div>
@@ -94,7 +110,8 @@
     </div>
   </div>
   <!-- Input modal for accessible prompt replacements -->
-  <div id="input-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="input-modal-title" aria-describedby="input-modal-desc">
+  <div id="input-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="input-modal-title"
+    aria-describedby="input-modal-desc">
     <div class="modal-content">
       <h3 id="input-modal-title">Input</h3>
       <div id="input-modal-desc">Please provide input</div>
@@ -109,4 +126,5 @@
   </div>
   <script type="module" src="./main.js"></script>
 </body>
+
 </html>
