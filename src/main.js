@@ -231,36 +231,10 @@ async function main() {
         inpt.disabled = !enabled
         if (enabled) {
           inpt.setAttribute('aria-disabled', 'false')
-          // Do NOT use the prompt text as an input placeholder. The prompt must be printed
-          // to the terminal as stdout; keep the neutral/default placeholder instead.
           inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
-          try {
-            fallbackLog('fallback:start', { codeLength: code.split('\n').length })
-            // If promptText provided, ensure it's present in the terminal. Avoid dupes by
-            // checking recent lines first.
-            const wanted = (promptText || '').toString()
-            if (wanted) {
-              try {
-                const out = $('terminal-output')
-                const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
-                let found = false
-                for (let i = Math.max(0, children.length - 8); i < children.length; i++) {
-                  try { if ((children[i] && (children[i].textContent || '').trim()) === String(wanted).trim()) { found = true; break } } catch (_e) { }
-                }
-                if (!found) appendTerminal(wanted, 'stdout')
-              } catch (_e) { /* best-effort print */ }
-            }
-          } catch (_e) { }
-          // Convert an already-printed prompt into a structured prompt so live input can be mirrored
-          try {
-            const pl = findPromptLine(promptText || '')
-            if (pl) __ssg_current_prompt = pl
-          } catch (_e) { }
         } else {
           inpt.setAttribute('aria-disabled', 'true')
-          // restore a neutral placeholder when disabled
           inpt.placeholder = inpt.getAttribute('data-default-placeholder') || ''
-          // clear any tracked prompt when disabling input
           try { __ssg_current_prompt = null } catch (_e) { }
         }
       }
@@ -1102,35 +1076,20 @@ async function main() {
   // the exact transformed code without running it.
   try { window.__ssg_transform = transformAndWrap } catch (_e) { }
 
-  // Prefer local vendored module: ./vendor/micropython.mjs if present (dynamic import)
+  // Load local vendored asyncify MicroPython directly: ./vendor/micropython.mjs
   try {
     let localMod = null
     try {
-      localMod = await import('./vendor/micropython.mjs')
-    } catch (e) {
-      // dynamic import failed or isn't allowed; instead create a small inline module that
-      // imports the vendored module and assigns its exports to window.__ssg_runtime so we
-      // can access its exports from non-module code.
-      const bridgeSrc = `import * as m from './vendor/micropython.mjs'; window.__ssg_runtime = m;`;
-      const bridge = document.createElement('script')
-      bridge.type = 'module'
-      bridge.textContent = bridgeSrc
-      // append and wait for the bridge to run (it will populate window.__ssg_runtime if import succeeds)
-      document.head.appendChild(bridge)
-      appendTerminalDebug('Injected inline module bridge for vendor runtime: ./vendor/micropython.mjs')
-      // wait up to a short timeout for the bridge to populate the global
-      const waitForGlobal = async (timeoutMs = 2500) => {
-        const start = Date.now()
-        while (Date.now() - start < timeoutMs) {
-          if (window.__ssg_runtime) return window.__ssg_runtime
-          await new Promise(r => setTimeout(r, 150))
-        }
-        return null
+      // Import micropython.mjs directly to get loadMicroPython function
+      await import('./vendor/micropython.mjs')
+      if (globalThis.loadMicroPython) {
+        localMod = { loadMicroPython: globalThis.loadMicroPython }
+        appendTerminalDebug('Loaded asyncify runtime via direct import: ./vendor/micropython.mjs')
+      } else {
+        appendTerminalDebug('micropython.mjs imported but loadMicroPython not found on globalThis')
       }
-      localMod = await waitForGlobal()
-    }
-    if (localMod) {
-      appendTerminalDebug('Loaded local vendor runtime (via import/bridge): ./vendor/micropython.mjs')
+    } catch (e) {
+      appendTerminalDebug('Failed to import ./vendor/micropython.mjs: ' + e)
     }
     // build adapter from exports
     if (localMod) {
@@ -1141,21 +1100,178 @@ async function main() {
           let captured = ''
           const td = new TextDecoder()
           const stdout = (chunk) => {
+            let content = ''
+
             if (typeof chunk === 'string') {
-              // bridge sends decoded lines without newline; restore a newline for readability
-              captured += chunk + '\n'
+              content = chunk
             } else if (chunk && (chunk instanceof Uint8Array || ArrayBuffer.isView(chunk))) {
-              captured += td.decode(chunk)
+              content = td.decode(chunk)
             } else if (typeof chunk === 'number') {
-              captured += String(chunk)
+              content = String(chunk)
             } else {
-              captured += String(chunk || '')
+              content = String(chunk || '')
             }
+
+            // Display output immediately to the terminal
+            if (content) {
+              appendTerminal(content, 'stdout')
+            }
+
+            captured += content
           }
           const stderr = (chunk) => { stdout(chunk) }
+
+          // Custom stdin function to replace browser prompts with terminal input
+          const stdin = () => {
+            console.log('STDIN FUNCTION CALLED - our custom stdin is working!')
+            appendTerminal('DEBUG: Custom stdin function called!', 'runtime')
+            return new Promise((resolve) => {
+              // Set up input collection using the existing terminal input system
+              window.__ssg_pending_input = {
+                resolve: (value) => {
+                  delete window.__ssg_pending_input
+                  try { setTerminalInputEnabled(false) } catch (_e) { }
+                  appendTerminal(`DEBUG: Resolving stdin with: ${value}`, 'runtime')
+                  // Return the input with newline as MicroPython expects
+                  resolve(value + '\n')
+                },
+                promptText: ''
+              }
+              // Enable terminal input immediately
+              try { setTerminalInputEnabled(true, ''); } catch (_e) { }
+              const stdinBox = $('stdin-box')
+              if (stdinBox) { try { stdinBox.focus() } catch (_e) { } }
+            })
+          }
+
+          // Set up custom input handler to replace browser prompts with terminal input
+          const inputHandler = async function (promptText) {
+            return new Promise((resolve) => {
+              // Set up input collection
+              window.__ssg_pending_input = {
+                resolve: (value) => {
+                  delete window.__ssg_pending_input
+                  try { setTerminalInputEnabled(false) } catch (_e) { }
+
+                  // Echo the input inline with the prompt
+                  try {
+                    const terminalOutput = $('terminal-output')
+                    if (terminalOutput) {
+                      const lines = terminalOutput.querySelectorAll('.terminal-line')
+                      const lastLine = lines[lines.length - 1]
+
+                      if (lastLine) {
+                        // Append input directly to the last line (which should be the prompt)
+                        if (value && value.trim()) {
+                          lastLine.textContent += String(value)
+                        }
+                        // Always add a new line after input (or after prompt if blank input)
+                        appendTerminal('', 'stdout')
+                      } else {
+                        // Fallback: add input on separate line if no last line found
+                        if (value && value.trim()) {
+                          appendTerminal(String(value), 'stdin')
+                        } else {
+                          appendTerminal('', 'stdout')
+                        }
+                      }
+                    } else {
+                      // Fallback: add input on separate line if no terminal output found
+                      if (value && value.trim()) {
+                        appendTerminal(String(value), 'stdin')
+                      } else {
+                        appendTerminal('', 'stdout')
+                      }
+                    }
+                  } catch (_e) {
+                    // Fallback on any error
+                    if (value && value.trim()) {
+                      appendTerminal(String(value), 'stdin')
+                    } else {
+                      appendTerminal('', 'stdout')
+                    }
+                  }
+
+                  resolve((value || '').trim())
+                },
+                promptText: promptText || '',
+                _usingDirectHandler: true  // Mark that we're using direct approach
+              }
+
+              // Display the prompt immediately in the terminal
+              if (promptText) {
+                appendTerminal(promptText, 'stdout')
+              }
+
+              // Enable terminal input 
+              try { setTerminalInputEnabled(true, promptText || ''); } catch (_e) { }
+
+              const stdinBox = $('stdin-box')
+              if (stdinBox) {
+                try {
+                  stdinBox.value = ''
+
+                  // Set up direct Enter key handler (bypass form submission)
+                  const enterHandler = (e) => {
+                    if (e.key === 'Enter' && window.__ssg_pending_input) {
+                      const value = (stdinBox.value || '').trim()
+
+                      // Clean up the handlers
+                      stdinBox.removeEventListener('keydown', enterHandler)
+                      const form = $('terminal-input-form')
+                      if (form) form.removeEventListener('submit', formHandler)
+                      stdinBox.value = ''
+
+                      // Resolve the input
+                      window.__ssg_pending_input.resolve(value)
+                    }
+                  }
+
+                  // Also handle form submission (for tests and edge cases)
+                  const formHandler = (e) => {
+                    if (window.__ssg_pending_input && window.__ssg_pending_input._usingDirectHandler) {
+                      e.preventDefault()
+                      e.stopPropagation()
+
+                      const value = (stdinBox.value || '').trim()
+
+                      // Clean up the handlers
+                      stdinBox.removeEventListener('keydown', enterHandler)
+                      const form = $('terminal-input-form')
+                      if (form) form.removeEventListener('submit', formHandler)
+                      stdinBox.value = ''
+
+                      // Resolve the input
+                      window.__ssg_pending_input.resolve(value)
+                    }
+                  }
+
+                  stdinBox.addEventListener('keydown', enterHandler)
+                  const form = $('terminal-input-form')
+                  if (form) {
+                    form.addEventListener('submit', formHandler)
+                  }
+
+                  // Focus the input field immediately
+                  try {
+                    stdinBox.focus()
+                  } catch (_e) { }
+
+                  // Also try again after a brief delay to ensure it works
+                  setTimeout(() => {
+                    try {
+                      stdinBox.focus()
+                    } catch (_e) { }
+                  }, 10)
+                } catch (_e) { }
+              }
+            })
+          }
+
           const mpInstance = await localMod.loadMicroPython({
             url: (cfg?.runtime?.wasm) || './vendor/micropython.wasm',
-            stdout, stderr, linebuffer: true
+            stdout, stderr, stdin, linebuffer: true,
+            inputHandler: inputHandler
           })
           // expose runtime FS for persistence sync
           try { window.__ssg_runtime_fs = mpInstance.FS } catch (e) { }
@@ -1255,11 +1371,12 @@ async function main() {
               try { settleVfsReady() } catch (_e) { }
             }
           } catch (e) { appendTerminal('VFS mount error: ' + e) }
-          // register a host module so transformed code can await host.get_input()
+          // register a host module and override input() for better UX
           try {
             const hostModule = {
               get_input: async function (promptText = '') {
-                // Return a JS promise that resolves when the user sends input via the UI
+                // Don't print the prompt here since Python's input() already printed it
+                // Just set up the UI for input collection
                 return new Promise((resolve) => {
                   // store resolver temporarily on the window so UI handler can find it
                   window.__ssg_pending_input = { resolve, promptText }
@@ -1270,8 +1387,37 @@ async function main() {
                 })
               }
             }
-            if (typeof mpInstance.registerJsModule === 'function') mpInstance.registerJsModule('host', hostModule)
-            else window.__ssg_host = hostModule
+
+            // Register the host module
+            if (typeof mpInstance.registerJsModule === 'function') {
+              mpInstance.registerJsModule('host', hostModule)
+            } else {
+              window.__ssg_host = hostModule
+            }
+
+            // Just register host module without trying to override input() for now
+            try {
+              const hostModule = {
+                get_input: async function (promptText = '') {
+                  return new Promise((resolve) => {
+                    window.__ssg_pending_input = { resolve, promptText }
+                    try { setTerminalInputEnabled(true, promptText || ''); } catch (_e) { }
+                    const stdinBox = $('stdin-box')
+                    if (stdinBox) { try { stdinBox.focus() } catch (_e) { } }
+                  })
+                }
+              }
+
+              if (typeof mpInstance.registerJsModule === 'function') {
+                mpInstance.registerJsModule('host', hostModule)
+              } else {
+                window.__ssg_host = hostModule
+              }
+
+              appendTerminalDebug('Host module registered for compatibility')
+            } catch (e) {
+              appendTerminal('Note: Could not register host module: ' + e)
+            }
           } catch (e) { /* ignore */ }
 
           // Add a host notification for file writes so runtime can notify the UI immediately
@@ -1372,19 +1518,34 @@ async function main() {
           } catch (_e) { }
 
           runtimeAdapter = {
+            _module: mpInstance,  // Expose the module for asyncify detection
+            runPythonAsync: async (code) => {
+              captured = ''
+              try {
+                if (typeof mpInstance.runPythonAsync === 'function') {
+                  const maybe = await mpInstance.runPythonAsync(code)
+                  // Don't return captured output since it's already been displayed in real-time
+                  return maybe == null ? '' : String(maybe)
+                }
+                throw new Error('runPythonAsync not available')
+              } catch (e) { throw e }
+            },
             run: async (code) => {
               captured = ''
               try {
                 // prefer async runner if available
                 if (typeof mpInstance.runPythonAsync === 'function') {
                   const maybe = await mpInstance.runPythonAsync(code)
-                  return (captured || '') + (maybe == null ? '' : String(maybe))
+                  // Don't return captured output since it's already been displayed in real-time
+                  return maybe == null ? '' : String(maybe)
                 }
                 if (typeof mpInstance.runPython === 'function') {
                   const maybe = mpInstance.runPython(code)
-                  return (captured || '') + (maybe == null ? '' : String(maybe))
+                  // Don't return captured output since it's already been displayed in real-time
+                  return maybe == null ? '' : String(maybe)
                 }
-                return captured || ''
+                // Don't return captured output since it's already been displayed in real-time
+                return ''
               } catch (e) { throw e }
             }
           }
@@ -1494,17 +1655,30 @@ async function main() {
                     } catch (e) { appendTerminal('VFS mount error: ' + e) }
                     appendTerminal('Bridge MicroPython initialized')
                     return {
+                      _module: mp,  // Expose the module so we can access runPythonAsync
+                      runPythonAsync: async (code) => {
+                        captured = ''
+                        if (typeof mp.runPythonAsync === 'function') {
+                          const m = await mp.runPythonAsync(code)
+                          // Don't return captured output since it's already been displayed in real-time
+                          return m == null ? '' : String(m)
+                        }
+                        throw new Error('runPythonAsync not available')
+                      },
                       run: async (code, input) => {
                         captured = ''
                         if (typeof mp.runPythonAsync === 'function') {
                           const m = await mp.runPythonAsync(code)
-                          return (captured || '') + (m == null ? '' : String(m))
+                          // Don't return captured output since it's already been displayed in real-time
+                          return m == null ? '' : String(m)
                         }
                         if (typeof mp.runPython === 'function') {
                           const m = mp.runPython(code)
-                          return (captured || '') + (m == null ? '' : String(m))
+                          // Don't return captured output since it's already been displayed in real-time
+                          return m == null ? '' : String(m)
                         }
-                        return captured || ''
+                        // Don't return captured output since it's already been displayed in real-time
+                        return ''
                       }
                     }
                   } catch (e) { appendTerminal('Bridge init failed: ' + e) }
@@ -1598,11 +1772,32 @@ async function main() {
     appendTerminalDebug('Run handler resumed after yield')
 
     // Transform code to async wrapper so input() becomes await host.get_input()
+    // With asyncify MicroPython, input() works natively without transformation!
     try {
-      const { code: transformed, headerLines } = transformAndWrap(code)
+      let codeToRun = code
+      let headerLines = 0
+      let needsTransformation = false
+
+      // Check if this is asyncify MicroPython (runPythonAsync available)
+      const isAsyncify = runtimeAdapter &&
+        (typeof runtimeAdapter.runPythonAsync === 'function')
+
+      if (isAsyncify) {
+        // With asyncify, we can run the code directly without transformation!
+        appendTerminalDebug('Using asyncify MicroPython - no transformation needed')
+        codeToRun = code
+        headerLines = 0
+      } else {
+        // Non-asyncify runtime: transform input() to await host.get_input()
+        appendTerminalDebug('Using transform-based approach for input() handling')
+        const transformed = transformAndWrap(code)
+        codeToRun = transformed.code
+        headerLines = transformed.headerLines
+        needsTransformation = true
+      }
       // If transformed code expects input, focus the stdin box and wire Enter->send
       const stdinBox = $('stdin-box')
-      if (/await host.get_input\(/.test(transformed) && stdinBox) {
+      if (/await host.get_input\(/.test(codeToRun) && stdinBox) {
         // Let the terminal inline form handle Enter/submit. Just focus the input.
         try { stdinBox.focus() } catch (_e) { }
       }
@@ -1613,7 +1808,7 @@ async function main() {
           // can parse `async def`/`await` syntax before attempting to run it.
           // If parsing fails, throw a sentinel error so the existing fallback
           // path (which looks for /no async runner available/) is taken.
-          if (/\bawait host.get_input\(/.test(transformed)) {
+          if (needsTransformation && /\bawait host.get_input\(/.test(codeToRun)) {
             try {
               // Probe parse of a tiny async snippet; if runtime can't parse
               // async/await syntax this will typically throw a SyntaxError.
@@ -1685,11 +1880,34 @@ async function main() {
             }
           } catch (_m) { appendTerminal('VFS pre-run mount error: ' + _m) }
 
-
-          const out = await runtimeAdapter.run(transformed)
-          const runtimeOutput = out === undefined ? '' : String(out)
-          appendTerminal('Runtime result:', 'runtime')
-          if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
+          // Execute code using appropriate method (asyncify vs transformation)
+          if (isAsyncify && !needsTransformation) {
+            appendTerminalDebug('Executing with asyncify runPythonAsync - native input() support')
+            try {
+              let out = ''
+              if (typeof runtimeAdapter.runPythonAsync === 'function') {
+                out = await runtimeAdapter.runPythonAsync(codeToRun)
+              } else {
+                // Fallback to regular run method
+                out = await runtimeAdapter.run(codeToRun)
+              }
+              const runtimeOutput = out === undefined ? '' : String(out)
+              if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
+            } catch (asyncifyErr) {
+              appendTerminal('Asyncify execution error: ' + asyncifyErr, 'runtime')
+              // Don't map traceback for asyncify since no transformation occurred
+              if (String(asyncifyErr).includes('Traceback')) {
+                appendTerminal(String(asyncifyErr), 'stderr')
+              } else {
+                throw asyncifyErr
+              }
+            }
+          } else {
+            // Traditional transformed execution
+            const out = await runtimeAdapter.run(codeToRun)
+            const runtimeOutput = out === undefined ? '' : String(out)
+            if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
+          }
           // After run completes, sync any interpreter-side FS changes back to persistent VFS
           try {
             const backend = window.__ssg_vfs_backend
@@ -1988,65 +2206,91 @@ async function main() {
   // Wire stdin-send button to resolve pending host.get_input promises and clear the field
   const stdinSendBtn = $('stdin-send')
   const stdinBox = $('stdin-box')
+
+  // TEMPORARILY DISABLED: Add live echo functionality - update prompt display as user types
+  // This complex input handling might be causing form submit conflicts
+  // TODO: Re-enable after fixing the form submit issue
+  if (false && stdinBox) {
+    stdinBox.addEventListener('input', (ev) => {
+      try {
+        if (!window.__ssg_pending_input) return
+
+        const currentValue = stdinBox.value || ''
+        const promptText = window.__ssg_pending_input.promptText || ''
+
+        // Find or create the prompt element and update its input display
+        let pl = __ssg_current_prompt || findPromptLine(promptText)
+        if (!pl && promptText) {
+          // Create a structured prompt element if one doesn't exist
+          pl = findOrCreatePromptLine(promptText)
+          __ssg_current_prompt = pl
+        }
+
+        // Update the input display in real-time
+        if (pl) {
+          const inputSpan = pl.querySelector('.prompt-input')
+          if (inputSpan) {
+            inputSpan.textContent = currentValue
+          }
+        }
+      } catch (_e) { /* ignore echo errors */ }
+    })
+  }
+
   // Wire terminal's inline form (and send button) to resolve pending input promises.
   const termForm = $('terminal-input-form')
+  let submitting = false  // Prevent multiple simultaneous submissions
+  let lastFocusTime = 0   // Track when input was last focused
+
   if (termForm && stdinBox) {
     termForm.addEventListener('submit', (ev) => {
       try {
         ev.preventDefault()
-        const val = stdinBox.value || ''
-        // Do not pre-create a prompt element here; the printed prompt should remain visible
-        // while the user types. Replacement will occur below when we resolve input.
-        // Ensure the printed prompt lines are replaced with a structured prompt+input element
-        try {
-          // Prefer the tracked prompt element
-          let pl = __ssg_current_prompt || null
-          const promptText = (window.__ssg_pending_input && window.__ssg_pending_input.promptText) ? window.__ssg_pending_input.promptText : ''
-          if (!pl) pl = findPromptLine(promptText || '')
-          if (!pl) {
-            // fallback: replace the last terminal line with a constructed prompt containing that line's text
-            try {
-              const out = $('terminal-output')
-              const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
-              if (children.length) {
-                const last = children[children.length - 1]
-                const lastText = (last.textContent || '').trim()
-                const div = document.createElement('div')
-                div.className = 'terminal-line term-prompt'
-                const pspan = document.createElement('span')
-                pspan.className = 'prompt-text'
-                pspan.textContent = lastText || promptText || ''
-                const inputSpan = document.createElement('span')
-                inputSpan.className = 'prompt-input'
-                inputSpan.textContent = val
-                div.appendChild(pspan)
-                div.appendChild(inputSpan)
-                out.insertBefore(div, last)
-                try { out.removeChild(last) } catch (_e) { }
-                pl = div
-              }
-            } catch (_e) { }
-          }
-          // If we now have a prompt element, set its input span
-          if (pl) {
-            try { const inputSpan = pl.querySelector('.prompt-input'); if (inputSpan) inputSpan.textContent = val } catch (_e) { }
-            try { __ssg_current_prompt = null } catch (_e) { }
-          }
-        } catch (_e) { }
-        if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
-          window.__ssg_pending_input.resolve(val)
-          delete window.__ssg_pending_input
-          try { setTerminalInputEnabled(false) } catch (_e) { }
+
+        const now = Date.now()
+        const timeSinceFocus = now - lastFocusTime
+
+        // Prevent submissions that happen too quickly after focusing (likely spurious)
+        if (timeSinceFocus < 100) {
+          return
         }
+
+        // Prevent multiple simultaneous submissions
+        if (submitting) {
+          return
+        }
+
+        // Check if we have a pending input request
+        if (!window.__ssg_pending_input) {
+          return
+        }
+
+        // Check if we're using direct Enter handler (bypass form submission)
+        if (window.__ssg_pending_input._usingDirectHandler) {
+          return
+        }
+
+        submitting = true
+
+        const val = (stdinBox.value || '').trim()
         stdinBox.value = ''
-        try { stdinBox.focus() } catch (_e) { }
-      } catch (_e) { }
+        setTerminalInputEnabled(false)
+        appendTerminal(val, 'stdin')
+
+        submitting = false
+
+        window.__ssg_pending_input.resolve(val)
+        delete window.__ssg_pending_input
+      } catch (_e) {
+        submitting = false  // Reset flag on error too
+      }
     })
   }
 
-  // Mirror live typing into the current prompt element so the prompt is visible while typing
+  // TEMPORARILY DISABLED: Mirror live typing into the current prompt element 
+  // This might be causing form submit conflicts
   try {
-    if (stdinBox) {
+    if (false && stdinBox) {
       stdinBox.addEventListener('input', (ev) => {
         try {
           if (!__ssg_current_prompt) return
@@ -2058,49 +2302,12 @@ async function main() {
     }
   } catch (_e) { }
 
-  if (stdinSendBtn && stdinBox) {
+  // Wire send button to trigger form submit (avoid duplicate handlers)
+  if (stdinSendBtn && termForm) {
     stdinSendBtn.addEventListener('click', () => {
       try {
-        const val = stdinBox.value || ''
-        try {
-          let pl = __ssg_current_prompt || null
-          const promptText = (window.__ssg_pending_input && window.__ssg_pending_input.promptText) ? window.__ssg_pending_input.promptText : ''
-          if (!pl) pl = findPromptLine(promptText || '')
-          if (!pl) {
-            try {
-              const out = $('terminal-output')
-              const children = out ? Array.from(out.querySelectorAll('.terminal-line')) : []
-              if (children.length) {
-                const last = children[children.length - 1]
-                const lastText = (last.textContent || '').trim()
-                const div = document.createElement('div')
-                div.className = 'terminal-line term-prompt'
-                const pspan = document.createElement('span')
-                pspan.className = 'prompt-text'
-                pspan.textContent = lastText || promptText || ''
-                const inputSpan = document.createElement('span')
-                inputSpan.className = 'prompt-input'
-                inputSpan.textContent = val
-                div.appendChild(pspan)
-                div.appendChild(inputSpan)
-                out.insertBefore(div, last)
-                try { out.removeChild(last) } catch (_e) { }
-                pl = div
-              }
-            } catch (_e) { }
-          }
-          if (pl) {
-            try { const inputSpan = pl.querySelector('.prompt-input'); if (inputSpan) inputSpan.textContent = val } catch (_e) { }
-            try { __ssg_current_prompt = null } catch (_e) { }
-          }
-        } catch (_e) { }
-        if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
-          window.__ssg_pending_input.resolve(val)
-          delete window.__ssg_pending_input
-          try { setTerminalInputEnabled(false) } catch (_e) { }
-        }
-        stdinBox.value = ''
-        try { stdinBox.focus() } catch (_e) { }
+        // Trigger the form submit event instead of duplicating the logic
+        termForm.dispatchEvent(new Event('submit'))
       } catch (_e) { }
     })
   }

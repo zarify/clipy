@@ -1,53 +1,43 @@
-Interactive stdin test
-=====================
+# Test Directory
 
-This test demonstrates running the vendored MicroPython runtime inside a Web Worker so
-the main page stays responsive while the runtime blocks waiting for input.
+This directory contains various test utilities and documentation for the Clipy project.
 
-How to run
-----------
+## Current Files
 
-1. Serve the repository root over HTTP (needed for WASM imports):
+- `test_smoke.py`: Basic smoke tests verifying scaffold files exist and key functionality
+- `test_storage.js`: Tests for the storage adapter functionality
+- `vfs_test.js`: Tests for the VFS (Virtual File System) implementation
+- `vfs_dir_behavior_test.js`: Tests for VFS directory behavior and nested file handling
+- `traceback_mapper_test.js`: Tests for Python traceback line number mapping
+- `test_server.py`: Development HTTP server utility
+- `tests.md`: Test documentation and instructions
+- `untested.md`: Documentation of functionality that needs manual testing
+
+## Running Tests
+
+### Python Smoke Tests
+```bash
+python -m unittest test/test_smoke.py
+```
+
+### Node.js Tests
+```bash
+node test/test_storage.js
+node test/vfs_test.js
+node test/vfs_dir_behavior_test.js
+node test/traceback_mapper_test.js
+```
+
+### Playwright Browser Tests
+Start a static server at the repo root and run the Firefox-only Playwright tests:
 
 ```bash
 python -m http.server 8000
-```
-
-2. Open the test page in your browser:
-
-http://localhost:8000/test/interactive_stdin_test.html
-
-3. Use the UI:
-- Click "Start program" to initialize and run the sample program inside a Worker.
-- Type a line in the input box and click "Send" to deliver input to the running program.
-- The terminal area will display stdout/stderr and worker status messages. The tick
-  counter demonstrates the page remains responsive while the runtime runs.
-
-Notes
------
-- SharedArrayBuffer is used to wake the Worker atomically (Atomics.wait/notify). Some
-  browsers require cross-origin-isolation for SharedArrayBuffer to be available; if it is
-  unavailable the Worker still runs but uses a non-blocking fallback.
-- If you want to wire this into the main app, see `src/micropy_worker.js` and the
-  modifications to `src/main.js` which run user code inside a Worker by default.
-
-Browser (Playwright) tests
----------------------------
-
-We include Playwright tests (Firefox only) to exercise UI and VFS behavior. These
-are intended for local developer use (no CI required).
-
-Start a static server at the repo root:
-
-```bash
-python -m http.server 8000
-```
-
-Run Playwright (Firefox):
-
-```bash
 npm run test:playwright
 ```
 
-The tests live under `tests/` and include checks for tabs, file creation, autosave,
-run persistence, and VFS mounting.
+Tests are located in the `tests/` directory and exercise tabs, VFS mounting, stdin handling, and run persistence.
+
+## Notes
+
+The main application now uses asyncify-enabled MicroPython for input handling, which eliminates the need for browser prompts and provides a seamless terminal-like experience. All input handling is done directly in the main thread without Web Workers.

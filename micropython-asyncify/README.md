@@ -1,6 +1,25 @@
 # MicroPython WebAssembly with Asyncify Input
 
-This directory contains a pre-built MicroPython WebAssembly module with asyncified `input()` function support.
+This directory contains a pre-built MicroPython WebAssem```bash
+# Copy to your project
+cp -r vendor/micropython-asyncify/ your-project/vendor/
+```
+
+### 2. Import and Initialize
+
+```javascript
+import mpModule from './vendor/micropython-asyncify/micropython.mjs';
+
+// Configure MicroPython
+const mp = await mpModule.loadMicroPython({
+    stdout: (text) => console.log(text),
+    stderr: (text) => console.error(text),
+    inputHandler: async (prompt) => {
+        // Handle the prompt - receives exact text from input()
+        return await getUserInput(prompt);
+    }
+});
+```asyncified `input()` function support.
 
 ## 🎯 Key Features
 
@@ -24,11 +43,15 @@ This directory contains a pre-built MicroPython WebAssembly module with asyncifi
 ### Node.js Usage
 
 ```javascript
-import { loadMicroPython } from './vendor/micropython-asyncify/api.js';
+import mpModule from './vendor/micropython-asyncify/micropython.mjs';
 
 async function runPython() {
-    const mp = await loadMicroPython({
-        stdout: (text) => process.stdout.write(text)
+    const mp = await mpModule.loadMicroPython({
+        stdout: (text) => process.stdout.write(text),
+        inputHandler: async (prompt) => {
+            // prompt contains exact text: "Enter your name: "
+            return await getUserInput(prompt);
+        }
     });
     
     // Use asyncified input() - works with all Python patterns!
@@ -58,14 +81,18 @@ runPython();
 <body>
     <div id="output"></div>
     <script type="module">
-        import { loadMicroPython } from './vendor/micropython-asyncify/api.js';
+        import mpModule from './vendor/micropython-asyncify/micropython.mjs';
         
         async function runDemo() {
             const output = document.getElementById('output');
             
-            const mp = await loadMicroPython({
+            const mp = await mpModule.loadMicroPython({
                 stdout: (text) => {
                     output.innerHTML += text.replace(/\n/g, '<br>');
+                },
+                inputHandler: async (prompt) => {
+                    // prompt contains exact text from Python
+                    return window.prompt(prompt) || '';
                 }
             });
             
@@ -129,15 +156,30 @@ print(f"2 + 2 = {x}")
 
 ## 📋 API Reference
 
-### `loadMicroPython(options)`
+### `mpModule.loadMicroPython(options)`
 
 Loads and initializes MicroPython with asyncify support.
 
 **Parameters:**
 - `options.stdout(text)` - Function to handle stdout output
 - `options.stderr(text)` - Function to handle stderr output (optional)
+- `options.inputHandler(prompt)` - **NEW**: Function to handle input prompts (returns Promise<string>)
 
 **Returns:** Promise resolving to MicroPython instance
+
+**Example with inputHandler:**
+```javascript
+import mpModule from './vendor/micropython-asyncify/micropython.mjs';
+
+const mp = await mpModule.loadMicroPython({
+    stdout: (text) => console.log(text),
+    inputHandler: async (prompt) => {
+        // prompt contains the exact text from Python: "What's your name? "
+        console.log(`Got prompt: "${prompt}"`);
+        return await getInputFromUser(prompt);
+    }
+});
+```
 
 ### `mp.runPythonAsync(code)`
 
