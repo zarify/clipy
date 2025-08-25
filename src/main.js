@@ -860,6 +860,50 @@ print("Yielding test completed!")
     }
   } catch (_e) { }
 
+  // State clearing function to reset Python globals between runs
+  try {
+    window.clearMicroPythonState = function () {
+      if (!runtimeAdapter || !runtimeAdapter._module) {
+        console.log('❌ No runtime adapter or module available for state clearing')
+        return false
+      }
+
+      try {
+        // Access MicroPython instance globals
+        const mpInstance = runtimeAdapter._module
+        if (!mpInstance.globals || !mpInstance.globals.__dict__) {
+          console.log('❌ Unable to access MicroPython globals.__dict__')
+          return false
+        }
+
+        const globalsDict = mpInstance.globals.__dict__
+        const builtins = ['__builtins__', '__name__', '__doc__', '__package__', '__loader__', '__spec__']
+
+        // Get all keys and filter out built-ins
+        const userKeys = Object.keys(globalsDict).filter(key =>
+          !builtins.includes(key) && !key.startsWith('_')
+        )
+
+        // Delete user-defined variables
+        let cleared = 0
+        for (const key of userKeys) {
+          try {
+            delete globalsDict[key]
+            cleared++
+          } catch (err) {
+            console.log(`❌ Failed to clear variable '${key}':`, err)
+          }
+        }
+
+        console.log(`✅ Cleared ${cleared} user variables from Python globals`)
+        return true
+      } catch (err) {
+        console.log('❌ Failed to clear MicroPython state:', err)
+        return false
+      }
+    }
+  } catch (_e) { }
+
   // Stop button handler
   function setupStopButton() {
     const stopBtn = $('stop')
@@ -2376,6 +2420,15 @@ print("Yielding test completed!")
     setExecutionRunning(true)
     appendTerminal('>>> Running...', 'runtime')
 
+    // Clear Python state before each execution to ensure fresh start
+    try {
+      if (window.clearMicroPythonState) {
+        window.clearMicroPythonState()
+      }
+    } catch (err) {
+      appendTerminalDebug('⚠️ State clearing failed:', err)
+    }
+
     // Get timeout from config (default 30 seconds)
     const timeoutSeconds = cfg?.execution?.timeoutSeconds || 30
     const timeoutMs = timeoutSeconds * 1000
@@ -2660,11 +2713,12 @@ print("Yielding test completed!")
                   setTerminalInputEnabled(false)
                 } catch (_e) { }
               } else {
-                appendTerminal('Asyncify execution error: ' + errMsg, 'runtime')
-                // Don't map traceback for asyncify since no transformation occurred
+                // For Python errors, show the clean traceback without "Asyncify" prefix
                 if (errMsg.includes('Traceback')) {
                   appendTerminal(errMsg, 'stderr')
                 } else {
+                  // For non-Python errors, show with context
+                  appendTerminal('Execution error: ' + errMsg, 'runtime')
                   throw asyncifyErr
                 }
               }
