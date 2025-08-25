@@ -677,70 +677,6 @@ async function main() {
         return false
       }
     }
-
-    window.inspectMicroPythonRuntime = function () {
-      console.log('� Deep MicroPython runtime inspection...')
-
-      if (!runtimeAdapter) {
-        console.log('❌ No runtime adapter')
-        return
-      }
-
-      console.log('Runtime adapter properties:')
-      console.log('- hasYieldingSupport:', runtimeAdapter.hasYieldingSupport)
-      console.log('- interruptExecution:', typeof runtimeAdapter.interruptExecution)
-      console.log('- setYielding:', typeof runtimeAdapter.setYielding)
-      console.log('- clearInterrupt:', typeof runtimeAdapter.clearInterrupt)
-      console.log('- _module:', !!runtimeAdapter._module)
-
-      if (runtimeAdapter._module) {
-        const Module = runtimeAdapter._module
-        console.log('Module properties:')
-        console.log('- Module type:', typeof Module)
-        console.log('- ccall:', typeof Module.ccall)
-        console.log('- Asyncify:', !!Module.Asyncify)
-
-        if (Module.Asyncify) {
-          console.log('Asyncify properties:')
-          console.log('- currData:', Module.Asyncify.currData)
-          console.log('- state:', Module.Asyncify.state)
-          console.log('- StackSize:', Module.Asyncify.StackSize)
-        }
-
-        // Check for yielding-related functions
-        console.log('Available functions:')
-        const funcs = Object.keys(Module).filter(k => k.includes('yield') || k.includes('interrupt'))
-        console.log('- Yielding/interrupt functions:', funcs)
-
-        // Check if the runtime has the functions we expect
-        const expectedFuncs = [
-          'interruptExecution',
-          'setYielding',
-          'clearInterrupt',
-          'mp_hal_get_interrupt_char',
-          'mp_sched_keyboard_interrupt'
-        ]
-
-        expectedFuncs.forEach(func => {
-          const exists = func in runtimeAdapter || (Module.ccall && func.startsWith('mp_'))
-          console.log(`- ${func}: ${exists ? '✅' : '❌'}`)
-        })
-      }
-
-      // Test if setYielding actually does something
-      if (runtimeAdapter.setYielding) {
-        console.log('🧪 Testing setYielding behavior...')
-        try {
-          console.log('Setting yielding to false...')
-          runtimeAdapter.setYielding(false)
-          console.log('Setting yielding to true...')
-          runtimeAdapter.setYielding(true)
-          console.log('✅ setYielding calls succeeded (but may not actually work)')
-        } catch (err) {
-          console.log('❌ setYielding calls failed:', err)
-        }
-      }
-    }
     window.forceResetMicroPython = function () {
       console.log('🔄 Attempting force reset of MicroPython runtime...')
 
@@ -965,6 +901,10 @@ async function main() {
     }
   }
 
+  // ============================================================================
+  // PYTHON CODE EXECUTION ENGINE
+  // ============================================================================
+
   // Debug helper: allow tests to run transformed code directly and capture raw errors.
   try {
     window.__ssg_run = async function (code) {
@@ -985,6 +925,10 @@ async function main() {
       try { appendTerminal && appendTerminal('[fallback] ' + ev + ' ' + (typeof data === 'string' ? data : JSON.stringify(data || {})), 'runtime') } catch (_e) { }
     } catch (_e) { }
   }
+
+  // ============================================================================
+  // VIRTUAL FILE SYSTEM (VFS) & FILE MANAGEMENT
+  // ============================================================================
 
   // VFS runtime references (populated during async VFS init)
   let backendRef = null
