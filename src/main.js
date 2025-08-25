@@ -291,17 +291,13 @@ async function main() {
   // Map and display tracebacks that originate in transformed code back to user source
   function mapTracebackAndShow(rawText, headerLines, userCode) {
     if (!rawText) return
-    const showRaw = !!$('show-raw-tb') && $('show-raw-tb').checked
     // Replace occurrences like: File "<stdin>", line N[, column C]
     const mapped = rawText.replace(/File \"([^\"]+)\", line (\d+)(?:, column (\d+))?/g, (m, fname, ln, col) => {
       const mappedLn = Math.max(1, Number(ln) - headerLines)
       if (col) return `File "${fname}", line ${mappedLn}, column ${col}`
       return `File "${fname}", line ${mappedLn}`
     })
-    if (showRaw) {
-      appendTerminal('[raw traceback]')
-      appendTerminal(rawText)
-    }
+    appendTerminal(mapped, 'stderr')
 
     // When there's no async backend to reload from, open tabs based on in-memory `mem` or localStorage mirror.
     function openTabsFromMem() {
@@ -341,6 +337,129 @@ async function main() {
 
   // runtimeAdapter will provide a run(code) -> Promise<string> API if a runtime is available
   let runtimeAdapter = null
+
+  // Execution state management for timeout and cancellation
+  let executionState = {
+    isRunning: false,
+    currentAbortController: null,
+    timeoutId: null
+  }
+
+  // Helper: Execute code with timeout and cancellation support
+  async function executeWithTimeout(executionPromise, timeoutMs) {
+    const abortController = new AbortController()
+    executionState.currentAbortController = abortController
+
+    const timeoutPromise = new Promise((_, reject) => {
+      executionState.timeoutId = setTimeout(() => {
+        abortController.abort()
+        reject(new Error(`Execution timeout after ${Math.round(timeoutMs / 1000)} seconds. The program may contain an infinite loop or be taking too long to complete.`))
+      }, timeoutMs)
+    })
+
+    try {
+      const result = await Promise.race([executionPromise, timeoutPromise])
+      clearTimeout(executionState.timeoutId)
+      return result
+    } catch (error) {
+      clearTimeout(executionState.timeoutId)
+      if (abortController.signal.aborted) {
+        throw new Error('Execution was cancelled by user or timeout')
+      }
+      throw error
+    }
+  }
+
+  // UI helpers for execution state
+  function setExecutionRunning(running) {
+    executionState.isRunning = running
+    const runBtn = $('run')
+    const stopBtn = $('stop')
+
+    if (runBtn) {
+      runBtn.disabled = running
+      runBtn.style.display = running ? 'none' : 'inline-flex'
+    }
+    if (stopBtn) {
+      stopBtn.disabled = !running
+      stopBtn.style.display = running ? 'inline-flex' : 'none'
+    }
+
+    // When stopping execution, clean up any pending input promises and terminal state
+    if (!running) {
+      try {
+        // Resolve any pending input promises with empty string to allow graceful exit
+        if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
+          appendTerminalDebug('Cleaning up pending input promise')
+          window.__ssg_pending_input.resolve('')
+          delete window.__ssg_pending_input
+        }
+      } catch (_e) {
+        appendTerminalDebug('Error cleaning up pending input: ' + _e)
+      }
+
+      try {
+        // Reset terminal input state
+        setTerminalInputEnabled(false)
+        const stdinBox = $('stdin-box')
+        if (stdinBox) {
+          stdinBox.value = ''
+          stdinBox.blur()
+        }
+      } catch (_e) {
+        appendTerminalDebug('Error resetting terminal input: ' + _e)
+      }
+
+      try {
+        // Clear any execution timeouts
+        if (executionState.timeoutId) {
+          clearTimeout(executionState.timeoutId)
+          executionState.timeoutId = null
+        }
+      } catch (_e) {
+        appendTerminalDebug('Error clearing timeout: ' + _e)
+      }
+    }
+  }
+
+  // Stop button handler
+  function setupStopButton() {
+    const stopBtn = $('stop')
+    if (stopBtn) {
+      stopBtn.addEventListener('click', () => {
+        if (executionState.isRunning && executionState.currentAbortController) {
+          appendTerminal('>>> Execution cancelled by user', 'runtime')
+
+          // Abort the current execution
+          executionState.currentAbortController.abort()
+
+          // Clean up execution state (this will also handle pending inputs)
+          setExecutionRunning(false)
+
+          // Try to reset the runtime to prevent "async operation in flight" errors
+          try {
+            // For asyncify MicroPython, try to reset by running a simple synchronous command
+            if (runtimeAdapter && typeof runtimeAdapter.run === 'function') {
+              setTimeout(async () => {
+                try {
+                  appendTerminalDebug('Attempting runtime reset...')
+                  // Run a simple non-async command to help reset the asyncify state
+                  await runtimeAdapter.run('# runtime reset')
+                  appendTerminalDebug('Runtime reset completed')
+                } catch (resetErr) {
+                  appendTerminalDebug('Runtime reset failed: ' + resetErr)
+                  // If reset fails, the user may need to refresh the page
+                  appendTerminal('Warning: Runtime may be in inconsistent state. If next execution fails, try refreshing the page.', 'runtime')
+                }
+              }, 150)
+            }
+          } catch (_e) {
+            appendTerminalDebug('Error during runtime reset: ' + _e)
+          }
+        }
+      })
+    }
+  }
 
   // Debug helper: allow tests to run transformed code directly and capture raw errors.
   try {
@@ -1214,6 +1333,9 @@ async function main() {
                   // Set up direct Enter key handler (bypass form submission)
                   const enterHandler = (e) => {
                     if (e.key === 'Enter' && window.__ssg_pending_input) {
+                      e.preventDefault()
+                      e.stopPropagation()
+
                       const value = (stdinBox.value || '').trim()
 
                       // Clean up the handlers
@@ -1719,7 +1841,19 @@ async function main() {
   }
 
   $('run').addEventListener('click', async () => {
+    // Prevent multiple simultaneous executions
+    if (executionState.isRunning) {
+      appendTerminal('>>> Execution already in progress...', 'runtime')
+      return
+    }
+
+    setExecutionRunning(true)
     appendTerminal('>>> Running...', 'runtime')
+
+    // Get timeout from config (default 30 seconds)
+    const timeoutSeconds = cfg?.execution?.timeoutSeconds || 30
+    const timeoutMs = timeoutSeconds * 1000
+
     // disable terminal input by default; enable only if runtime requests input
     try { setTerminalInputEnabled(false) } catch (_e) { }
     // Activate terminal tab automatically when running
@@ -1886,25 +2020,35 @@ async function main() {
             try {
               let out = ''
               if (typeof runtimeAdapter.runPythonAsync === 'function') {
-                out = await runtimeAdapter.runPythonAsync(codeToRun)
+                out = await executeWithTimeout(runtimeAdapter.runPythonAsync(codeToRun), timeoutMs)
               } else {
                 // Fallback to regular run method
-                out = await runtimeAdapter.run(codeToRun)
+                out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs)
               }
               const runtimeOutput = out === undefined ? '' : String(out)
               if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
             } catch (asyncifyErr) {
-              appendTerminal('Asyncify execution error: ' + asyncifyErr, 'runtime')
-              // Don't map traceback for asyncify since no transformation occurred
-              if (String(asyncifyErr).includes('Traceback')) {
-                appendTerminal(String(asyncifyErr), 'stderr')
+              const errMsg = String(asyncifyErr)
+
+              // Handle specific "async operation in flight" error
+              if (errMsg.includes('We cannot start an async operation when one is already flight') ||
+                errMsg.includes('async operation') || errMsg.includes('already flight')) {
+                appendTerminal('Runtime Error: Previous execution was interrupted and left the runtime in an inconsistent state.', 'runtime')
+                appendTerminal('This usually happens when stopping execution during input(). Please refresh the page to reset the runtime.', 'runtime')
+                appendTerminal('Technical details: ' + errMsg, 'runtime')
               } else {
-                throw asyncifyErr
+                appendTerminal('Asyncify execution error: ' + errMsg, 'runtime')
+                // Don't map traceback for asyncify since no transformation occurred
+                if (errMsg.includes('Traceback')) {
+                  appendTerminal(errMsg, 'stderr')
+                } else {
+                  throw asyncifyErr
+                }
               }
             }
           } else {
             // Traditional transformed execution
-            const out = await runtimeAdapter.run(codeToRun)
+            const out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs)
             const runtimeOutput = out === undefined ? '' : String(out)
             if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
           }
@@ -2186,7 +2330,13 @@ async function main() {
       } else {
         appendTerminal('[error] no runtime adapter available')
       }
-    } catch (e) { appendTerminal('Transform/run error: ' + e, 'runtime'); try { setTerminalInputEnabled(false) } catch (_e) { } }
+    } catch (e) {
+      appendTerminal('Transform/run error: ' + e, 'runtime');
+      try { setTerminalInputEnabled(false) } catch (_e) { }
+    } finally {
+      // Always reset execution state
+      setExecutionRunning(false)
+    }
 
     // Re-run regex feedback for rules targeting output now that runtimeOutput may be available
     try {
@@ -2202,6 +2352,9 @@ async function main() {
       }
     } catch (e) { appendTerminal('Feedback engine error (output pass): ' + e) }
   })
+
+  // Initialize stop button
+  setupStopButton()
 
   // Wire stdin-send button to resolve pending host.get_input promises and clear the field
   const stdinSendBtn = $('stdin-send')
