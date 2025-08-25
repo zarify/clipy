@@ -1,3 +1,12 @@
+// ============================================================================
+// CLIPY - CLIENT-SIDE PYTHON PLAYGROUND  
+// Main application with MicroPython WASM runtime, interrupt system, and VFS
+// ============================================================================
+
+// ============================================================================
+// CONFIGURATION & UTILITIES
+// ============================================================================
+
 // Minimal scaffolding: MicroPython loader, CodeMirror placeholder, simple terminal, config loader
 const configUrl = './config/sample.json'
 
@@ -288,6 +297,10 @@ async function main() {
   try { window.__ssg_debug_logs = window.__ssg_debug_logs || false } catch (_e) { }
   function appendTerminalDebug(text) { try { if (window.__ssg_debug_logs) appendTerminal(text) } catch (_e) { } }
 
+  // ============================================================================
+  // MICROPYTHON RUNTIME & EXECUTION SYSTEM
+  // ============================================================================
+
   // Map and display tracebacks that originate in transformed code back to user source
   function mapTracebackAndShow(rawText, headerLines, userCode) {
     if (!rawText) return
@@ -550,44 +563,6 @@ async function main() {
         console.log('❌ Failed to set yielding:', err)
         return false
       }
-    }
-
-    window.testMicroPythonYielding = function () {
-      console.log('🧪 Testing MicroPython yielding...')
-
-      if (!runtimeAdapter || !runtimeAdapter.hasYieldingSupport) {
-        console.log('❌ Yielding not supported by current runtime')
-        return false
-      }
-
-      console.log('🔄 Running yielding test - browser should remain responsive...')
-
-      // Use the runtime to test yielding
-      if (typeof runtimeAdapter.run === 'function') {
-        const testCode = `
-import time
-print("Testing yielding - browser should stay responsive...")
-for i in range(5):
-    print(f"Test iteration {i+1}/5")
-    time.sleep(0.3)
-print("Yielding test completed!")
-`
-
-        try {
-          runtimeAdapter.run(testCode).then(() => {
-            console.log('✅ Yielding test completed')
-          }).catch(err => {
-            console.log('❌ Yielding test failed:', err)
-          })
-          return true
-        } catch (err) {
-          console.log('❌ Could not run yielding test:', err)
-          return false
-        }
-      }
-
-      console.log('❌ Cannot test yielding - runtime.run not available')
-      return false
     }
 
     window.clearMicroPythonInterrupt = function () {
