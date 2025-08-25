@@ -95,14 +95,7 @@ export async function loadMicroPython(options) {
 
     Module = await _createMicroPythonModule(Module);
     globalThis.Module = Module;
-
-    // Check if proxy functions are available before calling them
-    if (typeof globalThis.proxy_js_init === 'function') {
-        proxy_js_init();
-    } else {
-        console.warn('proxy_js_init not available - this may be expected for some MicroPython builds');
-    }
-
+    proxy_js_init();
     const pyimport = (name) => {
         const value = Module._malloc(3 * 4);
         Module.ccall(
@@ -111,13 +104,7 @@ export async function loadMicroPython(options) {
             ["string", "pointer"],
             [name, value],
         );
-        // Check if proxy conversion function exists
-        if (typeof globalThis.proxy_convert_mp_to_js_obj_jsside_with_free === 'function') {
-            return proxy_convert_mp_to_js_obj_jsside_with_free(value);
-        } else {
-            console.warn('proxy_convert_mp_to_js_obj_jsside_with_free not available');
-            return null;
-        }
+        return proxy_convert_mp_to_js_obj_jsside_with_free(value);
     };
     Module.ccall(
         "mp_js_init",
@@ -128,7 +115,7 @@ export async function loadMicroPython(options) {
     Module.ccall("proxy_c_init", "null", [], []);
     return {
         _module: Module,
-        PyProxy: (typeof globalThis.PyProxy !== 'undefined') ? PyProxy : null,
+        PyProxy: PyProxy,
         FS: Module.FS,
         globals: {
             __dict__: pyimport("__main__").__dict__,

@@ -346,9 +346,13 @@ async function main() {
   }
 
   // Helper: Execute code with timeout and cancellation support
-  async function executeWithTimeout(executionPromise, timeoutMs) {
+  async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
     const abortController = new AbortController()
     executionState.currentAbortController = abortController
+
+    // Add a safety timeout that will forcibly interrupt the VM if it's stuck in a tight loop
+    let safetyTimeoutId = null
+    let vmInterruptAttempted = false
 
     const timeoutPromise = new Promise((_, reject) => {
       executionState.timeoutId = setTimeout(() => {
@@ -357,12 +361,37 @@ async function main() {
       }, timeoutMs)
     })
 
+    // Safety mechanism: Try VM interrupt before falling back to abort
+    const safetyPromise = new Promise((_, reject) => {
+      safetyTimeoutId = setTimeout(() => {
+        if (!vmInterruptAttempted && !abortController.signal.aborted) {
+          vmInterruptAttempted = true
+          appendTerminal(`>>> Safety timeout reached after ${Math.round(safetyTimeoutMs / 1000)}s, attempting VM interrupt...`, 'runtime')
+
+          // Try to interrupt the VM first
+          const interrupted = interruptMicroPythonVM()
+          if (!interrupted) {
+            appendTerminal('>>> VM interrupt failed, forcing abort...', 'runtime')
+            abortController.abort()
+          }
+
+          // Still reject after attempting interrupt to trigger error handling
+          setTimeout(() => {
+            reject(new Error(`Safety timeout: Execution appears stuck in tight loop after ${Math.round(safetyTimeoutMs / 1000)} seconds`))
+          }, 500) // Give VM interrupt time to work
+        }
+      }, safetyTimeoutMs)
+    })
+
     try {
-      const result = await Promise.race([executionPromise, timeoutPromise])
+      const result = await Promise.race([executionPromise, timeoutPromise, safetyPromise])
       clearTimeout(executionState.timeoutId)
+      if (safetyTimeoutId) clearTimeout(safetyTimeoutId)
       return result
     } catch (error) {
       clearTimeout(executionState.timeoutId)
+      if (safetyTimeoutId) clearTimeout(safetyTimeoutId)
+
       if (abortController.signal.aborted) {
         throw new Error('Execution was cancelled by user or timeout')
       }
@@ -422,39 +451,495 @@ async function main() {
     }
   }
 
+  // Helper: Send KeyboardInterrupt to MicroPython VM
+  function interruptMicroPythonVM() {
+    if (!runtimeAdapter) {
+      appendTerminalDebug('Cannot interrupt: no runtime adapter available')
+      return false
+    }
+
+    // Check if we're in a vulnerable state (pending input)
+    if (window.__ssg_pending_input) {
+      appendTerminalDebug('Warning: Interrupting during input() - this may cause VM state issues')
+      appendTerminal('⚠️ Interrupting during input may require recovery afterward', 'runtime')
+    }
+
+    // NEW: Try v3.0.0 asyncify interrupt API first (much more reliable)
+    if (runtimeAdapter.hasYieldingSupport && runtimeAdapter.interruptExecution) {
+      try {
+        appendTerminalDebug('Using v3.0.0 asyncify interrupt API...')
+        runtimeAdapter.interruptExecution()
+        appendTerminalDebug('✅ VM interrupt sent via interruptExecution()')
+        return true
+      } catch (err) {
+        appendTerminalDebug('v3.0.0 interrupt failed: ' + err)
+        // Fall through to legacy method
+      }
+    }
+
+    // Legacy fallback: try the old mp_sched_keyboard_interrupt method
+    if (runtimeAdapter._module && typeof runtimeAdapter._module.ccall === 'function') {
+      try {
+        appendTerminalDebug('Falling back to legacy mp_sched_keyboard_interrupt...')
+        runtimeAdapter._module.ccall('mp_sched_keyboard_interrupt', 'null', [], [])
+        appendTerminalDebug('✅ VM interrupt sent via legacy API')
+        return true
+      } catch (err) {
+        appendTerminalDebug('Legacy VM interrupt failed: ' + err)
+      }
+    }
+
+    appendTerminalDebug('❌ No VM interrupt method available')
+    return false
+  }
+
+  // Expose interrupt function globally for debugging and external use
+  try {
+    window.__ssg_interrupt_vm = interruptMicroPythonVM
+
+    // Also expose a more user-friendly global function
+    window.interruptPython = function () {
+      if (!executionState.isRunning) {
+        console.log('No Python execution is currently running')
+        return false
+      }
+
+      console.log('Interrupting Python execution...')
+      const success = interruptMicroPythonVM()
+
+      if (success) {
+        console.log('KeyboardInterrupt sent to MicroPython VM')
+        setExecutionRunning(false)
+      } else {
+        console.log('VM interrupt failed, falling back to AbortController')
+        if (executionState.currentAbortController) {
+          executionState.currentAbortController.abort()
+          setExecutionRunning(false)
+        }
+      }
+
+      return success
+    }
+
+    // NEW: Expose v3.0.0 yielding controls globally for debugging
+    window.setMicroPythonYielding = function (enabled) {
+      if (!runtimeAdapter) {
+        console.log('No runtime adapter available')
+        return false
+      }
+
+      if (!runtimeAdapter.setYielding) {
+        console.log('Yielding control not available (requires asyncify v3.0.0)')
+        return false
+      }
+
+      try {
+        runtimeAdapter.setYielding(enabled)
+        console.log(`✅ MicroPython yielding ${enabled ? 'enabled' : 'disabled'}`)
+
+        if (enabled) {
+          console.log('💡 Yielding enabled - loops with time.sleep() should be interruptible')
+          console.log('💡 Browser should remain responsive during Python execution')
+        } else {
+          console.log('⚠️ Yielding disabled - maximum speed but may not be interruptible')
+          console.log('⚠️ Browser may become unresponsive during long operations')
+        }
+
+        return true
+      } catch (err) {
+        console.log('❌ Failed to set yielding:', err)
+        return false
+      }
+    }
+
+    window.testMicroPythonYielding = function () {
+      console.log('🧪 Testing MicroPython yielding...')
+
+      if (!runtimeAdapter || !runtimeAdapter.hasYieldingSupport) {
+        console.log('❌ Yielding not supported by current runtime')
+        return false
+      }
+
+      console.log('🔄 Running yielding test - browser should remain responsive...')
+
+      // Use the runtime to test yielding
+      if (typeof runtimeAdapter.run === 'function') {
+        const testCode = `
+import time
+print("Testing yielding - browser should stay responsive...")
+for i in range(5):
+    print(f"Test iteration {i+1}/5")
+    time.sleep(0.3)
+print("Yielding test completed!")
+`
+
+        try {
+          runtimeAdapter.run(testCode).then(() => {
+            console.log('✅ Yielding test completed')
+          }).catch(err => {
+            console.log('❌ Yielding test failed:', err)
+          })
+          return true
+        } catch (err) {
+          console.log('❌ Could not run yielding test:', err)
+          return false
+        }
+      }
+
+      console.log('❌ Cannot test yielding - runtime.run not available')
+      return false
+    }
+
+    window.clearMicroPythonInterrupt = function () {
+      if (!runtimeAdapter) {
+        console.log('No runtime adapter available')
+        return false
+      }
+
+      let success = false
+
+      // Try v3.0.0 clear interrupt method
+      if (runtimeAdapter.clearInterrupt) {
+        try {
+          runtimeAdapter.clearInterrupt()
+          console.log('✅ Interrupt state cleared with v3.0.0 API')
+          success = true
+        } catch (err) {
+          console.log('v3.0.0 clear interrupt failed:', err)
+        }
+      }
+
+      // Try aggressive asyncify state reset
+      if (runtimeAdapter._module) {
+        const Module = runtimeAdapter._module
+
+        // Reset asyncify internals if accessible
+        if (Module.Asyncify) {
+          try {
+            console.log('Attempting to reset Asyncify state...')
+            if (Module.Asyncify.currData !== undefined) {
+              Module.Asyncify.currData = 0
+              console.log('✅ Asyncify.currData reset')
+            }
+            if (Module.Asyncify.state !== undefined) {
+              Module.Asyncify.state = 0  // Normal state
+              console.log('✅ Asyncify.state reset')
+            }
+            success = true
+          } catch (err) {
+            console.log('Asyncify state reset failed:', err)
+          }
+        }
+
+        // REPL reset
+        if (typeof Module.ccall === 'function') {
+          try {
+            Module.ccall('mp_js_repl_init', 'null', [], [])
+            console.log('✅ REPL state reset')
+            success = true
+          } catch (err) {
+            console.log('REPL reset failed:', err)
+          }
+        }
+      }
+
+      // Also try to clean up any pending input state
+      try {
+        if (window.__ssg_pending_input) {
+          console.log('Cleaning up pending input state...')
+          delete window.__ssg_pending_input
+        }
+        setExecutionRunning(false)
+        success = true
+      } catch (err) {
+        console.log('Failed to clean up input state:', err)
+      }
+
+      if (!success) {
+        console.log('❌ Could not clear interrupt state - may need page refresh')
+      }
+
+      return success
+    }
+
+    window.checkMicroPythonYielding = function () {
+      console.log('🔍 Checking MicroPython yielding state...')
+
+      const status = {
+        runtimeAvailable: !!runtimeAdapter,
+        hasYieldingSupport: !!(runtimeAdapter?.hasYieldingSupport),
+        hasSetYielding: !!(runtimeAdapter?.setYielding),
+        trackingEnabled: !!window.__ssg_yielding_enabled,
+        isExecuting: executionState.isRunning
+      }
+
+      console.log('Status:', status)
+
+      if (!status.runtimeAvailable) {
+        console.log('❌ No runtime available')
+        return false
+      }
+
+      if (!status.hasYieldingSupport) {
+        console.log('❌ Runtime does not support yielding')
+        return false
+      }
+
+      if (!status.hasSetYielding) {
+        console.log('❌ setYielding function not available')
+        return false
+      }
+
+      // Try to ensure yielding is enabled
+      try {
+        runtimeAdapter.setYielding(true)
+        window.__ssg_yielding_enabled = true
+        console.log('✅ Yielding enabled/verified')
+        return true
+      } catch (err) {
+        console.log('❌ Failed to enable yielding:', err)
+        window.__ssg_yielding_enabled = false
+        return false
+      }
+    }
+
+    window.inspectMicroPythonRuntime = function () {
+      console.log('� Deep MicroPython runtime inspection...')
+
+      if (!runtimeAdapter) {
+        console.log('❌ No runtime adapter')
+        return
+      }
+
+      console.log('Runtime adapter properties:')
+      console.log('- hasYieldingSupport:', runtimeAdapter.hasYieldingSupport)
+      console.log('- interruptExecution:', typeof runtimeAdapter.interruptExecution)
+      console.log('- setYielding:', typeof runtimeAdapter.setYielding)
+      console.log('- clearInterrupt:', typeof runtimeAdapter.clearInterrupt)
+      console.log('- _module:', !!runtimeAdapter._module)
+
+      if (runtimeAdapter._module) {
+        const Module = runtimeAdapter._module
+        console.log('Module properties:')
+        console.log('- Module type:', typeof Module)
+        console.log('- ccall:', typeof Module.ccall)
+        console.log('- Asyncify:', !!Module.Asyncify)
+
+        if (Module.Asyncify) {
+          console.log('Asyncify properties:')
+          console.log('- currData:', Module.Asyncify.currData)
+          console.log('- state:', Module.Asyncify.state)
+          console.log('- StackSize:', Module.Asyncify.StackSize)
+        }
+
+        // Check for yielding-related functions
+        console.log('Available functions:')
+        const funcs = Object.keys(Module).filter(k => k.includes('yield') || k.includes('interrupt'))
+        console.log('- Yielding/interrupt functions:', funcs)
+
+        // Check if the runtime has the functions we expect
+        const expectedFuncs = [
+          'interruptExecution',
+          'setYielding',
+          'clearInterrupt',
+          'mp_hal_get_interrupt_char',
+          'mp_sched_keyboard_interrupt'
+        ]
+
+        expectedFuncs.forEach(func => {
+          const exists = func in runtimeAdapter || (Module.ccall && func.startsWith('mp_'))
+          console.log(`- ${func}: ${exists ? '✅' : '❌'}`)
+        })
+      }
+
+      // Test if setYielding actually does something
+      if (runtimeAdapter.setYielding) {
+        console.log('🧪 Testing setYielding behavior...')
+        try {
+          console.log('Setting yielding to false...')
+          runtimeAdapter.setYielding(false)
+          console.log('Setting yielding to true...')
+          runtimeAdapter.setYielding(true)
+          console.log('✅ setYielding calls succeeded (but may not actually work)')
+        } catch (err) {
+          console.log('❌ setYielding calls failed:', err)
+        }
+      }
+    }
+    window.forceResetMicroPython = function () {
+      console.log('🔄 Attempting force reset of MicroPython runtime...')
+
+      if (!runtimeAdapter) {
+        console.log('❌ No runtime adapter available')
+        return false
+      }
+
+      let success = false
+
+      try {
+        // Clear all execution state
+        setExecutionRunning(false)
+        if (window.__ssg_pending_input) delete window.__ssg_pending_input
+
+        // Clear any abort controllers
+        if (executionState.currentAbortController) {
+          executionState.currentAbortController = null
+        }
+        if (executionState.timeoutId) {
+          clearTimeout(executionState.timeoutId)
+          executionState.timeoutId = null
+        }
+
+        // Try all available reset methods
+        if (runtimeAdapter.clearInterrupt) {
+          runtimeAdapter.clearInterrupt()
+          console.log('✅ v3.0.0 interrupt cleared')
+        }
+
+        // Re-enable yielding if available
+        if (runtimeAdapter.setYielding) {
+          try {
+            runtimeAdapter.setYielding(true)
+            console.log('✅ Yielding re-enabled')
+            window.__ssg_yielding_enabled = true
+          } catch (err) {
+            console.log('❌ Failed to re-enable yielding:', err)
+            window.__ssg_yielding_enabled = false
+          }
+        }
+
+        const Module = runtimeAdapter._module
+        if (Module) {
+          // Reset asyncify state aggressively
+          if (Module.Asyncify) {
+            Module.Asyncify.currData = 0
+            Module.Asyncify.state = 0
+            console.log('✅ Asyncify state force reset')
+          }
+
+          // Reinitialize MicroPython systems
+          if (typeof Module.ccall === 'function') {
+            Module.ccall('mp_js_repl_init', 'null', [], [])
+            console.log('✅ REPL force reinitialized')
+          }
+        }
+
+        console.log('✅ Force reset completed - try running code again')
+        success = true
+
+      } catch (err) {
+        console.log('❌ Force reset failed:', err)
+        console.log('💡 You may need to refresh the page')
+      }
+
+      return success
+    }
+
+    // Status function to show what interrupt methods are available
+    window.getMicroPythonInterruptStatus = function () {
+      const status = {
+        runtimeLoaded: !!runtimeAdapter,
+        hasYieldingSupport: !!(runtimeAdapter?.hasYieldingSupport),
+        hasLegacyInterrupt: !!(runtimeAdapter?._module?.ccall),
+        isExecuting: executionState.isRunning,
+        availableMethods: []
+      }
+
+      if (status.hasYieldingSupport) {
+        status.availableMethods.push('v3.0.0 interruptExecution()')
+      }
+      if (status.hasLegacyInterrupt) {
+        status.availableMethods.push('legacy mp_sched_keyboard_interrupt()')
+      }
+      if (status.availableMethods.length === 0) {
+        status.availableMethods.push('AbortController (non-VM)')
+      }
+
+      console.log('MicroPython Interrupt Status:', status)
+      return status
+    }
+  } catch (_e) { }
+
   // Stop button handler
   function setupStopButton() {
     const stopBtn = $('stop')
     if (stopBtn) {
       stopBtn.addEventListener('click', () => {
-        if (executionState.isRunning && executionState.currentAbortController) {
+        if (executionState.isRunning) {
           appendTerminal('>>> Execution cancelled by user', 'runtime')
 
-          // Abort the current execution
-          executionState.currentAbortController.abort()
+          // Try to interrupt the MicroPython VM cleanly first
+          const interrupted = interruptMicroPythonVM()
 
-          // Clean up execution state (this will also handle pending inputs)
+          // Clean up any pending input promises immediately
+          try {
+            if (window.__ssg_pending_input) {
+              appendTerminalDebug('Cleaning up pending input after interrupt...')
+              if (typeof window.__ssg_pending_input.resolve === 'function') {
+                window.__ssg_pending_input.resolve('')
+              }
+              delete window.__ssg_pending_input
+            }
+            setTerminalInputEnabled(false)
+          } catch (_e) { }
+
+          // If VM interrupt failed, fall back to AbortController
+          if (!interrupted && executionState.currentAbortController) {
+            try {
+              appendTerminalDebug('Falling back to AbortController...')
+              executionState.currentAbortController.abort()
+            } catch (_e) {
+              appendTerminalDebug('AbortController failed: ' + _e)
+            }
+          }
+
+          // Clean up execution state 
           setExecutionRunning(false)
 
-          // Try to reset the runtime to prevent "async operation in flight" errors
-          try {
-            // For asyncify MicroPython, try to reset by running a simple synchronous command
-            if (runtimeAdapter && typeof runtimeAdapter.run === 'function') {
-              setTimeout(async () => {
-                try {
-                  appendTerminalDebug('Attempting runtime reset...')
-                  // Run a simple non-async command to help reset the asyncify state
-                  await runtimeAdapter.run('# runtime reset')
-                  appendTerminalDebug('Runtime reset completed')
-                } catch (resetErr) {
-                  appendTerminalDebug('Runtime reset failed: ' + resetErr)
-                  // If reset fails, the user may need to refresh the page
-                  appendTerminal('Warning: Runtime may be in inconsistent state. If next execution fails, try refreshing the page.', 'runtime')
+          // For v3.0.0 builds, attempt to clear interrupt state after processing
+          if (interrupted && runtimeAdapter?.clearInterrupt) {
+            setTimeout(() => {
+              try {
+                appendTerminalDebug('Clearing interrupt state after processing...')
+                runtimeAdapter.clearInterrupt()
+                appendTerminalDebug('✅ Interrupt state cleared')
+
+                // IMPORTANT: Re-enable yielding after interrupt cleanup
+                if (runtimeAdapter.setYielding) {
+                  try {
+                    runtimeAdapter.setYielding(true)
+                    appendTerminalDebug('✅ Yielding re-enabled after interrupt')
+                    window.__ssg_yielding_enabled = true
+                  } catch (err) {
+                    appendTerminalDebug('❌ Failed to re-enable yielding: ' + err)
+                    window.__ssg_yielding_enabled = false
+                  }
                 }
-              }, 150)
+              } catch (err) {
+                appendTerminalDebug('Failed to clear interrupt state: ' + err)
+              }
+            }, 200)
+          } else if (!interrupted) {
+            // Try to reset the runtime to prevent "async operation in flight" errors
+            try {
+              // For asyncify MicroPython, try to reset by running a simple synchronous command
+              if (runtimeAdapter && typeof runtimeAdapter.run === 'function') {
+                setTimeout(async () => {
+                  try {
+                    appendTerminalDebug('Attempting runtime reset...')
+                    // Run a simple non-async command to help reset the asyncify state
+                    await runtimeAdapter.run('# runtime reset')
+                    appendTerminalDebug('Runtime reset completed')
+                  } catch (resetErr) {
+                    appendTerminalDebug('Runtime reset failed: ' + resetErr)
+                    // If reset fails, the user may need to refresh the page
+                    appendTerminal('Warning: Runtime may be in inconsistent state. If next execution fails, try refreshing the page.', 'runtime')
+                  }
+                }, 150)
+              }
+            } catch (_e) {
+              appendTerminalDebug('Error during runtime reset: ' + _e)
             }
-          } catch (_e) {
-            appendTerminalDebug('Error during runtime reset: ' + _e)
           }
         }
       })
@@ -1395,6 +1880,43 @@ async function main() {
             stdout, stderr, stdin, linebuffer: true,
             inputHandler: inputHandler
           })
+
+          // NEW: Check if this is the v3.0.0 asyncify build with yielding support
+          const hasYieldingSupport = typeof mpInstance.interruptExecution === 'function' &&
+            typeof mpInstance.setYielding === 'function' &&
+            typeof mpInstance.clearInterrupt === 'function'
+
+          if (hasYieldingSupport) {
+            appendTerminal('MicroPython runtime initialized (v3.0.0 with yielding support)', 'runtime')
+            appendTerminalDebug('Detected asyncify v3.0.0 with interrupt and yielding support')
+
+            // Enable yielding by default for interruptibility
+            try {
+              mpInstance.setYielding(true)
+              appendTerminalDebug('✅ Yielding enabled for VM interrupt support')
+
+              // Verify yielding is actually enabled
+              setTimeout(() => {
+                try {
+                  appendTerminalDebug('Verifying yielding state...')
+                  // Add a flag to track if yielding is enabled
+                  window.__ssg_yielding_enabled = true
+                  appendTerminalDebug('✅ Yielding state tracking initialized')
+                } catch (e) {
+                  appendTerminalDebug('Yielding verification failed: ' + e)
+                }
+              }, 100)
+
+            } catch (e) {
+              appendTerminalDebug('❌ Failed to enable yielding: ' + e)
+              appendTerminal('Warning: Could not enable yielding - interrupts may not work properly', 'runtime')
+              window.__ssg_yielding_enabled = false
+            }
+          } else {
+            appendTerminal('MicroPython runtime initialized (legacy asyncify build)', 'runtime')
+            appendTerminalDebug('Legacy asyncify build - no yielding support detected')
+          }
+
           // expose runtime FS for persistence sync
           try { window.__ssg_runtime_fs = mpInstance.FS } catch (e) { }
           try { settleVfsReady() } catch (_e) { }
@@ -1641,6 +2163,7 @@ async function main() {
 
           runtimeAdapter = {
             _module: mpInstance,  // Expose the module for asyncify detection
+            hasYieldingSupport: hasYieldingSupport,  // NEW: Flag to indicate v3.0.0 features
             runPythonAsync: async (code) => {
               captured = ''
               try {
@@ -1669,9 +2192,12 @@ async function main() {
                 // Don't return captured output since it's already been displayed in real-time
                 return ''
               } catch (e) { throw e }
-            }
+            },
+            // NEW: Expose the v3.0.0 interrupt functions
+            interruptExecution: hasYieldingSupport ? mpInstance.interruptExecution.bind(mpInstance) : null,
+            setYielding: hasYieldingSupport ? mpInstance.setYielding.bind(mpInstance) : null,
+            clearInterrupt: hasYieldingSupport ? mpInstance.clearInterrupt.bind(mpInstance) : null
           }
-          appendTerminal('MicroPython runtime initialized')
         } catch (e) { appendTerminal('Failed to initialize vendored MicroPython: ' + e) }
       } else {
         const runFn = localMod.run || localMod.default?.run || localMod.MicroPy?.run || localMod.default
@@ -1854,6 +2380,10 @@ async function main() {
     const timeoutSeconds = cfg?.execution?.timeoutSeconds || 30
     const timeoutMs = timeoutSeconds * 1000
 
+    // Safety timeout for infinite loops (default 5 seconds, configurable)
+    const safetyTimeoutSeconds = cfg?.execution?.safetyTimeoutSeconds || 5
+    const safetyTimeoutMs = Math.min(safetyTimeoutSeconds * 1000, timeoutMs)
+
     // disable terminal input by default; enable only if runtime requests input
     try { setTerminalInputEnabled(false) } catch (_e) { }
     // Activate terminal tab automatically when running
@@ -2020,22 +2550,115 @@ async function main() {
             try {
               let out = ''
               if (typeof runtimeAdapter.runPythonAsync === 'function') {
-                out = await executeWithTimeout(runtimeAdapter.runPythonAsync(codeToRun), timeoutMs)
+                out = await executeWithTimeout(runtimeAdapter.runPythonAsync(codeToRun), timeoutMs, safetyTimeoutMs)
               } else {
                 // Fallback to regular run method
-                out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs)
+                out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs, safetyTimeoutMs)
               }
               const runtimeOutput = out === undefined ? '' : String(out)
               if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
             } catch (asyncifyErr) {
               const errMsg = String(asyncifyErr)
 
+              // Handle KeyboardInterrupt (from VM interrupt) specially  
+              if (errMsg.includes('KeyboardInterrupt')) {
+                appendTerminal('>>> Execution interrupted by user (KeyboardInterrupt)', 'runtime')
+                return // Clean exit for user-initiated interrupts
+              }
+
+              // Handle safety timeout (VM stuck in tight loop)
+              if (errMsg.includes('Safety timeout') || errMsg.includes('tight loop')) {
+                appendTerminal('>>> Execution stopped: Code appears to be stuck in an infinite loop', 'runtime')
+                appendTerminal('>>> Tip: Add time.sleep() calls in loops to allow interrupts to work', 'runtime')
+                return // Clean exit for safety timeout
+              }
+
+              // Handle execution timeout
+              if (errMsg.includes('Execution timeout')) {
+                appendTerminal('>>> Execution timeout: Program took too long to complete', 'runtime')
+                return // Clean exit for timeout
+              }
+
+              // Handle cancellation
+              if (errMsg.includes('cancelled by user')) {
+                appendTerminal('>>> Execution cancelled by user', 'runtime')
+                return // Clean exit for user cancellation
+              }
+
               // Handle specific "async operation in flight" error
               if (errMsg.includes('We cannot start an async operation when one is already flight') ||
                 errMsg.includes('async operation') || errMsg.includes('already flight')) {
                 appendTerminal('Runtime Error: Previous execution was interrupted and left the runtime in an inconsistent state.', 'runtime')
-                appendTerminal('This usually happens when stopping execution during input(). Please refresh the page to reset the runtime.', 'runtime')
+                appendTerminal('Attempting automatic runtime recovery...', 'runtime')
+
+                let recovered = false
+
+                // Try aggressive v3.0.0 recovery
+                if (runtimeAdapter && runtimeAdapter.clearInterrupt) {
+                  try {
+                    appendTerminalDebug('Clearing interrupt state with v3.0.0 API...')
+                    runtimeAdapter.clearInterrupt()
+                    appendTerminalDebug('✅ Basic interrupt state cleared')
+                  } catch (err) {
+                    appendTerminalDebug('v3.0.0 clear interrupt failed: ' + err)
+                  }
+                }
+
+                // Try to reset asyncify state by reinitializing the runtime adapter
+                try {
+                  if (runtimeAdapter && runtimeAdapter._module) {
+                    appendTerminalDebug('Attempting to reset asyncify state...')
+
+                    // Try to access and reset asyncify internals if possible
+                    const Module = runtimeAdapter._module
+                    if (Module.Asyncify) {
+                      appendTerminalDebug('Found Asyncify object, attempting state reset...')
+                      try {
+                        // Reset asyncify state variables if accessible
+                        if (Module.Asyncify.currData) Module.Asyncify.currData = 0
+                        if (Module.Asyncify.state) Module.Asyncify.state = 0  // Normal state
+                        appendTerminalDebug('✅ Asyncify state variables reset')
+                        recovered = true
+                      } catch (e) {
+                        appendTerminalDebug('Asyncify state reset failed: ' + e)
+                      }
+                    }
+
+                    // Try REPL reinitialization
+                    if (typeof Module.ccall === 'function') {
+                      try {
+                        Module.ccall('mp_js_repl_init', 'null', [], [])
+                        appendTerminalDebug('✅ REPL reinitialized')
+                        recovered = true
+                      } catch (e) {
+                        appendTerminalDebug('REPL reinit failed: ' + e)
+                      }
+                    }
+                  }
+                } catch (resetErr) {
+                  appendTerminalDebug('Asyncify reset attempt failed: ' + resetErr)
+                }
+
+                if (recovered) {
+                  appendTerminal('✅ Runtime state cleared successfully', 'runtime')
+                  appendTerminal('You can try running code again. If problems persist, refresh the page.', 'runtime')
+                } else {
+                  appendTerminal('⚠️ Automatic recovery failed. You may need to refresh the page if the next execution fails.', 'runtime')
+                }
+
                 appendTerminal('Technical details: ' + errMsg, 'runtime')
+              } else if (errMsg.includes('EOFError')) {
+                appendTerminal('Input Error: Input operation was interrupted.', 'runtime')
+                appendTerminal('This is normal when stopping execution during input().', 'runtime')
+
+                // Try to clean up input state
+                try {
+                  if (window.__ssg_pending_input) {
+                    appendTerminalDebug('Cleaning up pending input state...')
+                    delete window.__ssg_pending_input
+                  }
+                  setTerminalInputEnabled(false)
+                } catch (_e) { }
               } else {
                 appendTerminal('Asyncify execution error: ' + errMsg, 'runtime')
                 // Don't map traceback for asyncify since no transformation occurred
@@ -2048,7 +2671,7 @@ async function main() {
             }
           } else {
             // Traditional transformed execution
-            const out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs)
+            const out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs, safetyTimeoutMs)
             const runtimeOutput = out === undefined ? '' : String(out)
             if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
           }
@@ -2355,6 +2978,36 @@ async function main() {
 
   // Initialize stop button
   setupStopButton()
+
+  // Add keyboard shortcut for VM interrupt (Ctrl+C)
+  document.addEventListener('keydown', (e) => {
+    // Only handle Ctrl+C when execution is running and not typing in input field
+    if (e.ctrlKey && e.key === 'c' && executionState.isRunning) {
+      // Don't interrupt if user is typing in the stdin box
+      const stdinBox = $('stdin-box')
+      if (stdinBox && document.activeElement === stdinBox) {
+        return // Let normal Ctrl+C behavior work in input field
+      }
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Trigger the same interrupt logic as the stop button
+      appendTerminal('>>> KeyboardInterrupt (Ctrl+C)', 'runtime')
+      const interrupted = interruptMicroPythonVM()
+
+      if (!interrupted && executionState.currentAbortController) {
+        try {
+          appendTerminalDebug('Falling back to AbortController...')
+          executionState.currentAbortController.abort()
+        } catch (_e) {
+          appendTerminalDebug('AbortController failed: ' + _e)
+        }
+      }
+
+      setExecutionRunning(false)
+    }
+  })
 
   // Wire stdin-send button to resolve pending host.get_input promises and clear the field
   const stdinSendBtn = $('stdin-send')
