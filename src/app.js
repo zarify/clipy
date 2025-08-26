@@ -62,6 +62,10 @@ async function main() {
         setupSideTabs()
         setupClearTerminalButton()
 
+        // Restore from the special 'current' snapshot if it exists
+        const { restoreCurrentSnapshotIfExists } = await import('./js/snapshots.js')
+        await restoreCurrentSnapshotIfExists()
+
         // 3. Initialize editor
         const cm = initializeEditor()
         const textarea = $('code')

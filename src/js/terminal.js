@@ -31,6 +31,19 @@ export function appendTerminalDebug(text) {
 // Append structured terminal lines. `kind` is one of: stdout, stderr, stdin, runtime
 export function appendTerminal(text, kind = 'stdout') {
     try {
+        // Only auto-switch to terminal if not a runtime init message
+        const shouldSwitch = !(kind === 'runtime' && typeof text === 'string' && text.includes('MicroPython runtime initialized'))
+        if (shouldSwitch) {
+            // Only switch if not already on terminal
+            const termPanel = document.getElementById('terminal')
+            if (termPanel && termPanel.style.display !== 'block') {
+                if (typeof window.activateSideTab === 'function') {
+                    window.activateSideTab('terminal')
+                } else if (typeof activateSideTab === 'function') {
+                    activateSideTab('terminal')
+                }
+            }
+        }
         const out = $('terminal-output')
         if (!out) { console.log(text); return }
         // Normalize text to string

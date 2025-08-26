@@ -1,3 +1,16 @@
+// Exported for use in autosave.js
+export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig }
+
+// Restore from the special 'current' snapshot if it exists
+export async function restoreCurrentSnapshotIfExists() {
+    const snaps = getSnapshotsForCurrentConfig()
+    const idx = snaps.findIndex(s => s.id === '__current__')
+    if (idx !== -1) {
+        await restoreSnapshot(idx, snaps)
+        return true
+    }
+    return false
+}
 // Snapshot management system
 import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs.js'
