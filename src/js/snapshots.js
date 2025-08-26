@@ -1,0 +1,297 @@
+// Snapshot management system
+import { $ } from './utils.js'
+import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs.js'
+import { openModal, closeModal, showConfirmModal } from './modals.js'
+import { appendTerminal } from './terminal.js'
+
+export function setupSnapshotSystem() {
+    const saveSnapshotBtn = $('save-snapshot')
+    const historyBtn = $('history')
+    const clearStorageBtn = $('clear-storage')
+
+    if (saveSnapshotBtn) {
+        saveSnapshotBtn.addEventListener('click', saveSnapshot)
+    }
+
+    if (historyBtn) {
+        historyBtn.addEventListener('click', openSnapshotModal)
+    }
+
+    if (clearStorageBtn) {
+        clearStorageBtn.addEventListener('click', clearStorage)
+    }
+}
+
+async function saveSnapshot() {
+    try {
+        const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
+        const snap = { ts: Date.now(), files: {} }
+        const FileManager = getFileManager()
+        const mem = getMem()
+        const backendRef = getBackendRef()
+
+        // Use the global FileManager as the authoritative source for snapshot contents
+        try {
+            if (FileManager && typeof FileManager.list === 'function') {
+                const names = FileManager.list()
+                for (const n of names) {
+                    try {
+                        const v = await Promise.resolve(FileManager.read(n))
+                        if (v != null) snap.files[n] = v
+                    } catch (_e) { }
+                }
+            } else if (mem && Object.keys(mem).length) {
+                for (const k of Object.keys(mem)) snap.files[k] = mem[k]
+            } else if (backendRef && typeof backendRef.list === 'function') {
+                const names = await backendRef.list()
+                for (const n of names) {
+                    try {
+                        snap.files[n] = await backendRef.read(n)
+                    } catch (_e) { }
+                }
+            } else {
+                // fallback to localStorage mirror
+                try {
+                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                    for (const k of Object.keys(map)) snap.files[k] = map[k]
+                } catch (_e) { }
+            }
+        } catch (e) {
+            try {
+                const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                for (const k of Object.keys(map)) snap.files[k] = map[k]
+            } catch (_e) { }
+        }
+
+        snaps.push(snap)
+        localStorage.setItem('snapshots', JSON.stringify(snaps))
+        appendTerminal('Snapshot saved (' + new Date(snap.ts).toLocaleString() + ')')
+    } catch (e) {
+        appendTerminal('Snapshot save failed: ' + e)
+    }
+}
+
+function renderSnapshots() {
+    const snapshotList = $('snapshot-list')
+    if (!snapshotList) return
+
+    const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
+    if (!snaps.length) {
+        snapshotList.textContent = 'No snapshots'
+        return
+    }
+
+    snapshotList.innerHTML = ''
+    snaps.forEach((s, i) => {
+        const div = document.createElement('div')
+        div.className = 'snapshot-item'
+
+        const left = document.createElement('div')
+        left.innerHTML = `<label><input type="checkbox" data-idx="${i}"> ${new Date(s.ts).toLocaleString()}</label>`
+
+        const right = document.createElement('div')
+        const restore = document.createElement('button')
+        restore.textContent = 'Restore'
+        restore.addEventListener('click', () => restoreSnapshot(i, snaps))
+
+        right.appendChild(restore)
+        div.appendChild(left)
+        div.appendChild(right)
+        snapshotList.appendChild(div)
+    })
+}
+
+async function restoreSnapshot(index, snapshots) {
+    try {
+        const s = snapshots[index]
+        if (!s) return
+
+        const snap = s
+
+        const backend = window.__ssg_vfs_backend
+        const { mem } = await window.__ssg_vfs_ready.catch(() => ({ mem: window.__ssg_mem }))
+        const FileManager = window.FileManager
+
+        if (backend && typeof backend.write === 'function') {
+            // Clear existing files from backend
+            try {
+                if (typeof backend.clear === 'function') {
+                    await backend.clear()
+                } else if (typeof backend.list === 'function' && typeof backend.delete === 'function') {
+                    // If no clear method, delete files individually
+                    const existingFiles = await backend.list()
+                    for (const filePath of existingFiles) {
+                        try {
+                            await backend.delete(filePath)
+                        } catch (e) {
+                            console.error('Failed to delete existing file from backend:', filePath, e)
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Backend clear/delete failed:', e)
+            }
+
+            // Write snapshot files to backend
+            for (const [path, content] of Object.entries(snap.files || {})) {
+                try {
+                    await backend.write(path, content)
+                } catch (e) {
+                    console.error('Failed to write to backend:', path, e)
+                }
+            }
+
+            // Replace in-memory mirror with snapshot contents for synchronous reads
+            try {
+                if (mem) {
+                    Object.keys(mem).forEach(k => delete mem[k])
+                    for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
+                }
+            } catch (e) {
+                console.error('Failed to update mem:', e)
+            }
+        } else if (mem) {
+            // Replace mem entirely so files from other snapshots are removed
+            try {
+                Object.keys(mem).forEach(k => delete mem[k])
+                for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
+            } catch (e) {
+                console.error('Failed to update mem directly:', e)
+            }
+
+            try {
+                const newMap = Object.create(null)
+                for (const k of Object.keys(mem)) newMap[k] = mem[k]
+                localStorage.setItem('ssg_files_v1', JSON.stringify(newMap))
+            } catch (e) {
+                console.error('Failed to update localStorage:', e)
+            }
+        }
+
+        // Reconcile via FileManager to ensure mem/localStorage/backend are consistent
+        try {
+            if (FileManager && typeof FileManager.list === 'function') {
+                const existing = FileManager.list() || []
+                for (const p of existing) {
+                    try {
+                        if (p === MAIN_FILE) continue
+                        if (!Object.prototype.hasOwnProperty.call(snap.files || {}, p)) {
+                            await Promise.resolve(FileManager.delete(p))
+                        }
+                    } catch (e) {
+                        console.error('Failed to delete file:', p, e)
+                    }
+                }
+                for (const p of Object.keys(snap.files || {})) {
+                    try {
+                        await Promise.resolve(FileManager.write(p, snap.files[p]))
+                    } catch (e) {
+                        console.error('Failed to write via FileManager:', p, e)
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('FileManager reconciliation failed:', e)
+        }
+
+        // Definitively replace in-memory map with snapshot contents to avoid any stale entries
+        try {
+            if (mem) {
+                Object.keys(mem).forEach(k => delete mem[k])
+                for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
+                try {
+                    localStorage.setItem('ssg_files_v1', JSON.stringify(mem))
+                } catch (e) {
+                    console.error('Final localStorage update failed:', e)
+                }
+            }
+        } catch (e) {
+            console.error('Final mem update failed:', e)
+        }
+
+        const modal = $('snapshot-modal')
+        closeModal(modal)
+        appendTerminal('Snapshot restored (' + new Date(s.ts).toLocaleString() + ')')
+
+        try {
+            window.__ssg_last_snapshot_restore = Date.now()
+        } catch (e) {
+            console.error('Failed to set restore flag:', e)
+        }
+
+        // Open only MAIN_FILE as focused tab
+        try {
+            if (window.TabManager && typeof window.TabManager.openTab === 'function') {
+                window.TabManager.openTab(MAIN_FILE)
+            }
+            if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
+                window.TabManager.selectTab(MAIN_FILE)
+            }
+        } catch (e) {
+            console.error('Tab management failed:', e)
+        }
+    } catch (e) {
+        console.error('restoreSnapshot failed:', e)
+        appendTerminal('Snapshot restore failed: ' + e)
+    }
+}
+
+function openSnapshotModal() {
+    const modal = $('snapshot-modal')
+    if (!modal) return
+
+    renderSnapshots()
+    openModal(modal)
+
+    // Setup modal controls
+    const closeBtn = $('close-snapshots')
+    const deleteBtn = $('delete-selected')
+
+    if (closeBtn) {
+        closeBtn.removeEventListener('click', closeSnapshotModal) // Remove any existing listeners
+        closeBtn.addEventListener('click', closeSnapshotModal)
+    }
+
+    if (deleteBtn) {
+        deleteBtn.removeEventListener('click', deleteSelectedSnapshots) // Remove any existing listeners
+        deleteBtn.addEventListener('click', deleteSelectedSnapshots)
+    }
+}
+
+function closeSnapshotModal() {
+    const modal = $('snapshot-modal')
+    closeModal(modal)
+}
+
+function deleteSelectedSnapshots() {
+    const snapshotList = $('snapshot-list')
+    if (!snapshotList) return
+
+    const checks = Array.from(snapshotList.querySelectorAll('input[type=checkbox]:checked'))
+    if (!checks.length) {
+        appendTerminal('No snapshots selected for deletion')
+        return
+    }
+
+    const idxs = checks.map(c => Number(c.getAttribute('data-idx'))).sort((a, b) => b - a)
+    const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
+
+    for (const i of idxs) snaps.splice(i, 1)
+    localStorage.setItem('snapshots', JSON.stringify(snaps))
+    renderSnapshots()
+}
+
+async function clearStorage() {
+    const ok = await showConfirmModal('Clear storage', 'Clear saved snapshots and storage?')
+    if (!ok) {
+        appendTerminal('Clear storage cancelled')
+        return
+    }
+
+    try {
+        localStorage.removeItem('snapshots')
+        appendTerminal('Cleared snapshots and storage')
+    } catch (e) {
+        appendTerminal('Clear storage failed: ' + e)
+    }
+}

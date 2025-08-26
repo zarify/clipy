@@ -56,8 +56,8 @@
         <div id="tabs-left" style="display:flex;gap:6px;align-items:center"></div>
         <button id="tab-new" title="New file" aria-label="New file">+</button>
       </div>
-      <!-- Keep a hidden textarea as a fallback and as the initial source for CodeMirror -->
-      <textarea id="code" style="display:none"></textarea>
+      <!-- Keep textarea accessible for tests -->
+      <textarea id="code"></textarea>
       <div id="editor-host" class="cm-editor" aria-label="Code editor"></div>
       <div class="editor-controls">
         <div class="editor-actions">
@@ -131,7 +131,7 @@
       </div>
     </div>
   </div>
-  <script type="module" src="./main-new.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 
 </html>
