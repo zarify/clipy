@@ -6,7 +6,7 @@ import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getCo
 import { $ } from './js/utils.js'
 
 // Terminal and UI
-import { initializeTerminal, setupSideTabs } from './js/terminal.js'
+import { initializeTerminal, setupSideTabs, setupClearTerminalButton } from './js/terminal.js'
 import { initializeEditor } from './js/editor.js'
 import { initializeAutosave } from './js/autosave.js'
 
@@ -60,6 +60,7 @@ async function main() {
         // 2. Initialize core UI components
         initializeTerminal()
         setupSideTabs()
+        setupClearTerminalButton()
 
         // 3. Initialize editor
         const cm = initializeEditor()

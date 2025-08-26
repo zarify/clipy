@@ -37,7 +37,13 @@
           <div id="instructions-content">Loading...</div>
         </div>
         <div id="terminal" class="panel-child" style="display:none">
-          <h2>Terminal</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <h2 style="margin:0">Terminal</h2>
+            <button id="clear-terminal" class="btn btn-ghost" title="Clear terminal" aria-label="Clear terminal">
+              <span class="icon" aria-hidden="true">🧹</span>
+              <span>Clear</span>
+            </button>
+          </div>
           <div id="terminal-output" class="terminal-output" tabindex="0" role="log" aria-live="polite"></div>
           <form id="terminal-input-form" class="term-input" action="#" onsubmit="return false;">
             <label class="prompt" aria-hidden="true">$</label>

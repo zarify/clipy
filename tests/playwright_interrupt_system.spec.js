@@ -16,7 +16,7 @@ test.describe('MicroPython Interrupt and Yielding Tests', () => {
         await page.waitForTimeout(2000);
     });
 
-    test('should detect v3.0.0 interrupt capabilities', async ({ page }) => {
+    test('should detect asyncify interrupt capabilities', async ({ page }) => {
         // Set some simple code to verify the runtime
         await page.evaluate(() => {
             // Access CodeMirror instance and set code
@@ -52,7 +52,7 @@ test.describe('MicroPython Interrupt and Yielding Tests', () => {
             return { available: false };
         });
 
-        // Should have v3.0.0 capabilities
+        // Should have asyncify capabilities
         console.log('Test result:', runtimeCapabilities);
         if (!runtimeCapabilities.hasInterrupt) {
             throw new Error(`Expected hasInterrupt to be true, got: ${JSON.stringify(runtimeCapabilities, null, 2)}`);

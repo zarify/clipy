@@ -1,3 +1,21 @@
+// Clear all terminal output
+export function clearTerminal() {
+    try {
+        const out = $('terminal-output')
+        if (out) {
+            out.innerHTML = ''
+        }
+    } catch (_e) { }
+}
+// Setup clear terminal button event listener
+export function setupClearTerminalButton() {
+    try {
+        const btn = $('clear-terminal')
+        if (btn) {
+            btn.addEventListener('click', clearTerminal)
+        }
+    } catch (_e) { }
+}
 // Terminal output and UI management
 import { $ } from './utils.js'
 

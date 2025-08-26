@@ -125,9 +125,9 @@ async function saveSnapshot() {
         saveSnapshotsForCurrentConfig(snaps)
 
         const identity = getConfigIdentity()
-        appendTerminal(`Snapshot saved for ${identity} (${new Date(snap.ts).toLocaleString()})`)
+        appendTerminal(`Snapshot saved for ${identity} (${new Date(snap.ts).toLocaleString()})`, 'runtime')
     } catch (e) {
-        appendTerminal('Snapshot save failed: ' + e)
+        appendTerminal('Snapshot save failed: ' + e, 'runtime')
     }
 }
 
@@ -281,7 +281,7 @@ async function restoreSnapshot(index, snapshots) {
 
         const modal = $('snapshot-modal')
         closeModal(modal)
-        appendTerminal('Snapshot restored (' + new Date(s.ts).toLocaleString() + ')')
+        appendTerminal('Snapshot restored (' + new Date(s.ts).toLocaleString() + ')', 'runtime')
 
         try {
             window.__ssg_last_snapshot_restore = Date.now()
@@ -302,7 +302,7 @@ async function restoreSnapshot(index, snapshots) {
         }
     } catch (e) {
         console.error('restoreSnapshot failed:', e)
-        appendTerminal('Snapshot restore failed: ' + e)
+        appendTerminal('Snapshot restore failed: ' + e, 'runtime')
     }
 }
 
@@ -349,7 +349,7 @@ function deleteSelectedSnapshots() {
 
     const checks = Array.from(snapshotList.querySelectorAll('input[type=checkbox]:checked'))
     if (!checks.length) {
-        appendTerminal('No snapshots selected for deletion')
+        appendTerminal('No snapshots selected for deletion', 'runtime')
         return
     }
 
@@ -360,7 +360,7 @@ function deleteSelectedSnapshots() {
     saveSnapshotsForCurrentConfig(snaps)
     renderSnapshots()
 
-    appendTerminal(`Deleted ${idxs.length} snapshot(s)`)
+    appendTerminal(`Deleted ${idxs.length} snapshot(s)`, 'runtime')
 }
 
 async function clearStorage() {
@@ -371,20 +371,20 @@ async function clearStorage() {
         `Clear all saved snapshots for ${configIdentity}? This cannot be undone.`
     )
     if (!ok) {
-        appendTerminal('Clear snapshots cancelled')
+        appendTerminal('Clear snapshots cancelled', 'runtime')
         return
     }
 
     try {
         const storageKey = getSnapshotStorageKey()
         localStorage.removeItem(storageKey)
-        appendTerminal(`Cleared all snapshots for ${configIdentity}`)
+        appendTerminal(`Cleared all snapshots for ${configIdentity}`, 'runtime')
 
         // Update the modal if it's open
         try {
             renderSnapshots()
         } catch (_e) { }
     } catch (e) {
-        appendTerminal('Clear snapshots failed: ' + e)
+        appendTerminal('Clear snapshots failed: ' + e, 'runtime')
     }
 }

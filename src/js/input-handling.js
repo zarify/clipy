@@ -91,11 +91,13 @@ export function createInputHandler() {
                         if (terminalOutput) {
                             const lines = terminalOutput.querySelectorAll('.terminal-line')
                             const lastLine = lines[lines.length - 1]
-
                             if (lastLine) {
-                                // Append input directly to the last line (which should be the prompt)
+                                // Append user input as a styled span to the last line (prompt)
                                 if (value && value.trim()) {
-                                    lastLine.textContent += String(value)
+                                    const userSpan = document.createElement('span')
+                                    userSpan.className = 'term-stdin-user'
+                                    userSpan.textContent = String(value)
+                                    lastLine.appendChild(userSpan)
                                 }
                                 // Always add a new line after input (or after prompt if blank input)
                                 appendTerminal('', 'stdout')

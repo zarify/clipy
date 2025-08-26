@@ -1,3 +1,10 @@
+.term-stdin-user {
+    color: #2a7a2a;
+    font-weight: normal;
+    margin-left: 0.25em;
+    font-family: inherit;
+}
+
 :root {
     --bg: #f6f7fb;
     --panel: #fff;

@@ -55,7 +55,7 @@ function setupNotificationSystem() {
                 // global suppress guard: if set, ignore runtime-originated notifications
                 try {
                     if (window.__ssg_suppress_notifier) {
-                        try { appendTerminal && appendTerminal('[notify] globally suppressed: ' + String(path)) } catch (_e) { }
+                        try { appendTerminalDebug && appendTerminalDebug('[notify] globally suppressed: ' + String(path)) } catch (_e) { }
                         return
                     }
                 } catch (_e) { }

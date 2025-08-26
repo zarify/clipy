@@ -80,15 +80,15 @@ export function interruptMicroPythonVM() {
         appendTerminal('⚠️ Interrupting during input may require recovery afterward', 'runtime')
     }
 
-    // NEW: Try v3.0.0 asyncify interrupt API first (much more reliable)
+    // NEW: Try asyncify interrupt API first (much more reliable)
     if (runtimeAdapter.hasYieldingSupport && runtimeAdapter.interruptExecution) {
         try {
-            appendTerminalDebug('Using v3.0.0 asyncify interrupt API...')
+            appendTerminalDebug('Using asyncify interrupt API...')
             runtimeAdapter.interruptExecution()
             appendTerminalDebug('✅ VM interrupt sent via interruptExecution()')
             return true
         } catch (err) {
-            appendTerminalDebug('v3.0.0 interrupt failed: ' + err)
+            appendTerminalDebug('Asyncify interrupt failed: ' + err)
             // Fall through to legacy method
         }
     }
@@ -109,7 +109,7 @@ export function interruptMicroPythonVM() {
     return false
 }
 
-// Enhanced interrupt and yielding functions for v3.0.0
+// Enhanced interrupt and yielding functions for asyncify builds
 export function setupMicroPythonAPI() {
     try {
         // Store interrupt function globally for easy access
@@ -139,7 +139,7 @@ export function setupMicroPythonAPI() {
             return success
         }
 
-        // NEW: Expose v3.0.0 yielding controls globally for debugging
+        // NEW: Expose yielding controls globally for debugging
         window.setMicroPythonYielding = function (enabled) {
             if (!runtimeAdapter) {
                 console.log('No runtime adapter available')
@@ -147,7 +147,7 @@ export function setupMicroPythonAPI() {
             }
 
             if (!runtimeAdapter.setYielding) {
-                console.log('Yielding control not available (requires asyncify v3.0.0)')
+                console.log('Yielding control not available (requires asyncify build)')
                 return false
             }
 
@@ -178,14 +178,14 @@ export function setupMicroPythonAPI() {
 
             let success = false
 
-            // Try v3.0.0 clear interrupt method
+            // Try asyncify clear interrupt method
             if (runtimeAdapter.clearInterrupt) {
                 try {
                     runtimeAdapter.clearInterrupt()
-                    console.log('✅ Interrupt state cleared with v3.0.0 API')
+                    console.log('✅ Interrupt state cleared with asyncify API')
                     success = true
                 } catch (err) {
-                    console.log('v3.0.0 clear interrupt failed:', err)
+                    console.log('Asyncify clear interrupt failed:', err)
                 }
             }
 
@@ -253,7 +253,7 @@ export function setupMicroPythonAPI() {
             }
 
             if (status.hasYieldingSupport) {
-                status.availableMethods.push('v3.0.0 interruptExecution()')
+                status.availableMethods.push('asyncify interruptExecution()')
             }
             if (status.hasLegacyInterrupt) {
                 status.availableMethods.push('legacy mp_sched_keyboard_interrupt()')
@@ -346,7 +346,7 @@ export function setupStopButton() {
                 // Clean up execution state 
                 setExecutionRunning(false)
 
-                // For v3.0.0 builds, attempt to clear interrupt state after processing
+                // For asyncify builds, attempt to clear interrupt state after processing
                 if (interrupted && runtimeAdapter?.clearInterrupt) {
                     setTimeout(() => {
                         try {
@@ -509,14 +509,14 @@ export async function loadMicroPythonRuntime(cfg) {
                         inputHandler: inputHandler
                     })
 
-                    // NEW: Check if this is the v3.0.0 asyncify build with yielding support
+                    // NEW: Check if this is an asyncify build with yielding support
                     const hasYieldingSupport = typeof mpInstance.interruptExecution === 'function' &&
                         typeof mpInstance.setYielding === 'function' &&
                         typeof mpInstance.clearInterrupt === 'function'
 
                     if (hasYieldingSupport) {
-                        appendTerminal('MicroPython runtime initialized (v3.0.0 with yielding support)', 'runtime')
-                        appendTerminalDebug('Detected asyncify v3.0.0 with interrupt and yielding support')
+                        appendTerminal('MicroPython runtime initialized (with yielding support)', 'runtime')
+                        appendTerminalDebug('Detected asyncify build with interrupt and yielding support')
 
                         // Enable yielding by default for interruptibility
                         try {
@@ -589,7 +589,7 @@ export async function loadMicroPythonRuntime(cfg) {
 
                     setRuntimeAdapter({
                         _module: mpInstance,  // Expose the module for asyncify detection
-                        hasYieldingSupport: hasYieldingSupport,  // NEW: Flag to indicate v3.0.0 features
+                        hasYieldingSupport: hasYieldingSupport,  // NEW: Flag to indicate asyncify features
                         runPythonAsync: async (code) => {
                             captured = ''
                             try {
@@ -619,7 +619,7 @@ export async function loadMicroPythonRuntime(cfg) {
                                 return ''
                             } catch (e) { throw e }
                         },
-                        // NEW: Expose the v3.0.0 interrupt functions
+                        // NEW: Expose the asyncify interrupt functions
                         interruptExecution: hasYieldingSupport ? mpInstance.interruptExecution.bind(mpInstance) : null,
                         setYielding: hasYieldingSupport ? mpInstance.setYielding.bind(mpInstance) : null,
                         clearInterrupt: hasYieldingSupport ? mpInstance.clearInterrupt.bind(mpInstance) : null

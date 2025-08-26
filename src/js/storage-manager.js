@@ -66,7 +66,7 @@ export function safeSetItem(key, value) {
 async function handleQuotaExceeded(key, value) {
     const usage = getStorageUsage()
 
-    appendTerminal(`⚠️ Storage quota exceeded (${usage.totalSizeMB}MB used)`)
+    appendTerminal(`⚠️ Storage quota exceeded (${usage.totalSizeMB}MB used)`, 'runtime')
 
     // Show user options
     const action = await showStorageQuotaModal(usage)
@@ -159,7 +159,7 @@ async function cleanupOldSnapshots() {
     const snapshots = JSON.parse(localStorage.getItem(configKey) || '[]')
 
     if (snapshots.length <= 1) {
-        appendTerminal('No old snapshots to clean up')
+        appendTerminalDebug('No old snapshots to clean up')
         return
     }
 
@@ -168,7 +168,7 @@ async function cleanupOldSnapshots() {
     const keep = sorted.slice(0, 3)
 
     localStorage.setItem(configKey, JSON.stringify(keep))
-    appendTerminal(`Cleaned up ${snapshots.length - keep.length} old snapshots`)
+    appendTerminalDebug(`Cleaned up ${snapshots.length - keep.length} old snapshots`)
 }
 
 /**
@@ -185,7 +185,7 @@ async function cleanupOtherConfigs() {
     }
 
     keysToRemove.forEach(key => localStorage.removeItem(key))
-    appendTerminal(`Cleaned up snapshots from ${keysToRemove.length} other configurations`)
+    appendTerminalDebug(`Cleaned up snapshots from ${keysToRemove.length} other configurations`)
 }
 
 /**
@@ -208,7 +208,7 @@ async function cleanupAllStorageData() {
     }
 
     keysToRemove.forEach(key => localStorage.removeItem(key))
-    appendTerminal(`Emergency cleanup: removed ${keysToRemove.length} storage items`)
+    appendTerminalDebug(`Emergency cleanup: removed ${keysToRemove.length} storage items`)
 }
 
 /**
@@ -240,18 +240,18 @@ export function showStorageInfo() {
     const usage = getStorageUsage()
     const configs = getAllSnapshotConfigs()
 
-    appendTerminal(`📊 Storage Usage: ${usage.totalSizeMB}MB / ${(LOCALSTORAGE_LIMIT / (1024 * 1024)).toFixed(0)}MB (${(usage.percentage * 100).toFixed(1)}%)`)
+    appendTerminal(`📊 Storage Usage: ${usage.totalSizeMB}MB / ${(LOCALSTORAGE_LIMIT / (1024 * 1024)).toFixed(0)}MB (${(usage.percentage * 100).toFixed(1)}%)`, 'runtime')
 
     if (usage.breakdown.snapshots) {
-        appendTerminal(`📸 Snapshots: ${(usage.breakdown.snapshots / (1024 * 1024)).toFixed(2)}MB across ${configs.length} configurations`)
+        appendTerminal(`📸 Snapshots: ${(usage.breakdown.snapshots / (1024 * 1024)).toFixed(2)}MB across ${configs.length} configurations`, 'runtime')
     }
 
     if (usage.breakdown.files) {
-        appendTerminal(`📁 Files: ${(usage.breakdown.files / (1024 * 1024)).toFixed(2)}MB`)
+        appendTerminal(`📁 Files: ${(usage.breakdown.files / (1024 * 1024)).toFixed(2)}MB`, 'runtime')
     }
 
     if (usage.isWarning) {
-        appendTerminal(`⚠️ Storage usage is ${usage.isCritical ? 'critical' : 'high'}. Consider cleaning up old snapshots.`)
+        appendTerminal(`⚠️ Storage usage is ${usage.isCritical ? 'critical' : 'high'}. Consider cleaning up old snapshots.`, 'runtime')
     }
 
     return usage
@@ -264,9 +264,9 @@ export function checkStorageHealth() {
     const usage = getStorageUsage()
 
     if (usage.isCritical) {
-        appendTerminal(`🚨 Critical: Storage ${(usage.percentage * 100).toFixed(1)}% full. Please clean up data soon.`)
+        appendTerminal(`🚨 Critical: Storage ${(usage.percentage * 100).toFixed(1)}% full. Please clean up data soon.`, 'runtime')
     } else if (usage.isWarning) {
-        appendTerminal(`⚠️ Warning: Storage ${(usage.percentage * 100).toFixed(1)}% full.`)
+        appendTerminal(`⚠️ Warning: Storage ${(usage.percentage * 100).toFixed(1)}% full.`, 'runtime')
     }
 
     return usage

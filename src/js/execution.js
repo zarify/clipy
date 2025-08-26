@@ -95,10 +95,11 @@ async function syncVFSBeforeRun() {
             }
         } catch (_e) {
             appendTerminal('Pre-run sync error: ' + _e)
+            appendTerminal('Pre-run sync error: ' + _e, 'runtime')
         }
 
         if (backend && typeof backend.mountToEmscripten === 'function' && fs) {
-            appendTerminal('Ensuring VFS is mounted into MicroPython FS (pre-run)')
+            appendTerminalDebug('Ensuring VFS is mounted into MicroPython FS (pre-run)')
             // Mark expected writes for backend files so mount echoes are ignored by the notifier.
             try {
                 const bk = await backend.list()
@@ -119,14 +120,14 @@ async function syncVFSBeforeRun() {
                     mounted = true
                     appendTerminalDebug('VFS mounted into MicroPython FS (pre-run)')
                 } catch (merr) {
-                    appendTerminal('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
+                    appendTerminalDebug('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
                     await new Promise(r => setTimeout(r, 150))
                 }
             }
-            if (!mounted) appendTerminal('Warning: VFS pre-run mount attempts exhausted')
+            if (!mounted) appendTerminalDebug('Warning: VFS pre-run mount attempts exhausted')
         }
     } catch (_m) {
-        appendTerminal('VFS pre-run mount error: ' + _m)
+        appendTerminal('VFS pre-run mount error: ' + _m, 'runtime')
     }
 }
 
@@ -151,7 +152,7 @@ async function syncVFSAfterRun() {
             } catch (_e) { }
         }
     } catch (e) {
-        appendTerminal('VFS sync after run failed: ' + e)
+        appendTerminal('VFS sync after run failed: ' + e, 'runtime')
     }
 }
 
@@ -215,7 +216,7 @@ export async function runPythonCode(code, cfg) {
                 needsTransformation = true
             }
 
-            // Try asyncify execution first (v3.0.0 preferred path)
+            // Try asyncify execution first (preferred path)
             if (isAsyncify && !needsTransformation) {
                 appendTerminalDebug('Executing with asyncify runPythonAsync - native input() support')
                 try {
@@ -264,14 +265,14 @@ export async function runPythonCode(code, cfg) {
 
                         let recovered = false
 
-                        // Try aggressive v3.0.0 recovery
+                        // Try aggressive asyncify recovery
                         if (runtimeAdapter && runtimeAdapter.clearInterrupt) {
                             try {
-                                appendTerminalDebug('Clearing interrupt state with v3.0.0 API...')
+                                appendTerminalDebug('Clearing interrupt state with asyncify API...')
                                 runtimeAdapter.clearInterrupt()
                                 appendTerminalDebug('✅ Basic interrupt state cleared')
                             } catch (err) {
-                                appendTerminalDebug('v3.0.0 clear interrupt failed: ' + err)
+                                appendTerminalDebug('Asyncify clear interrupt failed: ' + err)
                             }
                         }
 
@@ -317,7 +318,7 @@ export async function runPythonCode(code, cfg) {
                             appendTerminal('⚠️ Automatic recovery failed. You may need to refresh the page if the next execution fails.', 'runtime')
                         }
 
-                        appendTerminal('Technical details: ' + errMsg, 'runtime')
+                        appendTerminalDebug('Technical details: ' + errMsg)
                     } else if (errMsg.includes('EOFError')) {
                         appendTerminal('Input Error: Input operation was interrupted.', 'runtime')
                         appendTerminal('This is normal when stopping execution during input().', 'runtime')
@@ -382,7 +383,7 @@ export async function runPythonCode(code, cfg) {
                         try {
                             mapTracebackAndShow(String(e), headerLines, code, appendTerminal)
                         } catch (_) {
-                            appendTerminal('Runtime error: ' + e)
+                            appendTerminal('Runtime error: ' + e, 'runtime')
                         }
                     }
                 }
@@ -391,7 +392,7 @@ export async function runPythonCode(code, cfg) {
             // Sync VFS after execution
             await syncVFSAfterRun()
         } else {
-            appendTerminal('[error] no runtime adapter available')
+            appendTerminal('Runtime error: no runtime adapter available', 'runtime')
         }
     } catch (e) {
         appendTerminal('Transform/run error: ' + e, 'runtime')

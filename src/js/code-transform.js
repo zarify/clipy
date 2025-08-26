@@ -177,8 +177,8 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     })
 
     appendTerminal(mapped, 'stderr')
-    appendTerminal('[mapped traceback]')
-    appendTerminal(mapped)
+    appendTerminalDebug('[mapped traceback]')
+    appendTerminalDebug(mapped)
 
     // Optionally show small source context for first mapped line
     const m = mapped.match(/line (\d+)/)
@@ -186,10 +186,10 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
         const errLine = Math.max(1, Number(m[1]))
         const userLines = userCode.split('\n')
         const contextStart = Math.max(0, errLine - 3)
-        appendTerminal('--- source context (student code) ---')
+        appendTerminalDebug('--- source context (student code) ---')
         for (let i = contextStart; i < Math.min(userLines.length, errLine + 2); i++) {
             const prefix = (i + 1 === errLine) ? '-> ' : '   '
-            appendTerminal(prefix + String(i + 1).padStart(3, ' ') + ': ' + userLines[i])
+            appendTerminalDebug(prefix + String(i + 1).padStart(3, ' ') + ': ' + userLines[i])
         }
     }
 }
