@@ -1,6 +1,7 @@
 // File management and VFS integration
 import { $ } from './utils.js'
 import { appendTerminal, appendTerminalDebug } from './terminal.js'
+import { safeSetItem } from './storage-manager.js'
 
 // Name of the protected main program file (normalized)
 export const MAIN_FILE = '/main.py'
@@ -86,7 +87,10 @@ function setupNotificationSystem() {
                 try {
                     const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
                     map[n] = content
-                    localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                    if (!result.success) {
+                        console.warn('Failed to update localStorage mirror:', result.error)
+                    }
                 } catch (_e) { }
 
                 // Queue the path for the UI to open later via the existing pending-tabs flow.
@@ -161,7 +165,12 @@ let FileManager = {
             return {}
         }
     },
-    _save(m) { localStorage.setItem(this.key, JSON.stringify(m)) },
+    _save(m) {
+        const result = safeSetItem(this.key, JSON.stringify(m))
+        if (!result.success) {
+            throw new Error(result.error || 'Storage quota exceeded')
+        }
+    },
     _norm(p) { if (!p) return p; return p.startsWith('/') ? p : ('/' + p) },
 
     list() { return Object.keys(this._load()).sort() },
@@ -296,7 +305,10 @@ export async function initializeVFS(cfg) {
                 try {
                     const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
                     map[n] = content
-                    localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                    if (!result.success) {
+                        console.warn('Failed to update localStorage mirror:', result.error)
+                    }
                 } catch (_e) { }
 
                 return backend.write(n, content).catch(e => {
@@ -316,7 +328,10 @@ export async function initializeVFS(cfg) {
                 try {
                     const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
                     delete map[n]
-                    localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                    if (!result.success) {
+                        console.warn('Failed to update localStorage mirror:', result.error)
+                    }
                 } catch (_e) { }
 
                 // also attempt to remove from interpreter FS

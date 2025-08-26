@@ -4,6 +4,7 @@ import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
 import { appendTerminal } from './terminal.js'
 import { getConfigKey, getConfigIdentity } from './config.js'
+import { safeSetItem, checkStorageHealth, showStorageInfo } from './storage-manager.js'
 
 export function setupSnapshotSystem() {
     const saveSnapshotBtn = $('save-snapshot')
@@ -21,6 +22,9 @@ export function setupSnapshotSystem() {
     if (clearStorageBtn) {
         clearStorageBtn.addEventListener('click', clearStorage)
     }
+
+    // Check storage health on startup
+    setTimeout(() => checkStorageHealth(), 1000)
 }
 
 function getSnapshotStorageKey() {
@@ -56,7 +60,13 @@ function getSnapshotsForCurrentConfig() {
 function saveSnapshotsForCurrentConfig(snapshots) {
     const storageKey = getSnapshotStorageKey()
     try {
-        localStorage.setItem(storageKey, JSON.stringify(snapshots))
+        const result = safeSetItem(storageKey, JSON.stringify(snapshots))
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to save snapshots')
+        }
+        if (result.recovered) {
+            appendTerminal('Snapshots saved after storage cleanup')
+        }
     } catch (e) {
         console.error('Failed to save snapshots:', e)
         throw e
@@ -306,6 +316,7 @@ function openSnapshotModal() {
     // Setup modal controls
     const closeBtn = $('close-snapshots')
     const deleteBtn = $('delete-selected')
+    const storageInfoBtn = $('storage-info')
 
     if (closeBtn) {
         closeBtn.removeEventListener('click', closeSnapshotModal) // Remove any existing listeners
@@ -316,6 +327,15 @@ function openSnapshotModal() {
         deleteBtn.removeEventListener('click', deleteSelectedSnapshots) // Remove any existing listeners
         deleteBtn.addEventListener('click', deleteSelectedSnapshots)
     }
+
+    if (storageInfoBtn) {
+        storageInfoBtn.removeEventListener('click', showStorageInfoInTerminal)
+        storageInfoBtn.addEventListener('click', showStorageInfoInTerminal)
+    }
+}
+
+function showStorageInfoInTerminal() {
+    showStorageInfo()
 }
 
 function closeSnapshotModal() {

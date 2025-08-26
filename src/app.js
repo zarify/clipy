@@ -29,6 +29,7 @@ import { transformAndWrap } from './js/code-transform.js'
 
 // Additional features
 import { setupSnapshotSystem } from './js/snapshots.js'
+import { showStorageInfo } from './js/storage-manager.js'
 
 // Expose global functions for tests and debugging
 try {
@@ -40,6 +41,8 @@ try {
         getConfigKey,
         validateAndNormalizeConfig
     }
+    // Expose storage info for debugging
+    window.showStorageInfo = showStorageInfo
 } catch (_e) { }
 
 // Main initialization function
