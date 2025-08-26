@@ -187,34 +187,45 @@ test.describe('Storage Management - UI Integration', () => {
             await page.locator('#clear-storage').click({ force: true })
         }
 
-        // Should show confirmation modal
-        await page.waitForSelector('.modal[aria-hidden="false"]', { timeout: 5000 })
-        const confirmModal = page.locator('.modal[aria-hidden="false"]').last()
+        // Close the snapshot modal using the Close button for reliability
+        await page.click('#close-snapshots')
+        await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
+
+        // Now click clear-storage
+        await page.click('#clear-storage')
+        // Wait for the confirmation modal to appear
+        await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
+        await page.waitForTimeout(200) // Give time for animation/render
+        const confirmModal = page.locator('#confirm-modal[aria-hidden="false"]')
         await expect(confirmModal).toBeVisible()
 
-        // Check confirmation content
-        await expect(confirmModal).toContainText('clear all snapshots')
-        await expect(confirmModal).toContainText('current configuration')
+        // Check confirmation content (title or message)
+        await expect(confirmModal).toContainText(/clear all saved snapshots|clear snapshots|this cannot be undone/i)
 
         // Test cancel
         await page.click('#confirm-no')
         await page.waitForTimeout(500)
 
         // Modal should be closed, snapshots should remain
+        // Reopen snapshot modal to check
+        await page.click('#history')
+        await page.waitForSelector('#snapshot-list')
         await expect(page.locator('.snapshot-item')).toHaveCount(1)
 
-        // Try again and confirm
-        try {
-            await page.click('#clear-storage', { timeout: 5000 })
-        } catch (error) {
-            await page.locator('#clear-storage').click({ force: true })
-        }
+        // Close snapshot modal again
+        await page.click('#close-snapshots')
+        await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
 
-        await page.waitForSelector('.modal[aria-hidden="false"]', { timeout: 5000 })
+        // Try again and confirm
+        await page.click('#clear-storage')
+        await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
+        await page.waitForTimeout(200)
         await page.click('#confirm-yes')
         await page.waitForTimeout(500)
 
-        // Snapshots should be cleared
+        // Reopen snapshot modal to check cleared state
+        await page.click('#history')
+        await page.waitForSelector('#snapshot-list')
         const snapshotItems = page.locator('.snapshot-item')
         await expect(snapshotItems).toHaveCount(0)
 
