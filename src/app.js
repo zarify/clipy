@@ -2,7 +2,7 @@
 // This replaces the monolithic main.js with organized, maintainable modules
 
 // Core utilities and configuration
-import { loadConfig, initializeInstructions } from './js/config.js'
+import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig } from './js/config.js'
 import { $ } from './js/utils.js'
 
 // Terminal and UI
@@ -33,6 +33,13 @@ import { setupSnapshotSystem } from './js/snapshots.js'
 // Expose global functions for tests and debugging
 try {
     window.__ssg_transform = transformAndWrap
+    // Expose Config object for tests
+    window.Config = {
+        current: null,
+        getConfigIdentity,
+        getConfigKey,
+        validateAndNormalizeConfig
+    }
 } catch (_e) { }
 
 // Main initialization function
@@ -43,6 +50,9 @@ async function main() {
         // 1. Load configuration
         const cfg = await loadConfig()
         initializeInstructions(cfg)
+
+        // Expose current config globally for tests
+        try { window.Config.current = cfg } catch (_e) { }
 
         // 2. Initialize core UI components
         initializeTerminal()

@@ -636,7 +636,12 @@ export async function loadMicroPythonRuntime(cfg) {
     }
 
     // If no local vendor adapter, try external runtime
-    const runtimeUrl = (cfg?.runtime?.url && cfg.runtime.url.trim()) ? cfg.runtime.url.trim() : cfg?.runtime?.recommended
+    // Get runtime URL from config
+    const runtimeUrl = cfg?.runtime?.url || './vendor/micropython.mjs'
+
+    if (!runtimeUrl || typeof runtimeUrl !== 'string') {
+        throw new Error('No valid MicroPython runtime URL specified in configuration')
+    }
     if (runtimeUrl) {
         appendTerminalDebug('Loading external runtime: ' + runtimeUrl)
         try {

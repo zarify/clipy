@@ -15,6 +15,13 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
 
   // Ensure clean state
   await page.evaluate(() => {
+    // Clear config-specific snapshot storage
+    const keys = Object.keys(localStorage)
+    keys.forEach(key => {
+      if (key.startsWith('snapshots_')) {
+        localStorage.removeItem(key)
+      }
+    })
     try { localStorage.removeItem('snapshots') } catch (_e) { }
     try { localStorage.removeItem('ssg_files_v1') } catch (_e) { }
     try { window.__ssg_last_snapshot_restore = 0 } catch (_e) { }
@@ -26,14 +33,22 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   })
   await page.click('#save-snapshot')
   // wait for snapshot to persist
-  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    if (!window.Config) return false
+    const configKey = window.Config.getConfigKey()
+    return Boolean(localStorage.getItem(configKey))
+  }, { timeout: 2000 })
 
   // Delete /iso.txt and save snapshot B
   await page.evaluate(async () => {
     try { if (window.FileManager) await window.FileManager.delete('/iso.txt') } catch (_e) { }
   })
   await page.click('#save-snapshot')
-  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    if (!window.Config) return false
+    const configKey = window.Config.getConfigKey()
+    return Boolean(localStorage.getItem(configKey))
+  }, { timeout: 2000 })
 
   // Restore snapshot A (first saved)
   await page.click('#history')

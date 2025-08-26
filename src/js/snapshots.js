@@ -3,6 +3,7 @@ import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
 import { appendTerminal } from './terminal.js'
+import { getConfigKey, getConfigIdentity } from './config.js'
 
 export function setupSnapshotSystem() {
     const saveSnapshotBtn = $('save-snapshot')
@@ -22,10 +23,57 @@ export function setupSnapshotSystem() {
     }
 }
 
+function getSnapshotStorageKey() {
+    const identity = getConfigIdentity()
+    return `snapshots_${identity}`
+}
+
+function getSnapshotsForCurrentConfig() {
+    const storageKey = getSnapshotStorageKey()
+    const configIdentity = getConfigIdentity()
+
+    try {
+        const snaps = JSON.parse(localStorage.getItem(storageKey) || '[]')
+
+        // Filter to only include snapshots that match current config identity
+        return snaps.filter(snap => {
+            if (!snap.config) return false // Skip legacy snapshots without config info
+            if (typeof snap.config === 'string') {
+                return snap.config === configIdentity
+            }
+            // For object-style config, convert to string for comparison
+            if (snap.config.id && snap.config.version) {
+                return `${snap.config.id}@${snap.config.version}` === configIdentity
+            }
+            return false
+        })
+    } catch (e) {
+        console.error('Failed to load snapshots:', e)
+        return []
+    }
+}
+
+function saveSnapshotsForCurrentConfig(snapshots) {
+    const storageKey = getSnapshotStorageKey()
+    try {
+        localStorage.setItem(storageKey, JSON.stringify(snapshots))
+    } catch (e) {
+        console.error('Failed to save snapshots:', e)
+        throw e
+    }
+}
+
 async function saveSnapshot() {
     try {
-        const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
-        const snap = { ts: Date.now(), files: {} }
+        const snaps = getSnapshotsForCurrentConfig()
+        const configIdentity = getConfigIdentity()
+
+        const snap = {
+            ts: Date.now(),
+            config: configIdentity,
+            files: {}
+        }
+
         const FileManager = getFileManager()
         const mem = getMem()
         const backendRef = getBackendRef()
@@ -64,8 +112,10 @@ async function saveSnapshot() {
         }
 
         snaps.push(snap)
-        localStorage.setItem('snapshots', JSON.stringify(snaps))
-        appendTerminal('Snapshot saved (' + new Date(snap.ts).toLocaleString() + ')')
+        saveSnapshotsForCurrentConfig(snaps)
+
+        const identity = getConfigIdentity()
+        appendTerminal(`Snapshot saved for ${identity} (${new Date(snap.ts).toLocaleString()})`)
     } catch (e) {
         appendTerminal('Snapshot save failed: ' + e)
     }
@@ -75,9 +125,11 @@ function renderSnapshots() {
     const snapshotList = $('snapshot-list')
     if (!snapshotList) return
 
-    const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
+    const snaps = getSnapshotsForCurrentConfig()
+    const configIdentity = getConfigIdentity()
+
     if (!snaps.length) {
-        snapshotList.textContent = 'No snapshots'
+        snapshotList.innerHTML = `<div class="no-snapshots">No snapshots for ${configIdentity}</div>`
         return
     }
 
@@ -94,7 +146,15 @@ function renderSnapshots() {
         restore.textContent = 'Restore'
         restore.addEventListener('click', () => restoreSnapshot(i, snaps))
 
+        // Show file count as additional info
+        const fileCount = Object.keys(s.files || {}).length
+        const info = document.createElement('small')
+        info.textContent = ` (${fileCount} files)`
+        info.style.marginLeft = '8px'
+        info.style.color = '#666'
+
         right.appendChild(restore)
+        left.appendChild(info)
         div.appendChild(left)
         div.appendChild(right)
         snapshotList.appendChild(div)
@@ -274,24 +334,37 @@ function deleteSelectedSnapshots() {
     }
 
     const idxs = checks.map(c => Number(c.getAttribute('data-idx'))).sort((a, b) => b - a)
-    const snaps = JSON.parse(localStorage.getItem('snapshots') || '[]')
+    const snaps = getSnapshotsForCurrentConfig()
 
     for (const i of idxs) snaps.splice(i, 1)
-    localStorage.setItem('snapshots', JSON.stringify(snaps))
+    saveSnapshotsForCurrentConfig(snaps)
     renderSnapshots()
+
+    appendTerminal(`Deleted ${idxs.length} snapshot(s)`)
 }
 
 async function clearStorage() {
-    const ok = await showConfirmModal('Clear storage', 'Clear saved snapshots and storage?')
+    const configIdentity = getConfigIdentity()
+
+    const ok = await showConfirmModal(
+        'Clear snapshots',
+        `Clear all saved snapshots for ${configIdentity}? This cannot be undone.`
+    )
     if (!ok) {
-        appendTerminal('Clear storage cancelled')
+        appendTerminal('Clear snapshots cancelled')
         return
     }
 
     try {
-        localStorage.removeItem('snapshots')
-        appendTerminal('Cleared snapshots and storage')
+        const storageKey = getSnapshotStorageKey()
+        localStorage.removeItem(storageKey)
+        appendTerminal(`Cleared all snapshots for ${configIdentity}`)
+
+        // Update the modal if it's open
+        try {
+            renderSnapshots()
+        } catch (_e) { }
     } catch (e) {
-        appendTerminal('Clear storage failed: ' + e)
+        appendTerminal('Clear snapshots failed: ' + e)
     }
 }

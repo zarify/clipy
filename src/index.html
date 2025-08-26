@@ -15,6 +15,13 @@
 <body>
   <header>
     <h1>Client-side Python Playground</h1>
+    <div class="config-info">
+      <span class="config-title-line">Loading...</span>
+    </div>
+    <div style="display: none;">
+      <span id="config-title">Loading...</span>
+      <small id="config-version"></small>
+    </div>
   </header>
   <main>
     <section id="side" class="panel">
@@ -96,7 +103,9 @@
   <div id="snapshot-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="snapshot-modal-title"
     aria-describedby="snapshot-modal-list">
     <div class="modal-content">
-      <h3 id="snapshot-modal-title">Snapshots</h3>
+      <div class="modal-header">
+        <h3 id="snapshot-modal-title">Snapshots</h3>
+      </div>
       <div id="snapshot-list">(loading)</div>
       <div class="modal-actions">
         <button id="close-snapshots">Close</button>

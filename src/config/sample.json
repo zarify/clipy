@@ -1,5 +1,8 @@
 {
-  "version": "1.0",
+  "id": "default-playground",
+  "version": "1.0.0",
+  "title": "Default Python Playground",
+  "description": "A general-purpose Python programming environment",
   "starter": "print('Hello from MicroPython')\n",
   "instructions": "This is a sample scenario. Edit the code and press Run to see output in the terminal.",
   "links": [
@@ -7,9 +10,7 @@
   ],
   "runtime": {
     "type": "micropython",
-    "url": "./vendor/micropython.mjs",
-    "recommended": "./vendor/micropython.mjs",
-    "cdn_fallback": "https://cdn.jsdelivr.net/npm/@micropython/micropython-webassembly-pyscript/dist/micropython.min.js"
+    "url": "./vendor/micropython.wasm"
   },
   "execution": {
     "timeoutSeconds": 30,

@@ -12,7 +12,11 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
   })
   await page.click('#save-snapshot')
   // wait for snapshot to persist
-  await page.waitForFunction(() => Boolean(localStorage.getItem('snapshots')), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    if (!window.Config) return false
+    const configKey = window.Config.getConfigKey()
+    return Boolean(localStorage.getItem(configKey))
+  }, { timeout: 2000 })
 
   // Clear current backend/mem to simulate fresh state
   await page.evaluate(async () => {
