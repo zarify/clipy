@@ -471,11 +471,14 @@ export async function loadMicroPythonRuntime(cfg) {
                         // Display output immediately to the terminal
                         if (content) {
                             appendTerminal(content, 'stdout')
+                            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'runtime_stdout', text: content.slice(0, 200) }) } catch (_e) { }
                         }
 
                         captured += content
                     }
                     const stderr = (chunk) => { stdout(chunk) }
+                    // Note: stderr intentionally forwards to stdout above; we still log the intent
+                    try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'runtime_stderr_hooked' }) } catch (_e) { }
 
                     // Custom stdin function to replace browser prompts with terminal input
                     const stdin = () => {

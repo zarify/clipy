@@ -1,3 +1,65 @@
+/**
+ * Highlight a line in the CodeMirror editor for a given file and line number.
+ * @param {string} filePath - The file path (e.g. '/main.py')
+ * @param {number} lineNumber - 1-based line number to highlight
+ */
+// Ensure global error-tracking slots exist. Guarded so this file can be
+// required in non-browser (node) environments during tests.
+try {
+    if (typeof window !== 'undefined') {
+        if (!Array.isArray(window.__ssg_error_highlights)) window.__ssg_error_highlights = []
+        if (typeof window.__ssg_error_highlighted !== 'boolean') window.__ssg_error_highlighted = false
+        if (typeof window.__ssg_error_line_number === 'undefined') window.__ssg_error_line_number = null
+    }
+} catch (e) { }
+
+export function highlightMappedTracebackInEditor(filePath, lineNumber) {
+    // Open/select the file tab if possible
+    if (window.TabManager && typeof window.TabManager.openTab === 'function') {
+        window.TabManager.openTab(filePath)
+    }
+    if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
+        window.TabManager.selectTab(filePath)
+    }
+    // Highlight the line in CodeMirror
+    const cm = window.cm
+    if (!cm || typeof lineNumber !== 'number') return
+    const zeroIndexLine = Math.max(0, lineNumber - 1)
+    // Remove previous highlight if present
+    try {
+        if (typeof window.__ssg_error_line_number === 'number') {
+            cm.removeLineClass(window.__ssg_error_line_number, 'background', 'cm-error-line')
+            window.__ssg_error_line_number = null
+        }
+    } catch (e) { }
+    // Add highlight and track it
+    try {
+        cm.addLineClass(zeroIndexLine, 'background', 'cm-error-line')
+        window.__ssg_error_highlights.push({ filePath, line: zeroIndexLine })
+        window.__ssg_error_highlighted = true;
+        window.__ssg_error_line_number = zeroIndexLine
+    } catch (e) { }
+}
+
+/**
+ * Clear all error highlights from all tracked lines in all files.
+ * Call this before running or on any edit.
+ */
+export function clearAllErrorHighlights() {
+    const cm = window.cm;
+    if (!cm) return;
+    if (Array.isArray(window.__ssg_error_highlights)) {
+        for (const { filePath, line } of window.__ssg_error_highlights) {
+            try {
+                cm.removeLineClass(line, 'background', 'cm-error-line');
+            } catch (e) { }
+        }
+    }
+    window.__ssg_error_highlights = [];
+    window.__ssg_error_highlighted = false;
+    window.__ssg_error_line_number = null;
+}
+
 // Code transformation and wrapping utilities
 import { transformWalrusPatterns, normalizeIndentation } from './utils.js'
 
@@ -170,15 +232,37 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     if (!rawText) return
 
     // Replace occurrences like: File "<stdin>", line N[, column C]
-    const mapped = rawText.replace(/File \"([^\"]+)\", line (\d+)(?:, column (\d+))?/g, (m, fname, ln, col) => {
+    // Match patterns like: File "<stdin>", line 1, in <module>
+    // Accept single or double quotes, optional extra ", in <module>" suffix,
+    // and be flexible about whitespace. We only need the filename and line.
+    const mapped = rawText.replace(/\s*File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/g, (m, fname, ln) => {
+        // If the runtime reports <stdin> or <string> as the filename, replace
+        // it with the user's main file path when the caller provided one.
+        // The third argument to this function is sometimes a path (e.g. MAIN_FILE)
+        // or the user source. Heuristically prefer a path-like value.
+        let outFname = fname
+        try {
+            if (fname === '<stdin>' || fname === '<string>') {
+                if (typeof userCode === 'string' && userCode.indexOf('\n') === -1 && (userCode.startsWith('/') || userCode.indexOf('.') !== -1)) {
+                    outFname = userCode
+                } else {
+                    outFname = '/main.py'
+                }
+            }
+        } catch (_e) { outFname = fname }
         const mappedLn = Math.max(1, Number(ln) - headerLines)
-        if (col) return `File "${fname}", line ${mappedLn}, column ${col}`
-        return `File "${fname}", line ${mappedLn}`
+        highlightMappedTracebackInEditor(outFname, mappedLn);
+        return `File "${outFname}", line ${mappedLn}`
     })
 
-    appendTerminal(mapped, 'stderr')
-    appendTerminalDebug('[mapped traceback]')
-    appendTerminalDebug(mapped)
+    // Do not append the mapped traceback directly here. The execution path
+    // enables stderr buffering and expects the caller to call
+    // replaceBufferedStderr(mapped) so that the buffered raw stderr can be
+    // replaced atomically with the mapped version. Return the mapped string
+    // so callers can perform that replacement.
+    // Debug output is recorded in the event log; avoid noisy console.debug here.
+    try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_debug', mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
+
 
     // Optionally show small source context for first mapped line
     const m = mapped.match(/line (\d+)/)
@@ -192,4 +276,45 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
             appendTerminalDebug(prefix + String(i + 1).padStart(3, ' ') + ': ' + userLines[i])
         }
     }
+
+    // Highlight any mapped frames that refer to files present in the
+    // workspace. This avoids trying to highlight files (or pseudo-files)
+    // that are not part of the UI's FileManager.
+    try {
+        const reFileLine = /File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/g
+        let mm
+        const seen = new Set()
+        while ((mm = reFileLine.exec(mapped)) !== null) {
+            try {
+                const rawF = mm[1]
+                const ln = Number(mm[2]) || 1
+                const norm = (rawF && rawF.startsWith('/')) ? rawF : ('/' + String(rawF || '').replace(/^\/+/, ''))
+                if (seen.has(norm + ':' + ln)) continue
+                seen.add(norm + ':' + ln)
+
+                // Check localStorage mirror first
+                let exists = false
+                try {
+                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                    if (map && Object.prototype.hasOwnProperty.call(map, norm)) exists = true
+                } catch (_e) { }
+
+                // Consider MAIN_FILE present
+                try { if (!exists && typeof window !== 'undefined' && typeof window.MAIN_FILE === 'string' && window.MAIN_FILE === norm) exists = true } catch (_e) { }
+
+                // Ask TabManager if available
+                try {
+                    if (!exists && window.TabManager && typeof window.TabManager.hasTab === 'function') {
+                        try { if (window.TabManager.hasTab(norm)) exists = true } catch (_e) { }
+                    }
+                } catch (_e) { }
+
+                if (exists) {
+                    try { highlightMappedTracebackInEditor(norm, ln) } catch (_e) { }
+                }
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+
+    return mapped
 }

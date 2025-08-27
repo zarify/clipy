@@ -1,8 +1,8 @@
 // Python code execution engine
-import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab } from './terminal.js'
+import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
 import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs-client.js'
-import { transformAndWrap, mapTracebackAndShow } from './code-transform.js'
+import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor } from './code-transform.js'
 
 export async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
     const executionState = getExecutionState()
@@ -216,6 +216,9 @@ export async function runPythonCode(code, cfg) {
                 needsTransformation = true
             }
 
+            // Enable stderr buffering so we can replace raw runtime tracebacks with mapped ones
+            try { enableStderrBuffering() } catch (_e) { }
+
             // Try asyncify execution first (preferred path)
             if (isAsyncify && !needsTransformation) {
                 appendTerminalDebug('Executing with asyncify runPythonAsync - native input() support')
@@ -332,9 +335,26 @@ export async function runPythonCode(code, cfg) {
                             setTerminalInputEnabled(false)
                         } catch (_e) { }
                     } else {
-                        // For Python errors, show the clean traceback without "Asyncify" prefix
+                        // For Python errors, map and show the traceback (so editors can react)
                         if (errMsg.includes('Traceback')) {
-                            appendTerminal(errMsg, 'stderr')
+                            try {
+                                // Mark that mapping is in progress so terminal appends of raw runtime tracebacks
+                                // (which may arrive slightly late) can be suppressed until we replace them.
+                                try { window.__ssg_mapping_in_progress = true } catch (_e) { }
+                                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'about_to_map', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(errMsg || '').slice(0, 200) }) } catch (_e) { }
+                                const mapped = mapTracebackAndShow(errMsg, headerLines, MAIN_FILE)
+                                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_result', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(errMsg || '').slice(0, 200), mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
+                                try { window.__ssg_last_mapped = String(mapped || '') } catch (_e) { }
+                                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'execution_replace_call', mappedType: typeof mapped, mappedPreview: (typeof mapped === 'string') ? mapped.slice(0, 200) : null }) } catch (_e) { }
+                                // Replace buffered raw stderr with mapped traceback
+                                try { replaceBufferedStderr(mapped) } catch (_e) { }
+                            } catch (_e) {
+                                // Fallback: if mapping fails, flush buffered raw stderr
+                                try { flushStderrBufferRaw() } catch (_e2) { }
+                                appendTerminal(errMsg, 'stderr')
+                            } finally {
+                                try { window.__ssg_mapping_in_progress = false } catch (_e) { }
+                            }
                         } else {
                             // For non-Python errors, show with context
                             appendTerminal('Execution error: ' + errMsg, 'runtime')
@@ -381,12 +401,27 @@ export async function runPythonCode(code, cfg) {
                         throw e
                     } else {
                         try {
-                            mapTracebackAndShow(String(e), headerLines, code, appendTerminal)
+                            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'about_to_map', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(e || '').slice(0, 200) }) } catch (_e) { }
+                            const mapped = mapTracebackAndShow(String(e), headerLines, MAIN_FILE)
+                            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_result', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(e || '').slice(0, 200), mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
+                            try { window.__ssg_last_mapped = String(mapped || '') } catch (_e) { }
+                            try {
+                                if (mapped) {
+                                    // Attempt editor highlight/open for mapped tracebacks
+                                    try { highlightMappedTracebackInEditor(mapped) } catch (_err) { }
+                                    // Replace buffered stderr with mapped text
+                                    try { replaceBufferedStderr(mapped) } catch (_e) { }
+                                }
+                            } catch (_e) { }
                         } catch (_) {
+                            // Flush buffered raw stderr if mapping fails
+                            try { flushStderrBufferRaw() } catch (_e2) { }
                             appendTerminal('Runtime error: ' + e, 'runtime')
                         }
                     }
                 }
+                // On success path (no thrown errors), flush any buffered stderr just in case
+                try { flushStderrBufferRaw() } catch (_e) { }
             }
 
             // Sync VFS after execution

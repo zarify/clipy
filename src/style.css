@@ -233,6 +233,11 @@ textarea#code {
     height: 320px
 }
 
+/* Error highlight for CodeMirror (marked by addLineClass 'cm-error-line') */
+.cm-error-line {
+    background: rgba(255, 69, 58, 0.06) !important;
+}
+
 /* Side tab UI */
 .side-tabs {
     display: flex;

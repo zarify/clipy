@@ -19,6 +19,96 @@ export function setupClearTerminalButton() {
 // Terminal output and UI management
 import { $ } from './utils.js'
 
+// Append a line to the terminal output.
+// - text: string to append
+// - kind: one of 'stdout'|'stderr'|'runtime'|'stdin'|'debug' (affects CSS class)
+export function appendTerminal(text, kind = 'stdout') {
+    try {
+        const out = $('terminal-output')
+        if (!out) return
+
+        const raw = (text === null || text === undefined) ? '' : String(text)
+
+        // If stderr buffering is active, capture stderr (and stdout-looking tracebacks)
+        try {
+            if (kind === 'stderr' && window.__ssg_stderr_buffering) {
+                window.__ssg_stderr_buffer = window.__ssg_stderr_buffer || []
+                window.__ssg_stderr_buffer.push(raw)
+                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'buffered', kind: kind, text: raw.slice(0, 200) }) } catch (_e) { }
+                return
+            }
+
+            // Some runtimes write tracebacks to stdout; while buffering treat those as stderr
+            if (kind === 'stdout' && window.__ssg_stderr_buffering) {
+                if (/Traceback|File \"<stdin>\"|File \"<string>\"/i.test(raw)) {
+                    window.__ssg_stderr_buffer = window.__ssg_stderr_buffer || []
+                    window.__ssg_stderr_buffer.push(raw)
+                    return
+                }
+            }
+
+            // Suppress late-arriving raw stderr/stdout lines that reference <stdin>/<string>
+            if (kind === 'stderr' || kind === 'stdout') {
+                try {
+                    // If mapping is actively in progress, suppress any raw lines referencing <stdin>/<string>
+                    if (window.__ssg_mapping_in_progress) {
+                        if (raw.includes('<stdin>') || raw.includes('<string>')) {
+                            // Buffer the raw traceback so the mapping/replace flow can
+                            // access it later. Previously these lines were suppressed
+                            // (dropped) which could lose the content if replacement
+                            // happened concurrently.
+                            try {
+                                window.__ssg_stderr_buffer = window.__ssg_stderr_buffer || []
+                                window.__ssg_stderr_buffer.push(raw)
+                                appendTerminalDebug && appendTerminalDebug('[suppressed-during-mapping-buffered]', raw)
+                                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'suppressed_during_mapping_buffered', kind: kind, text: raw.slice(0, 200) }) } catch (_e) { }
+                            } catch (_e) { }
+                            return
+                        }
+                    }
+                    const until = Number(window.__ssg_suppress_raw_stderr_until || 0)
+                    if (until && Date.now() < until) {
+                        if (raw.includes('<stdin>') || raw.includes('<string>')) {
+                            try {
+                                window.__ssg_stderr_buffer = window.__ssg_stderr_buffer || []
+                                window.__ssg_stderr_buffer.push(raw)
+                                appendTerminalDebug && appendTerminalDebug('[suppressed-late-buffered]', raw)
+                                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'suppressed', kind: kind, text: raw.slice(0, 200) }) } catch (_e) { }
+                            } catch (_e) { }
+                            return
+                        }
+                    }
+                } catch (_e) { }
+            }
+        } catch (_e) { }
+
+        const div = document.createElement('div')
+        const kindClass = 'term-' + (kind || 'stdout')
+        div.className = 'terminal-line ' + kindClass
+        div.textContent = raw
+        out.appendChild(div)
+        out.scrollTop = out.scrollHeight
+        try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'append', kind: kind, text: raw.slice(0, 200) }) } catch (_e) { }
+    } catch (_e) { }
+}
+
+// Lightweight debug appender that only logs when debug flag is enabled.
+export function appendTerminalDebug(...args) {
+    try {
+        if (!window.__ssg_debug_logs) return
+        try { console.debug(...args) } catch (_e) { }
+        const out = $('terminal-output')
+        if (!out) return
+        const div = document.createElement('div')
+        div.className = 'terminal-line term-debug'
+        div.textContent = '[debug] ' + args.map(a => {
+            try { return typeof a === 'string' ? a : JSON.stringify(a) } catch (_e) { return String(a) }
+        }).join(' ')
+        out.appendChild(div)
+        out.scrollTop = out.scrollHeight
+    } catch (_e) { }
+}
+
 // Debug-only logger: controlled by `window.__ssg_debug_logs` (default: false)
 try { window.__ssg_debug_logs = window.__ssg_debug_logs || false } catch (_e) { }
 
@@ -55,81 +145,136 @@ try {
     }
 } catch (_e) { }
 
-// If the browser restores focus on reload, it can land on terminal elements
-// before our capture handler runs. Proactively blur those elements when
-// suppression is active. Run immediately and also schedule short delayed
-// attempts to catch restoration timing across browsers.
-try {
-    const defocusIfSuppressed = () => {
-        try {
-            const suppressed = Boolean(window.__ssg_suppress_terminal_autoswitch)
-            if (!suppressed) return
-            const active = document.activeElement
-            if (!active) return
-            const id = active.id
-            if (id === 'terminal-output' || id === 'stdin-box') {
-                try { active.blur && active.blur() } catch (_e) { }
-                try { document.body && document.body.focus && document.body.focus() } catch (_e) { }
-            }
-        } catch (_e) { }
-    }
-
-    // Run immediately
-    try { defocusIfSuppressed() } catch (_e) { }
-    // Run after microtask and a short delay to catch browser restoration timing
-    try { setTimeout(defocusIfSuppressed, 0) } catch (_e) { }
-    try { setTimeout(defocusIfSuppressed, 100) } catch (_e) { }
-} catch (_e) { }
-
-export function appendTerminalDebug(text) {
+// Stderr buffering control APIs
+export function enableStderrBuffering() {
     try {
-        if (window.__ssg_debug_logs) appendTerminal(text)
+        window.__ssg_stderr_buffering = true
+        window.__ssg_stderr_buffer = []
+        try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'enableStderrBuffering' }) } catch (_e) { }
     } catch (_e) { }
 }
 
-// Append structured terminal lines. `kind` is one of: stdout, stderr, stdin, runtime
-export function appendTerminal(text, kind = 'stdout') {
+// Replace buffered stderr with a mapped traceback (preferred) or flush raw if null
+export function replaceBufferedStderr(mappedText) {
     try {
-        // Only auto-switch to terminal if not a runtime init message
-        const shouldSwitch = !(kind === 'runtime' && typeof text === 'string' && text.includes('MicroPython runtime initialized'))
-        if (shouldSwitch) {
-            // Respect global suppression used during app initialization to
-            // avoid making the terminal visible or stealing focus while the
-            // app is still booting or performing controlled restores.
-            let suppressed = false
-            try { suppressed = Boolean(window.__ssg_suppress_terminal_autoswitch) } catch (_e) { }
-            if (!suppressed) {
-                // Only switch if not already on terminal
-                const termPanel = document.getElementById('terminal')
-                if (termPanel && termPanel.style.display !== 'block') {
-                    if (typeof window.activateSideTab === 'function') {
-                        window.activateSideTab('terminal')
-                    } else if (typeof activateSideTab === 'function') {
-                        activateSideTab('terminal')
+        const buf = window.__ssg_stderr_buffer || []
+        // If we're called too early (no buffered stderr yet) but mapping is
+        // still in progress, there's a race where the runtime hasn't written
+        // its stderr into the buffer yet. Wait a short moment and retry once.
+        try {
+            if ((!buf || buf.length === 0) && window.__ssg_mapping_in_progress) {
+                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'replaceBufferedStderr_retry_scheduled', buf_len: buf.length }) } catch (_e) { }
+                setTimeout(() => {
+                    try { replaceBufferedStderr(mappedText) } catch (_e) { }
+                }, 60)
+                return
+            }
+        } catch (_e) { }
+        // Clear buffer flag first to allow direct appends
+        window.__ssg_stderr_buffering = false
+        window.__ssg_stderr_buffer = []
+
+        try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'replaceBufferedStderr', buf_len: buf.length, sample: buf.slice(0, 4), mappedPreview: (typeof mappedText === 'string') ? mappedText.slice(0, 200) : null }) } catch (_e) { }
+
+        // If caller didn't provide mappedText, fall back to last known mapped traceback
+        if ((!mappedText || typeof mappedText !== 'string')) {
+            try {
+                if (typeof window.__ssg_last_mapped === 'string' && window.__ssg_last_mapped) {
+                    try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'replaceBufferedStderr_fallback_to_last_mapped', lastMappedPreview: window.__ssg_last_mapped.slice(0, 200) }) } catch (_e) { }
+                    mappedText = window.__ssg_last_mapped
+                }
+            } catch (_e) { }
+        }
+
+        // If still no mappedText, try a best-effort mapping from the buffered raw stderr
+        if ((!mappedText || typeof mappedText !== 'string') && Array.isArray(buf) && buf.length) {
+            try {
+                const joined = buf.join('\n')
+                // Replace runtime markers like <stdin> or <string> with the user main file
+                const guessed = joined.replace(/File\s+["'](?:<stdin>|<string>)["']\s*,\s*line\s+(\d+)/g, 'File "\/main.py", line $1')
+                mappedText = guessed
+                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'replaceBufferedStderr_fallback_guessed', sample: joined.slice(0, 200), guessedPreview: mappedText.slice(0, 200) }) } catch (_e) { }
+            } catch (_e) { }
+        }
+
+        if (mappedText && typeof mappedText === 'string') {
+            // Remove any previously-printed raw traceback lines that reference <stdin> or <string>
+            try {
+                const out = $('terminal-output')
+                if (out && out.children && out.children.length) {
+                    const nodes = Array.from(out.children)
+                    for (const n of nodes) {
+                        try {
+                            const txt = (n.textContent || '')
+                            if (txt.includes('<stdin>') || txt.includes('<string>')) {
+                                out.removeChild(n)
+                            }
+                        } catch (_e) { }
                     }
                 }
+            } catch (_e) { }
+
+            // Temporarily suppress any late-arriving raw runtime stderr/stdout lines that reference <stdin>/<string]
+            try { window.__ssg_suppress_raw_stderr_until = Date.now() + 2000 } catch (_e) { }
+            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'suppress_set', until: window.__ssg_suppress_raw_stderr_until }) } catch (_e) { }
+            // Append the mapped traceback as stderr (single source of truth)
+            try { window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'about_to_append_mapped', mappedPreview: (typeof mappedText === 'string') ? mappedText.slice(0, 200) : null }) } catch (_e) { }
+            // Ensure the mapped traceback is appended even if mapping suppression
+            // is active. Some suppression logic in appendTerminal checks
+            // `window.__ssg_mapping_in_progress` and will suppress any lines
+            // referencing <stdin> or <string>. Temporarily clear that flag so
+            // the mapped traceback is appended, then restore the previous
+            // value.
+            try {
+                const prevMapping = !!window.__ssg_mapping_in_progress
+                try { window.__ssg_mapping_in_progress = false } catch (_e) { }
+                appendTerminal(mappedText, 'stderr')
+                try { window.__ssg_mapping_in_progress = prevMapping } catch (_e) { }
+            } catch (_e) {
+                // Best-effort append
+                appendTerminal(mappedText, 'stderr')
             }
+            appendTerminalDebug && appendTerminalDebug('[replaced buffered stderr with mapped traceback]')
+
+            // Schedule cleanup passes to remove any late nodes that slipped through
+            try {
+                const cleanup = () => {
+                    try {
+                        const out = $('terminal-output')
+                        if (!out) return
+                        const nodes = Array.from(out.children)
+                        for (const n of nodes) {
+                            try {
+                                const txt = (n.textContent || '')
+                                if (txt.includes('<stdin>') || txt.includes('<string>')) {
+                                    out.removeChild(n)
+                                }
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
+                }
+                // Multiple cleanup passes to handle late arrivals
+                setTimeout(cleanup, 0)
+                setTimeout(cleanup, 50)
+                setTimeout(cleanup, 150)
+                setTimeout(cleanup, 300)
+                setTimeout(cleanup, 600)
+            } catch (_e) { }
+            return
         }
-        const out = $('terminal-output')
-        if (!out) { console.log(text); return }
-        // Normalize text to string
-        const s = (text === null || text === undefined) ? '' : String(text)
-        // Split into lines preserving empty lines
-        const lines = s.split('\n')
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i]
-            const div = document.createElement('div')
-            div.className = 'terminal-line ' + ('term-' + (kind || 'stdout'))
-            // preserve empty lines visually
-            div.textContent = line || ''
-            out.appendChild(div)
+
+        // No mapped text: flush raw buffered lines
+        for (const block of buf) {
+            try { appendTerminal(block, 'stderr') } catch (_e) { }
         }
-        // Auto-scroll to bottom
-        try { out.scrollTop = out.scrollHeight } catch (_e) { }
-    } catch (e) {
-        console.error('appendTerminal error:', e)
-        try { console.log(text) } catch (_e) { }
-    }
+    } catch (_e) { }
+}
+
+// Force flush raw buffered stderr without replacement
+export function flushStderrBufferRaw() {
+    try {
+        replaceBufferedStderr(null)
+    } catch (_e) { }
 }
 
 // Track an active prompt line element when host.get_input is awaiting input
