@@ -422,5 +422,9 @@ export async function reloadFilesFromBackend(backend) {
     } catch (_e) { }
 }
 
-// Also expose as a global so tests can call it directly
-try { window.reloadFilesFromBackend = reloadFilesFromBackend } catch (_e) { }
+// Expose reloadFilesFromBackend as a global only in dev mode so tests can call it.
+try {
+    if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
+        window.reloadFilesFromBackend = reloadFilesFromBackend
+    }
+} catch (_e) { }

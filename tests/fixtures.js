@@ -7,21 +7,25 @@ const detachMap = new WeakMap()
 
 // Attach forwarder before each test
 test.beforeEach(async ({ page }) => {
-  try{
+  // Ensure the app exposes dev-only test signals during tests
+  try {
+    await page.addInitScript(() => { try { window.__ssg_dev_mode = true } catch (_) { } })
+  } catch (e) { /* best-effort */ }
+  try {
     const fwd = attachPageConsole(page, { prefix: '[PAGE]' })
     detachMap.set(page, fwd)
-  }catch(e){
+  } catch (e) {
     console.error('[PAGE] failed to attach console forwarder:', e)
   }
 })
 
 // Detach after each test
 test.afterEach(async ({ page }) => {
-  try{
+  try {
     const f = detachMap.get(page)
-    if(f && typeof f.detach === 'function') f.detach()
+    if (f && typeof f.detach === 'function') f.detach()
     detachMap.delete(page)
-  }catch(e){
+  } catch (e) {
     console.error('[PAGE] failed to detach console forwarder:', e)
   }
 })

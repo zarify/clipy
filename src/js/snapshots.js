@@ -139,6 +139,14 @@ async function saveSnapshot() {
 
         const identity = getConfigIdentity()
         appendTerminal(`Snapshot saved for ${identity} (${new Date(snap.ts).toLocaleString()})`, 'runtime')
+        // Signal to tests and other code that a snapshot save has completed.
+        // Only expose this signal in dev mode so production doesn't leak test hooks.
+        try {
+            if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
+                // timestamp is more informative than boolean
+                window.__ssg_snapshot_saved = Date.now()
+            }
+        } catch (_e) { }
     } catch (e) {
         appendTerminal('Snapshot save failed: ' + e, 'runtime')
     }
@@ -297,9 +305,16 @@ async function restoreSnapshot(index, snapshots) {
         appendTerminal('Snapshot restored (' + new Date(s.ts).toLocaleString() + ')', 'runtime')
 
         try {
-            window.__ssg_last_snapshot_restore = Date.now()
+            // Allow a tiny delay to ensure backend writes are flushed before signalling restore completion.
+            setTimeout(() => {
+                try {
+                    if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
+                        window.__ssg_last_snapshot_restore = Date.now()
+                    }
+                } catch (e) { console.error('Failed to set restore flag (delayed):', e) }
+            }, 100)
         } catch (e) {
-            console.error('Failed to set restore flag:', e)
+            console.error('Failed to schedule restore flag:', e)
         }
 
         // Open only MAIN_FILE as focused tab

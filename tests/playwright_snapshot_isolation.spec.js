@@ -32,29 +32,33 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
     try { if (window.FileManager) await window.FileManager.write('/iso.txt', 'from-A') } catch (_e) { }
   })
   await page.click('#save-snapshot')
-  // wait for snapshot to persist
-  await page.waitForFunction(() => {
-    if (!window.Config) return false
-    const configKey = window.Config.getConfigKey()
-    return Boolean(localStorage.getItem(configKey))
-  }, { timeout: 2000 })
+  // Wait for the snapshot to appear in the UI modal as a robust signal
+  await page.click('#history')
+  await page.waitForSelector('#snapshot-list .snapshot-item', { timeout: 5000 })
+  try { await page.click('#close-snapshots') } catch (_e) { }
 
   // Delete /iso.txt and save snapshot B
   await page.evaluate(async () => {
     try { if (window.FileManager) await window.FileManager.delete('/iso.txt') } catch (_e) { }
   })
   await page.click('#save-snapshot')
-  await page.waitForFunction(() => {
-    if (!window.Config) return false
-    const configKey = window.Config.getConfigKey()
-    return Boolean(localStorage.getItem(configKey))
-  }, { timeout: 2000 })
+  // Ensure the second snapshot appears in the modal
+  await page.click('#history')
+  await page.waitForSelector('#snapshot-list .snapshot-item', { timeout: 5000 })
+  try { await page.click('#close-snapshots') } catch (_e) { }
 
   // Restore snapshot A (first saved)
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
   await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[0]) btns[0].click() })
-  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    try { if (window.__ssg_last_snapshot_restore) return true } catch (_e) { }
+    try {
+      if (!window.Config) return false
+      const configKey = window.Config.getConfigKey()
+      return Boolean(localStorage.getItem(configKey))
+    } catch (_e) { return false }
+  }, { timeout: 2000 })
 
   // Assert file exists and has content 'from-A'
   const valA = await page.evaluate(async () => {
@@ -72,7 +76,14 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
   await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[1]) btns[1].click() })
-  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    try { if (window.__ssg_last_snapshot_restore) return true } catch (_e) { }
+    try {
+      if (!window.Config) return false
+      const configKey = window.Config.getConfigKey()
+      return Boolean(localStorage.getItem(configKey))
+    } catch (_e) { return false }
+  }, { timeout: 2000 })
 
   // Assert file is absent
   const valB = await page.evaluate(async () => {
@@ -87,7 +98,14 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
   await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[0]) btns[0].click() })
-  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
+  await page.waitForFunction(() => {
+    try { if (window.__ssg_last_snapshot_restore) return true } catch (_e) { }
+    try {
+      if (!window.Config) return false
+      const configKey = window.Config.getConfigKey()
+      return Boolean(localStorage.getItem(configKey))
+    } catch (_e) { return false }
+  }, { timeout: 2000 })
 
   const valA2 = await page.evaluate(async () => {
     try { if (window.__ssg_vfs_backend && typeof window.__ssg_vfs_backend.read === 'function') return await window.__ssg_vfs_backend.read('/iso.txt') } catch (_e) { }

@@ -435,6 +435,11 @@ export async function runPythonCode(code, cfg) {
         try { setTerminalInputEnabled(false) } catch (_e) { }
     } finally {
         // Always reset execution state
+        try {
+            if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
+                try { window.__ssg_last_run = Date.now() } catch (_e) { }
+            }
+        } catch (_e) { }
         setExecutionRunning(false)
     }
 }
