@@ -135,6 +135,13 @@ export function selectTab(path) {
     if (cm) cm.setValue(content)
     else if (textarea) textarea.value = content
 
+    // Configure editor mode based on file extension (python for .py, plain for others)
+    try {
+        if (window.setEditorModeForPath && typeof window.setEditorModeForPath === 'function') {
+            try { window.setEditorModeForPath(n) } catch (_e) { }
+        }
+    } catch (_e) { }
+
     render()
 }
 

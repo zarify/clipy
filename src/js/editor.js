@@ -24,9 +24,11 @@ export function initializeEditor() {
     if (window.CodeMirror) {
         cm = window.CodeMirror(host, {
             value: textarea.value,
-            mode: 'python',
+            // Default to no mode; we'll enable python mode only for .py files
+            mode: null,
             lineNumbers: true,
             indentUnit: 4,
+            smartIndent: false,
             theme: 'default'
         })
 
@@ -41,6 +43,8 @@ export function initializeEditor() {
         // Expose globally for debugging
         try {
             window.cm = cm
+            // Expose mode helper for other modules (avoid import cycles)
+            window.setEditorModeForPath = setEditorModeForPath
             console.log('CodeMirror initialized:', {
                 readOnly: cm.getOption('readOnly'),
                 value: cm.getValue(),
@@ -99,6 +103,30 @@ export function initializeEditor() {
         console.warn('CodeMirror not available, using textarea fallback')
         return null
     }
+}
+
+// Helper: configure the editor mode and indent behavior based on file path
+export function setEditorModeForPath(path) {
+    try {
+        if (!cm) return
+        if (!path) {
+            cm.setOption('mode', null)
+            cm.setOption('smartIndent', false)
+            return
+        }
+        const name = path.startsWith('/') ? path.slice(1) : path
+        const parts = name.split('.')
+        const ext = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : ''
+        if (ext === 'py') {
+            cm.setOption('mode', 'python')
+            cm.setOption('smartIndent', true)
+            cm.setOption('indentUnit', 4)
+        } else {
+            // Use plain text mode and disable smart auto-indenting for non-Python files
+            cm.setOption('mode', null)
+            cm.setOption('smartIndent', false)
+        }
+    } catch (_e) { }
 }
 
 export function getCodeMirror() {
