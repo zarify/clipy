@@ -45,6 +45,19 @@ try {
     window.showStorageInfo = showStorageInfo
 } catch (_e) { }
 
+// Startup debug helper - enable by setting `window.__ssg_debug_startup = true`
+try {
+    if (typeof window !== 'undefined') {
+        window.__ssg_debug_startup = window.__ssg_debug_startup || false
+    }
+} catch (_e) { }
+
+function dbg(...args) {
+    try {
+        if (typeof window !== 'undefined' && window.__ssg_debug_startup) console.log(...args)
+    } catch (_e) { }
+}
+
 // Main initialization function
 async function main() {
     try {
@@ -57,31 +70,43 @@ async function main() {
         // Expose current config globally for tests
         try { window.Config.current = cfg } catch (_e) { }
 
+        // DEBUG: trace progress
+        try { dbg('dbg: after loadConfig') } catch (_e) { }
+
         // 2. Initialize core UI components
         initializeTerminal()
         setupSideTabs()
         setupClearTerminalButton()
 
-        // Restore from the special 'current' snapshot if it exists
-        const { restoreCurrentSnapshotIfExists } = await import('./js/snapshots.js')
-        await restoreCurrentSnapshotIfExists()
-
         // 3. Initialize editor
         const cm = initializeEditor()
+        try { dbg('dbg: after initializeEditor', !!cm) } catch (_e) { }
         const textarea = $('code')
 
         // 4. Initialize file system and tabs
         const { FileManager } = await initializeVFS(cfg)
+        try { dbg('dbg: after initializeVFS', !!FileManager) } catch (_e) { }
         const TabManager = initializeTabManager(cm, textarea)
+
+        try { dbg('dbg: after initializeTabManager', !!TabManager) } catch (_e) { }
 
         // Expose TabManager globally for compatibility
         try { window.TabManager = TabManager } catch (e) { }
+
+        // Restore from the special 'current' snapshot if it exists
+        try {
+            const { restoreCurrentSnapshotIfExists } = await import('./js/snapshots.js')
+            try { dbg('dbg: after import snapshots') } catch (_e) { }
+            const _restored = await restoreCurrentSnapshotIfExists()
+            try { dbg('dbg: after restoreCurrentSnapshotIfExists', _restored) } catch (_e) { }
+        } catch (_e) { /* ignore snapshot restore failures at startup */ }
 
         // 5. Initialize autosave
         initializeAutosave()
 
         // 6. Load MicroPython runtime
         const runtimeAdapter = await loadMicroPythonRuntime(cfg)
+        try { dbg('dbg: after loadMicroPythonRuntime', !!runtimeAdapter) } catch (_e) { }
 
         // Expose runtimeAdapter globally for tests
         try { window.runtimeAdapter = runtimeAdapter } catch (e) { }

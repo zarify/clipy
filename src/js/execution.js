@@ -112,7 +112,8 @@ async function syncVFSBeforeRun() {
             } catch (_e) { }
 
             let mounted = false
-            for (let attempt = 0; attempt < 3 && !mounted; attempt++) {
+            const maxAttempts = 5
+            for (let attempt = 0; attempt < maxAttempts && !mounted; attempt++) {
                 try {
                     try { window.__ssg_suppress_notifier = true } catch (_e) { }
                     await backend.mountToEmscripten(fs)
@@ -121,10 +122,45 @@ async function syncVFSBeforeRun() {
                     appendTerminalDebug('VFS mounted into MicroPython FS (pre-run)')
                 } catch (merr) {
                     appendTerminalDebug('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
-                    await new Promise(r => setTimeout(r, 150))
+                    // Exponential-ish backoff to give IndexedDB/FS time to stabilize
+                    const backoff = 150 + attempt * 100
+                    await new Promise(r => setTimeout(r, backoff))
                 }
             }
-            if (!mounted) appendTerminalDebug('Warning: VFS pre-run mount attempts exhausted')
+
+            // If mounting repeatedly fails, fall back to a direct copy of backend files
+            // into the runtime FS so the runtime always sees the files for execution.
+            if (!mounted) {
+                appendTerminalDebug('VFS pre-run mount attempts exhausted; falling back to direct copy into runtime FS')
+                try {
+                    try { window.__ssg_suppress_notifier = true } catch (_e) { }
+                    const names = await backend.list()
+                    for (const p of names) {
+                        try {
+                            const content = await backend.read(p)
+                            if (typeof fs.writeFile === 'function') {
+                                try { markExpectedWrite(p, content || '') } catch (_e) { }
+                                // ensure parent directories exist
+                                try {
+                                    const parts = p.split('/')
+                                    parts.pop()
+                                    let dir = ''
+                                    for (const seg of parts) {
+                                        if (!seg) continue
+                                        dir += '/' + seg
+                                        try { if (typeof fs.mkdir === 'function') fs.mkdir(dir) } catch (_e) { }
+                                    }
+                                } catch (_e) { }
+                                try { fs.writeFile(p, content == null ? '' : content) } catch (_e) { appendTerminalDebug('Direct FS write failed for ' + p + ': ' + _e) }
+                            }
+                        } catch (_e) { appendTerminalDebug('Failed to read backend file for fallback: ' + p + ' -> ' + _e) }
+                    }
+                } catch (_e) {
+                    appendTerminalDebug('Fallback direct copy failed: ' + _e)
+                } finally {
+                    try { window.__ssg_suppress_notifier = false } catch (_e) { }
+                }
+            }
         }
     } catch (_m) {
         appendTerminal('VFS pre-run mount error: ' + _m, 'runtime')
