@@ -13,7 +13,7 @@ export async function restoreCurrentSnapshotIfExists() {
 }
 // Snapshot management system
 import { $ } from './utils.js'
-import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs.js'
+import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs-client.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
 import { appendTerminal } from './terminal.js'
 import { getConfigKey, getConfigIdentity } from './config.js'

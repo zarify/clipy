@@ -1,7 +1,7 @@
 const assert = require('assert')
-const { mapTraceback } = require('../src/lib/traceback_mapper')
+const { mapTraceback } = require('../src/js/traceback_mapper')
 
-function runTests(){
+function runTests() {
   // simple mapping
   const raw = 'Traceback (most recent call last):\n  File "<stdin>", line 10, in <module>\nValueError: oops'
   const mapped = mapTraceback(raw, 3)

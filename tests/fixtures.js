@@ -7,10 +7,6 @@ const detachMap = new WeakMap()
 
 // Attach forwarder before each test
 test.beforeEach(async ({ page }) => {
-  // Ensure the app exposes dev-only test signals during tests
-  try {
-    await page.addInitScript(() => { try { window.__ssg_dev_mode = true } catch (_) { } })
-  } catch (e) { /* best-effort */ }
   try {
     const fwd = attachPageConsole(page, { prefix: '[PAGE]' })
     detachMap.set(page, fwd)

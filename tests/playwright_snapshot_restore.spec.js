@@ -11,15 +11,12 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
     try { if (window.FileManager) await window.FileManager.write('/foo.txt', 'snapshot-file') } catch (e) { }
   })
   await page.click('#save-snapshot')
-  // wait for deterministic snapshot-saved signal set by the app, or fallback to the localStorage key
+  // wait for snapshot to persist
   await page.waitForFunction(() => {
-    try { if (window.__ssg_snapshot_saved) return true } catch (_e) { }
-    try {
-      if (!window.Config) return false
-      const configKey = window.Config.getConfigKey()
-      return Boolean(localStorage.getItem(configKey))
-    } catch (_e) { return false }
-  }, { timeout: 7000 })
+    if (!window.Config) return false
+    const configKey = window.Config.getConfigKey()
+    return Boolean(localStorage.getItem(configKey))
+  }, { timeout: 2000 })
 
   // Clear current backend/mem to simulate fresh state
   await page.evaluate(async () => {
@@ -31,15 +28,8 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
   await page.evaluate(() => { const btn = document.querySelector('#snapshot-list .snapshot-item button'); if (btn) btn.click() })
-  // wait for snapshot restore to finish (signaled by global flag or by localStorage presence)
-  await page.waitForFunction(() => {
-    try { if (window.__ssg_last_snapshot_restore) return true } catch (_e) { }
-    try {
-      if (!window.Config) return false
-      const configKey = window.Config.getConfigKey()
-      return Boolean(localStorage.getItem(configKey))
-    } catch (_e) { return false }
-  }, { timeout: 2000 })
+  // wait for snapshot restore to finish (signaled by global flag)
+  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
 
   // Wait/poll for backend/mem contains foo.txt (restore is async)
   const backendFoo = await page.waitForFunction(async () => {

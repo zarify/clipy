@@ -1,7 +1,7 @@
 // Python code execution engine
 import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
-import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs.js'
+import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs-client.js'
 import { transformAndWrap, mapTracebackAndShow } from './code-transform.js'
 
 export async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
@@ -112,8 +112,7 @@ async function syncVFSBeforeRun() {
             } catch (_e) { }
 
             let mounted = false
-            const maxAttempts = 5
-            for (let attempt = 0; attempt < maxAttempts && !mounted; attempt++) {
+            for (let attempt = 0; attempt < 3 && !mounted; attempt++) {
                 try {
                     try { window.__ssg_suppress_notifier = true } catch (_e) { }
                     await backend.mountToEmscripten(fs)
@@ -122,45 +121,10 @@ async function syncVFSBeforeRun() {
                     appendTerminalDebug('VFS mounted into MicroPython FS (pre-run)')
                 } catch (merr) {
                     appendTerminalDebug('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
-                    // Exponential-ish backoff to give IndexedDB/FS time to stabilize
-                    const backoff = 150 + attempt * 100
-                    await new Promise(r => setTimeout(r, backoff))
+                    await new Promise(r => setTimeout(r, 150))
                 }
             }
-
-            // If mounting repeatedly fails, fall back to a direct copy of backend files
-            // into the runtime FS so the runtime always sees the files for execution.
-            if (!mounted) {
-                appendTerminalDebug('VFS pre-run mount attempts exhausted; falling back to direct copy into runtime FS')
-                try {
-                    try { window.__ssg_suppress_notifier = true } catch (_e) { }
-                    const names = await backend.list()
-                    for (const p of names) {
-                        try {
-                            const content = await backend.read(p)
-                            if (typeof fs.writeFile === 'function') {
-                                try { markExpectedWrite(p, content || '') } catch (_e) { }
-                                // ensure parent directories exist
-                                try {
-                                    const parts = p.split('/')
-                                    parts.pop()
-                                    let dir = ''
-                                    for (const seg of parts) {
-                                        if (!seg) continue
-                                        dir += '/' + seg
-                                        try { if (typeof fs.mkdir === 'function') fs.mkdir(dir) } catch (_e) { }
-                                    }
-                                } catch (_e) { }
-                                try { fs.writeFile(p, content == null ? '' : content) } catch (_e) { appendTerminalDebug('Direct FS write failed for ' + p + ': ' + _e) }
-                            }
-                        } catch (_e) { appendTerminalDebug('Failed to read backend file for fallback: ' + p + ' -> ' + _e) }
-                    }
-                } catch (_e) {
-                    appendTerminalDebug('Fallback direct copy failed: ' + _e)
-                } finally {
-                    try { window.__ssg_suppress_notifier = false } catch (_e) { }
-                }
-            }
+            if (!mounted) appendTerminalDebug('Warning: VFS pre-run mount attempts exhausted')
         }
     } catch (_m) {
         appendTerminal('VFS pre-run mount error: ' + _m, 'runtime')
@@ -435,11 +399,6 @@ export async function runPythonCode(code, cfg) {
         try { setTerminalInputEnabled(false) } catch (_e) { }
     } finally {
         // Always reset execution state
-        try {
-            if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
-                try { window.__ssg_last_run = Date.now() } catch (_e) { }
-            }
-        } catch (_e) { }
         setExecutionRunning(false)
     }
 }

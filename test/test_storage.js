@@ -1,9 +1,9 @@
 const assert = require('assert')
-const {StorageAdapter, InMemoryStorage} = require('../src/lib/storage')
+const { StorageAdapter, InMemoryStorage } = require('../src/js/storage')
 
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)) }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
-async function run(){
+async function run() {
   const mem = new InMemoryStorage()
   const sa = new StorageAdapter(mem)
 
@@ -28,4 +28,4 @@ async function run(){
   console.log('OK')
 }
 
-run().catch(e=>{ console.error(e); process.exit(1) })
+run().catch(e => { console.error(e); process.exit(1) })

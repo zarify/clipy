@@ -16,17 +16,10 @@ test('program creates file and UI opens a tab for it', async ({ page }) => {
   await page.click('#run')
 
   // Wait for program output to indicate it ran
-  // Wait for a deterministic run-complete signal set by the app, or for the terminal to show 'OK' as a fallback
-  await page.waitForFunction(() => {
-    try {
-      if (window.__ssg_last_run) return true
-    } catch (_e) { }
-    try {
-      const t = document.getElementById('terminal-output')
-      return Boolean(t && t.textContent && t.textContent.includes('OK'))
-    } catch (_e) { }
-    return false
-  }, { timeout: 7000 })
+  await page.waitForFunction(() => document.getElementById('terminal-output') && document.getElementById('terminal-output').textContent.includes('OK'), { timeout: 3000 })
+
+  // Wait for program output to indicate it ran
+  await page.waitForFunction(() => document.getElementById('terminal-output') && document.getElementById('terminal-output').textContent.includes('OK'), { timeout: 3000 })
 
   // Force a backend sync from the runtime FS if possible, then reload backend files
   await page.evaluate(async () => {
@@ -51,9 +44,6 @@ test('program creates file and UI opens a tab for it', async ({ page }) => {
     try { if (window.FileManager && typeof window.FileManager.list === 'function') { const l = window.FileManager.list(); if (l && l.includes('/bar.txt')) return true } } catch (_e) { }
     return false
   }, { timeout: 2000 })
-
-  // allow slightly more time for VFS sync in CI
-  await new Promise(r => setTimeout(r, 150))
 
   expect(gotFile).toBeTruthy()
 

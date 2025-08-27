@@ -11,7 +11,7 @@ import { initializeEditor } from './js/editor.js'
 import { initializeAutosave } from './js/autosave.js'
 
 // File and tab management  
-import { initializeVFS, MAIN_FILE } from './js/vfs.js'
+import { initializeVFS, MAIN_FILE } from './js/vfs-client.js'
 import { initializeTabManager } from './js/tabs.js'
 
 // Runtime and execution

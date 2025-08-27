@@ -1,7 +1,7 @@
 // Autosave functionality
 import { $ } from './utils.js'
 import { getCodeMirror, getTextarea } from './editor.js'
-import { getFileManager } from './vfs.js'
+import { getFileManager } from './vfs-client.js'
 import { getConfigIdentity } from './config.js'
 import { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig } from './snapshots.js'
 

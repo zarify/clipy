@@ -1,4 +1,4 @@
-// File management and VFS integration
+// File management and VFS integration (client-facing)
 import { $ } from './utils.js'
 import { appendTerminal, appendTerminalDebug } from './terminal.js'
 import { safeSetItem } from './storage-manager.js'
@@ -250,7 +250,7 @@ export async function initializeVFS(cfg) {
 
     // Try to initialize real VFS backend (IndexedDB preferred) and migrate existing local files
     try {
-        const vfsMod = await import('../lib/vfs.js')
+        const vfsMod = await import('./vfs-backend.js')
         const backend = await vfsMod.init()
         backendRef = backend
 
@@ -383,48 +383,3 @@ export function getMem() {
 }
 
 export { settleVfsReady }
-
-/**
- * Helper for tests: force reloading files from the backend into memory/localStorage
- * and flush any pending tabs. This is intentionally defensive and will no-op
- * if no backend is available.
- */
-export async function reloadFilesFromBackend(backend) {
-    const b = backend || backendRef
-    if (!b || typeof b.list !== 'function') return
-
-    try {
-        const names = await b.list()
-        // update in-memory mirror
-        mem = mem || {}
-        for (const n of names) {
-            try {
-                mem[n] = await b.read(n)
-            } catch (_e) { mem[n] = null }
-        }
-
-        // update localStorage mirror for tests/fallbacks
-        try {
-            const newMap = Object.create(null)
-            for (const k of Object.keys(mem)) newMap[k] = mem[k]
-            localStorage.setItem('ssg_files_v1', JSON.stringify(newMap))
-        } catch (_e) { }
-
-        // Expose updated mem globally for convenience
-        try { window.__ssg_mem = mem } catch (_e) { }
-
-        // Ask the TabManager to flush pending tabs now that files are available
-        try {
-            if (window.TabManager && typeof window.TabManager.flushPendingTabs === 'function') {
-                window.TabManager.flushPendingTabs()
-            }
-        } catch (_e) { }
-    } catch (_e) { }
-}
-
-// Expose reloadFilesFromBackend as a global only in dev mode so tests can call it.
-try {
-    if (typeof window !== 'undefined' && window.__ssg_dev_mode) {
-        window.reloadFilesFromBackend = reloadFilesFromBackend
-    }
-} catch (_e) { }

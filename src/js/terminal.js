@@ -32,10 +32,7 @@ export function appendTerminalDebug(text) {
 export function appendTerminal(text, kind = 'stdout') {
     try {
         // Only auto-switch to terminal if not a runtime init message
-        // and if auto-switching is not suppressed during startup.
-        const runtimeInit = (kind === 'runtime' && typeof text === 'string' && text.includes('MicroPython runtime initialized'))
-        const suppressAuto = (typeof window !== 'undefined' && window.__ssg_suppress_terminal_autoswitch === true)
-        const shouldSwitch = !runtimeInit && !suppressAuto
+        const shouldSwitch = !(kind === 'runtime' && typeof text === 'string' && text.includes('MicroPython runtime initialized'))
         if (shouldSwitch) {
             // Only switch if not already on terminal
             const termPanel = document.getElementById('terminal')

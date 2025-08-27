@@ -8,16 +8,6 @@ async function openPage(page) {
     await page.waitForSelector('#editor-host')
 }
 
-// Return a timeout value that is longer when IndexedDB is unavailable
-async function getTimeout(page, fast = 2000, slow = 8000) {
-    try {
-        const disabled = await page.evaluate(() => (typeof window.indexedDB === 'undefined' || !window.indexedDB))
-        return disabled ? slow : fast
-    } catch (e) {
-        return fast
-    }
-}
-
 test.describe('stdin inline prompt behavior', () => {
     test('Should not be able to enter text on page load', async ({ page }) => {
         await openPage(page)
@@ -35,20 +25,19 @@ test.describe('stdin inline prompt behavior', () => {
             if (window.cm) window.cm.setValue(src)
             else document.getElementById('code').value = src
         })
-        // Wait for autosave to complete (use a longer timeout if storage is disabled)
+        // Wait for autosave to complete
         await page.waitForFunction(() => {
             const el = document.getElementById('autosave-indicator')
             return el && el.textContent && el.textContent.indexOf('Saved') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
 
         // Click run
         await page.click('#run')
-        // Wait for host.get_input to enable the input (or for the pending input flag)
+        // Wait for host.get_input to enable the input
         await page.waitForFunction(() => {
-            try { if (window.__ssg_pending_input) return true } catch (_e) { }
             const b = document.getElementById('stdin-box')
             return b && !b.disabled
-        }, { timeout: await getTimeout(page, 2000, 20000) })
+        }, { timeout: 2000 })
 
         // The stdin box should be enabled and focused
         const enabled = await page.$eval('#stdin-box', el => !el.disabled)
@@ -64,7 +53,7 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const t = document.getElementById('terminal-output')
             return t && t.textContent && t.textContent.indexOf('Hello Alice') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
         const terminalText = await page.$eval('#terminal-output', el => el.textContent)
         expect(terminalText).toContain('Hello Alice')
     })
@@ -82,14 +71,13 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const el = document.getElementById('autosave-indicator')
             return el && el.textContent && el.textContent.indexOf('Saved') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
 
         await page.click('#run')
         await page.waitForFunction(() => {
-            try { if (window.__ssg_pending_input) return true } catch (_e) { }
             const b = document.getElementById('stdin-box')
             return b && !b.disabled
-        }, { timeout: await getTimeout(page, 2000, 12000) })
+        }, { timeout: 2000 })
 
         // ensure input is enabled now
         const enabledNow = await page.$eval('#stdin-box', el => !el.disabled)
@@ -103,7 +91,7 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const t = document.getElementById('terminal-output')
             return t && t.textContent && t.textContent.indexOf('Bye Bob') !== -1
-        }, { timeout: await getTimeout(page, 3000, 10000) })
+        }, { timeout: 3000 })
         const enabledAfter = await page.$eval('#stdin-box', el => !el.disabled)
         expect(enabledAfter).toBeFalsy()
     })
@@ -121,20 +109,16 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const el = document.getElementById('autosave-indicator')
             return el && el.textContent && el.textContent.indexOf('Saved') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
 
         // Scenario A: blank input -> expect 'no line!'
         await page.click('#run')
-        await page.waitForFunction(() => {
-            try { if (window.__ssg_pending_input) return true } catch (_e) { }
-            const b = document.getElementById('stdin-box')
-            return b && !b.disabled
-        }, { timeout: await getTimeout(page, 2000, 12000) })
+        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 2000 })
         await page.evaluate(() => { const b = document.getElementById('stdin-box'); if (b) b.value = ''; const f = document.getElementById('terminal-input-form'); if (f) f.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); })
         await page.waitForFunction(() => {
             const t = document.getElementById('terminal-output')
             return t && t.textContent && t.textContent.indexOf('no line!') !== -1
-        }, { timeout: await getTimeout(page, 5000, 15000) })
+        }, { timeout: 5000 })
 
         // Scenario B: provide a value
         await page.evaluate(() => {
@@ -146,10 +130,10 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const el = document.getElementById('autosave-indicator')
             return el && el.textContent && el.textContent.indexOf('Saved') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
 
         await page.click('#run')
-        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: await getTimeout(page, 2000, 12000) })
+        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 2000 })
         await page.type('#stdin-box', 'hello')
         await page.keyboard.press('Enter')
         await page.waitForFunction(() => {
@@ -175,11 +159,7 @@ test.describe('stdin inline prompt behavior', () => {
         }, { timeout: 2000 })
 
         await page.click('#run')
-        await page.waitForFunction(() => {
-            try { if (window.__ssg_pending_input) return true } catch (_e) { }
-            const b = document.getElementById('stdin-box')
-            return b && !b.disabled
-        }, { timeout: 2000 })
+        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 2000 })
         // Submit blank explicitly via form dispatch
         await page.evaluate(() => { const b = document.getElementById('stdin-box'); if (b) b.value = ''; const f = document.getElementById('terminal-input-form'); if (f) f.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); })
 
@@ -187,7 +167,7 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const t = document.getElementById('terminal-output')
             return t && t.textContent && t.textContent.indexOf('GOT:') !== -1
-        }, { timeout: await getTimeout(page, 3000, 10000) })
+        }, { timeout: 3000 })
     })
 
     test('Inspect transformed code for mixed-indentation input snippet', async ({ page }) => {
@@ -238,11 +218,11 @@ test.describe('stdin inline prompt behavior', () => {
         await page.waitForFunction(() => {
             const el = document.getElementById('autosave-indicator')
             return el && el.textContent && el.textContent.indexOf('Saved') !== -1
-        }, { timeout: await getTimeout(page, 2000, 8000) })
+        }, { timeout: 2000 })
 
         // Scenario A: submit blank line at first prompt -> program should end with 'OK done'
         await page.click('#run')
-        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: await getTimeout(page, 2000, 12000) })
+        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 2000 })
         // Ensure stdin box is focused and submit blank
         // Submit blank by dispatching the form submit event to ensure empty value is handled
         await page.evaluate(() => { const b = document.getElementById('stdin-box'); if (b) b.value = ''; const f = document.getElementById('terminal-input-form'); if (f) f.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); })
@@ -264,11 +244,7 @@ test.describe('stdin inline prompt behavior', () => {
         }, { timeout: 2000 })
 
         await page.click('#run')
-        await page.waitForFunction(() => {
-            try { if (window.__ssg_pending_input) return true } catch (_e) { }
-            const b = document.getElementById('stdin-box')
-            return b && !b.disabled
-        }, { timeout: 2000 })
+        await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 2000 })
         // Type 'hi' and submit
         await page.type('#stdin-box', 'hi')
         await page.press('#stdin-box', 'Enter')

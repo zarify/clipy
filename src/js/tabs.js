@@ -1,6 +1,6 @@
 // Tab management integrating files with CodeMirror
 import { $ } from './utils.js'
-import { getFileManager, MAIN_FILE } from './vfs.js'
+import { getFileManager, MAIN_FILE } from './vfs-client.js'
 import { showInputModal, showConfirmModal } from './modals.js'
 import { appendTerminalDebug } from './terminal.js'
 
