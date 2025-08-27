@@ -62,6 +62,8 @@ function dbg(...args) {
 async function main() {
     try {
         console.log('🚀 Initializing Clipy application...')
+        // Suppress automatic terminal auto-switching during startup
+        try { if (typeof window !== 'undefined') window.__ssg_suppress_terminal_autoswitch = true } catch (_e) { }
 
         // 1. Load configuration
         const cfg = await loadConfig()
@@ -146,6 +148,8 @@ async function main() {
         }
 
         console.log('✅ Clipy application initialized successfully')
+        // Clear startup suppression so user actions can switch to terminal normally
+        try { if (typeof window !== 'undefined') window.__ssg_suppress_terminal_autoswitch = false } catch (_e) { }
 
     } catch (error) {
         console.error('❌ Failed to initialize Clipy application:', error)
