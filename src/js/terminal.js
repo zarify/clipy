@@ -22,6 +22,65 @@ import { $ } from './utils.js'
 // Debug-only logger: controlled by `window.__ssg_debug_logs` (default: false)
 try { window.__ssg_debug_logs = window.__ssg_debug_logs || false } catch (_e) { }
 
+// Ensure the global suppression flag exists as early as possible so that any
+// code which runs before app initialization cannot cause the terminal to
+// auto-switch or focus. The main initializer will explicitly clear this flag
+// when startup completes.
+try {
+    if (typeof window !== 'undefined' && typeof window.__ssg_suppress_terminal_autoswitch === 'undefined') {
+        window.__ssg_suppress_terminal_autoswitch = true
+    }
+} catch (_e) { }
+
+// Prevent early focus on terminal elements while startup suppression is active.
+// This uses a capture-phase focusin listener so it can intercept programmatic
+// focus() calls from other modules before they take effect.
+try {
+    if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+        document.addEventListener('focusin', (ev) => {
+            try {
+                const suppressed = Boolean(window.__ssg_suppress_terminal_autoswitch)
+                if (!suppressed) return
+                const tgt = ev.target
+                if (!tgt || !tgt.id) return
+                if (tgt.id === 'terminal-output' || tgt.id === 'stdin-box') {
+                    try { tgt.blur && tgt.blur() } catch (_e) { }
+                    // Move focus to a safe element (body) to avoid focus landing on terminal
+                    try { document.body && document.body.focus && document.body.focus() } catch (_e) { }
+                    ev.stopImmediatePropagation()
+                    ev.preventDefault()
+                }
+            } catch (_e) { }
+        }, true)
+    }
+} catch (_e) { }
+
+// If the browser restores focus on reload, it can land on terminal elements
+// before our capture handler runs. Proactively blur those elements when
+// suppression is active. Run immediately and also schedule short delayed
+// attempts to catch restoration timing across browsers.
+try {
+    const defocusIfSuppressed = () => {
+        try {
+            const suppressed = Boolean(window.__ssg_suppress_terminal_autoswitch)
+            if (!suppressed) return
+            const active = document.activeElement
+            if (!active) return
+            const id = active.id
+            if (id === 'terminal-output' || id === 'stdin-box') {
+                try { active.blur && active.blur() } catch (_e) { }
+                try { document.body && document.body.focus && document.body.focus() } catch (_e) { }
+            }
+        } catch (_e) { }
+    }
+
+    // Run immediately
+    try { defocusIfSuppressed() } catch (_e) { }
+    // Run after microtask and a short delay to catch browser restoration timing
+    try { setTimeout(defocusIfSuppressed, 0) } catch (_e) { }
+    try { setTimeout(defocusIfSuppressed, 100) } catch (_e) { }
+} catch (_e) { }
+
 export function appendTerminalDebug(text) {
     try {
         if (window.__ssg_debug_logs) appendTerminal(text)
@@ -34,13 +93,20 @@ export function appendTerminal(text, kind = 'stdout') {
         // Only auto-switch to terminal if not a runtime init message
         const shouldSwitch = !(kind === 'runtime' && typeof text === 'string' && text.includes('MicroPython runtime initialized'))
         if (shouldSwitch) {
-            // Only switch if not already on terminal
-            const termPanel = document.getElementById('terminal')
-            if (termPanel && termPanel.style.display !== 'block') {
-                if (typeof window.activateSideTab === 'function') {
-                    window.activateSideTab('terminal')
-                } else if (typeof activateSideTab === 'function') {
-                    activateSideTab('terminal')
+            // Respect global suppression used during app initialization to
+            // avoid making the terminal visible or stealing focus while the
+            // app is still booting or performing controlled restores.
+            let suppressed = false
+            try { suppressed = Boolean(window.__ssg_suppress_terminal_autoswitch) } catch (_e) { }
+            if (!suppressed) {
+                // Only switch if not already on terminal
+                const termPanel = document.getElementById('terminal')
+                if (termPanel && termPanel.style.display !== 'block') {
+                    if (typeof window.activateSideTab === 'function') {
+                        window.activateSideTab('terminal')
+                    } else if (typeof activateSideTab === 'function') {
+                        activateSideTab('terminal')
+                    }
                 }
             }
         }
@@ -298,7 +364,13 @@ export function activateSideTab(name) {
             termBtn.setAttribute('aria-selected', 'true')
             instrPanel.style.display = 'none'
             termPanel.style.display = 'block'
-            try { termPanel.querySelector('#terminal-output')?.focus() } catch (_e) { }
+            // Respect global suppression used during app initialization to
+            // avoid stealing focus while the app is still booting.
+            try {
+                if (!window.__ssg_suppress_terminal_autoswitch) {
+                    termPanel.querySelector('#terminal-output')?.focus()
+                }
+            } catch (_e) { }
         } else {
             instrBtn.setAttribute('aria-selected', 'true')
             termBtn.setAttribute('aria-selected', 'false')
