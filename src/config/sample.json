@@ -16,24 +16,51 @@
     "timeoutSeconds": 30,
     "maxOutputLines": 1000
   },
-  "feedback": {
-    "ast": [],
-    "regex": [
-      {
-        "pattern": "print\\(|def ",
-        "message": "Looks like you're using print or defining functions",
-        "target": "code"
+  "feedback": [
+    {
+      "id": "f-avoid-print-or-def",
+      "title": "Avoid prints / functions (hint)",
+      "when": [
+        "edit"
+      ],
+      "pattern": {
+        "type": "regex",
+        "target": "code",
+        "expression": "print\\(|def "
       },
-      {
-        "pattern": "Hello from MicroPython",
-        "message": "Sample output detected",
-        "target": "output"
+      "message": "Looks like you're using print or defining functions",
+      "severity": "hint",
+      "visibleByDefault": true
+    },
+    {
+      "id": "f-sample-output",
+      "title": "Sample output detected",
+      "when": [
+        "run"
+      ],
+      "pattern": {
+        "type": "regex",
+        "target": "stdout",
+        "expression": "Hello from MicroPython"
       },
-      {
-        "pattern": "password",
-        "message": "Avoid hard-coding passwords",
-        "target": "code"
-      }
-    ]
-  }
+      "message": "Sample output detected",
+      "severity": "info",
+      "visibleByDefault": true
+    },
+    {
+      "id": "f-hardcoded-password",
+      "title": "Avoid hard-coded secrets",
+      "when": [
+        "edit"
+      ],
+      "pattern": {
+        "type": "regex",
+        "target": "code",
+        "expression": "password"
+      },
+      "message": "Avoid hard-coding passwords",
+      "severity": "warning",
+      "visibleByDefault": true
+    }
+  ]
 }

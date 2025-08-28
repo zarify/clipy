@@ -30,6 +30,8 @@ import { transformAndWrap } from './js/code-transform.js'
 // Additional features
 import { setupSnapshotSystem } from './js/snapshots.js'
 import { showStorageInfo } from './js/storage-manager.js'
+import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
+import { initializeFeedbackUI, setFeedbackMatches, setFeedbackConfig } from './js/feedback-ui.js'
 
 // Expose global functions for tests and debugging
 try {
@@ -112,6 +114,28 @@ async function main() {
 
         // Expose runtimeAdapter globally for tests
         try { window.runtimeAdapter = runtimeAdapter } catch (e) { }
+
+        // Expose minimal Feedback API for tests and wire UI
+        try { window.Feedback = { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on: feedbackOn, off: feedbackOff } } catch (_e) { }
+        try {
+            initializeFeedbackUI();
+            feedbackOn('matches', (m) => { try { setFeedbackMatches(m) } catch (_e) { } })
+            // Update UI config when Feedback subsystem is reset at runtime
+            feedbackOn('reset', (payload) => { try { setFeedbackConfig(payload && payload.config ? payload.config : payload) } catch (_e) { } })
+        } catch (_e) { }
+
+        // Provide the feedback config to the UI so it can render visibleByDefault titles
+        try { setFeedbackConfig(cfg) } catch (_e) { }
+
+        // Now initialize Feedback subsystem with the config so it can evaluate and emit matches
+        try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg) } catch (_e) { }
+
+        // Initial feedback evaluation for starter content
+        try {
+            const content = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+            const path = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || '/main.py'
+            try { if (window.Feedback && window.Feedback.evaluateFeedbackOnEdit) window.Feedback.evaluateFeedbackOnEdit(content, path) } catch (_e) { }
+        } catch (_e) { }
 
         // 7. Setup runtime APIs and controls
         setupMicroPythonAPI()

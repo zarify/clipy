@@ -77,6 +77,8 @@ export function initializeEditor() {
         cm.on('change', () => {
             textarea.value = cm.getValue()
             textarea.dispatchEvent(new Event('input', { bubbles: true }))
+            // Debounced feedback evaluation (real-time edit feedback)
+            try { scheduleFeedbackEvaluation() } catch (_e) { }
         })
 
         // Sync textarea changes to CodeMirror (for tests that fill the textarea)
@@ -84,6 +86,7 @@ export function initializeEditor() {
             if (cm.getValue() !== textarea.value) {
                 cm.setValue(textarea.value)
             }
+            try { scheduleFeedbackEvaluation() } catch (_e) { }
         })
 
         // Watch for programmatic changes to textarea value property (for Playwright fills)
@@ -97,6 +100,23 @@ export function initializeEditor() {
             }
         }
         setInterval(checkForProgrammaticChanges, 50)  // Check more frequently
+
+        // Debounced feedback evaluation helper
+        let _fbTimer = null
+        function scheduleFeedbackEvaluation(delay = 300) {
+            try {
+                if (_fbTimer) clearTimeout(_fbTimer)
+                _fbTimer = setTimeout(() => {
+                    try {
+                        const content = cm ? cm.getValue() : (textarea ? textarea.value : '')
+                        const path = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || '/main.py'
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnEdit === 'function') {
+                            try { window.Feedback.evaluateFeedbackOnEdit(content, path) } catch (_e) { }
+                        }
+                    } catch (_e) { }
+                }, delay)
+            } catch (_e) { }
+        }
 
         return cm
     } else {

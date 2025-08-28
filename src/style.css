@@ -361,6 +361,113 @@ pre#terminal-output {
     margin-top: 0
 }
 
+/* Feedback panel styling */
+#feedback-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.feedback-section {
+    border: 1px solid #eef2ff;
+    background: #fbfdff;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.feedback-section h3 {
+    margin: 0 0 6px 0;
+    font-size: 0.95rem;
+    color: #0b3a8a;
+}
+
+.feedback-entry {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.feedback-entry:hover {
+    background: rgba(11, 92, 255, 0.03);
+}
+
+.feedback-title {
+    font-weight: 700;
+    color: #0b3a8a;
+    font-size: 0.95rem;
+}
+
+.feedback-msg {
+    font-size: 0.9rem;
+    color: #333;
+    padding-left: 6px;
+}
+
+.feedback-msg-matched {
+    color: #0b5cff;
+    background: rgba(11, 92, 255, 0.04);
+    border-left: 3px solid rgba(11, 92, 255, 0.12);
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.feedback-msg-hidden {
+    color: #999;
+    font-style: italic;
+}
+
+.feedback-edit-section .feedback-entry {
+    border-left: 3px solid rgba(11, 92, 255, 0.06);
+}
+
+.feedback-run-section .feedback-entry {
+    border-left: 3px solid rgba(11, 192, 120, 0.06);
+}
+
+/* Title row layout */
+.feedback-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.feedback-icon {
+    display: inline-flex;
+    width: 20px;
+    justify-content: center;
+    align-items: center;
+    font-size: 16px;
+}
+
+/* Severity color hints */
+.severity-hint .feedback-icon {
+    color: #9a6b00
+}
+
+.severity-info .feedback-icon {
+    color: #0b5cff
+}
+
+.severity-warning .feedback-icon {
+    color: #b06b00
+}
+
+.matched-hint {
+    color: #9a6b00
+}
+
+.matched-info {
+    color: #0b5cff
+}
+
+.matched-warning {
+    color: #b06b00
+}
+
 /* Editor header layout: reserve space for autosave indicator to avoid layout shift */
 .panel-header {
     display: flex;

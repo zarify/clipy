@@ -17,19 +17,36 @@
         "timeoutSeconds": 30,
         "maxOutputLines": 1000
     },
-    "feedback": {
-        "ast": [],
-        "regex": [
-            {
-                "pattern": "f\".*\\{.*\\}.*\"",
-                "message": "Great! You're using f-strings for formatted output.",
-                "target": "code"
+    "feedback": [
+        {
+            "id": "pb-fstring",
+            "title": "Using f-strings",
+            "when": [
+                "edit"
+            ],
+            "pattern": {
+                "type": "regex",
+                "target": "code",
+                "expression": "f\".*\\{.*\\}.*\""
             },
-            {
-                "pattern": "print\\(",
-                "message": "Good use of the print() function to display output.",
-                "target": "code"
-            }
-        ]
-    }
+            "message": "Great! You're using f-strings for formatted output.",
+            "severity": "info",
+            "visibleByDefault": true
+        },
+        {
+            "id": "pb-print",
+            "title": "Using print",
+            "when": [
+                "edit"
+            ],
+            "pattern": {
+                "type": "regex",
+                "target": "code",
+                "expression": "print\\("
+            },
+            "message": "Good use of the print() function to display output.",
+            "severity": "info",
+            "visibleByDefault": true
+        }
+    ]
 }

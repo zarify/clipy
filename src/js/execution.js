@@ -254,6 +254,23 @@ export async function runPythonCode(code, cfg) {
                     }
                     const runtimeOutput = out === undefined ? '' : String(out)
                     if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
+                    try {
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
+                            try {
+                                const outEl = document.getElementById('terminal-output')
+                                const full = outEl ? (outEl.textContent || '') : runtimeOutput
+                                window.Feedback.evaluateFeedbackOnRun({ stdout: full, stderr: '' })
+                                // Re-run after a short delay to accommodate streaming or delayed DOM updates
+                                setTimeout(() => {
+                                    try {
+                                        const outEl2 = document.getElementById('terminal-output')
+                                        const full2 = outEl2 ? (outEl2.textContent || '') : runtimeOutput
+                                        window.Feedback.evaluateFeedbackOnRun({ stdout: full2, stderr: '' })
+                                    } catch (_e) { }
+                                }, 50)
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
                 } catch (asyncifyErr) {
                     const errMsg = String(asyncifyErr)
 
@@ -413,6 +430,22 @@ export async function runPythonCode(code, cfg) {
                     const out = await executeWithTimeout(runtimeAdapter.run(codeToRun), timeoutMs, safetyTimeoutMs)
                     const runtimeOutput = out === undefined ? '' : String(out)
                     if (runtimeOutput) appendTerminal(runtimeOutput, 'stdout')
+                    try {
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
+                            try {
+                                const outEl = document.getElementById('terminal-output')
+                                const full = outEl ? (outEl.textContent || '') : runtimeOutput
+                                window.Feedback.evaluateFeedbackOnRun({ stdout: full, stderr: '' })
+                                setTimeout(() => {
+                                    try {
+                                        const outEl2 = document.getElementById('terminal-output')
+                                        const full2 = outEl2 ? (outEl2.textContent || '') : runtimeOutput
+                                        window.Feedback.evaluateFeedbackOnRun({ stdout: full2, stderr: '' })
+                                    } catch (_e) { }
+                                }, 50)
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
                 } catch (e) {
                     const msg = String(e || '')
 

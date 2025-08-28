@@ -16,24 +16,51 @@
         "timeoutSeconds": 30,
         "maxOutputLines": 1000
     },
-    "feedback": {
-        "ast": [],
-        "regex": [
-            {
-                "pattern": "\\[.*\\]",
-                "message": "Working with lists - great for storing ordered collections!",
-                "target": "code"
+    "feedback": [
+        {
+            "id": "ds-list",
+            "title": "Lists",
+            "when": [
+                "edit"
+            ],
+            "pattern": {
+                "type": "regex",
+                "target": "code",
+                "expression": "\\[.*\\]"
             },
-            {
-                "pattern": "\\{.*\\}",
-                "message": "Using dictionaries - perfect for key-value data!",
-                "target": "code"
+            "message": "Working with lists - great for storing ordered collections!",
+            "severity": "info",
+            "visibleByDefault": true
+        },
+        {
+            "id": "ds-dict",
+            "title": "Dictionaries",
+            "when": [
+                "edit"
+            ],
+            "pattern": {
+                "type": "regex",
+                "target": "code",
+                "expression": "\\{.*\\}"
             },
-            {
-                "pattern": "\\.append\\(|\\.extend\\(|\\.insert\\(",
-                "message": "Good use of list methods to modify collections.",
-                "target": "code"
-            }
-        ]
-    }
+            "message": "Using dictionaries - perfect for key-value data!",
+            "severity": "info",
+            "visibleByDefault": true
+        },
+        {
+            "id": "ds-list-methods",
+            "title": "List methods",
+            "when": [
+                "edit"
+            ],
+            "pattern": {
+                "type": "regex",
+                "target": "code",
+                "expression": "\\.append\\(|\\.extend\\(|\\.insert\\("
+            },
+            "message": "Good use of list methods to modify collections.",
+            "severity": "info",
+            "visibleByDefault": true
+        }
+    ]
 }

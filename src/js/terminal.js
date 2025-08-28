@@ -499,8 +499,10 @@ export function activateSideTab(name) {
     try {
         const instrBtn = $('tab-btn-instructions')
         const termBtn = $('tab-btn-terminal')
+        const fbBtn = $('tab-btn-feedback')
         const instrPanel = $('instructions')
         const termPanel = $('terminal')
+        const fbPanel = $('feedback')
 
         if (!instrBtn || !termBtn || !instrPanel || !termPanel) return
 
@@ -509,6 +511,8 @@ export function activateSideTab(name) {
             termBtn.setAttribute('aria-selected', 'true')
             instrPanel.style.display = 'none'
             termPanel.style.display = 'block'
+            if (fbBtn) fbBtn.setAttribute('aria-selected', 'false')
+            if (fbPanel) fbPanel.style.display = 'none'
             // Respect global suppression used during app initialization to
             // avoid stealing focus while the app is still booting.
             try {
@@ -516,11 +520,21 @@ export function activateSideTab(name) {
                     termPanel.querySelector('#terminal-output')?.focus()
                 }
             } catch (_e) { }
+        } else if (name === 'feedback') {
+            // feedback tab
+            try { instrBtn.setAttribute('aria-selected', 'false') } catch (_e) { }
+            try { termBtn.setAttribute('aria-selected', 'false') } catch (_e) { }
+            try { fbBtn.setAttribute('aria-selected', 'true') } catch (_e) { }
+            try { instrPanel.style.display = 'none' } catch (_e) { }
+            try { termPanel.style.display = 'none' } catch (_e) { }
+            try { if (fbPanel) fbPanel.style.display = 'block' } catch (_e) { }
         } else {
             instrBtn.setAttribute('aria-selected', 'true')
             termBtn.setAttribute('aria-selected', 'false')
+            if (fbBtn) fbBtn.setAttribute('aria-selected', 'false')
             instrPanel.style.display = 'block'
             termPanel.style.display = 'none'
+            if (fbPanel) fbPanel.style.display = 'none'
         }
     } catch (_e) { }
 }
@@ -529,8 +543,10 @@ export function setupSideTabs() {
     try {
         const instrBtn = $('tab-btn-instructions')
         const termBtn = $('tab-btn-terminal')
+        const fbBtn = $('tab-btn-feedback')
         if (instrBtn) instrBtn.addEventListener('click', () => activateSideTab('instructions'))
         if (termBtn) termBtn.addEventListener('click', () => activateSideTab('terminal'))
+        if (fbBtn) fbBtn.addEventListener('click', () => activateSideTab('feedback'))
 
         // Default to instructions tab (original behavior)
         activateSideTab('instructions')

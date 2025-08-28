@@ -59,10 +59,15 @@ function validateAndNormalizeConfigInternal(rawConfig) {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
             maxOutputLines: Math.max(100, Math.min(10000, rawConfig.execution?.maxOutputLines || 1000))
         },
-        feedback: {
-            ast: Array.isArray(rawConfig.feedback?.ast) ? rawConfig.feedback.ast : [],
-            regex: Array.isArray(rawConfig.feedback?.regex) ? rawConfig.feedback.regex : []
-        }
+        // Support two feedback shapes:
+        // - legacy: { ast: [], regex: [] }
+        // - new: feedback: [ { id, title, when, pattern: { type, target, expression }, ... } ]
+        feedback: Array.isArray(rawConfig.feedback)
+            ? rawConfig.feedback
+            : {
+                ast: Array.isArray(rawConfig.feedback?.ast) ? rawConfig.feedback.ast : [],
+                regex: Array.isArray(rawConfig.feedback?.regex) ? rawConfig.feedback.regex : []
+            }
     }
 
     // Validate runtime URL is not empty
