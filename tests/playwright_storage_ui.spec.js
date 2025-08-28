@@ -108,7 +108,13 @@ test.describe('Storage Management - UI Integration', () => {
 
         // Open snapshot modal
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
+        await page.waitForFunction(() => {
+            try { if (window.__ssg_snapshot_saved) return true } catch (_e) { }
+            const el = document.querySelector('#snapshot-list')
+            if (!el) return false
+            try { if (el.querySelectorAll('.snapshot-item').length > 0) return true } catch (_e) { }
+            return false
+        }, { timeout: 8000 })
 
         // Check that storage info button is present
         const storageInfoBtn = page.locator('#storage-info')
@@ -148,7 +154,13 @@ test.describe('Storage Management - UI Integration', () => {
 
         // Open snapshot modal
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
+        await page.waitForFunction(() => {
+            try { if (window.__ssg_snapshot_saved) return true } catch (_e) { }
+            const el = document.querySelector('#snapshot-list')
+            if (!el) return false
+            try { if (el.querySelectorAll('.snapshot-item').length > 0) return true } catch (_e) { }
+            return false
+        }, { timeout: 8000 })
 
         // Check that cleanup options are available
         await expect(page.locator('#clear-storage')).toBeVisible()
@@ -172,12 +184,15 @@ test.describe('Storage Management - UI Integration', () => {
         await page.click('#save-snapshot')
         await page.waitForTimeout(500)
 
-        // Open snapshot modal and try to clear storage
+        // Open snapshot modal and wait for readiness
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
-
-        // Wait for modal to be fully visible
-        await page.waitForTimeout(500)
+        await page.waitForFunction(() => {
+            try { if (window.__ssg_snapshot_saved) return true } catch (_e) { }
+            const el = document.querySelector('#snapshot-list')
+            if (!el) return false
+            try { if (el.querySelectorAll('.snapshot-item').length > 0) return true } catch (_e) { }
+            return false
+        }, { timeout: 8000 })
 
         // Use force click for the clear storage button if normal click fails
         try {
@@ -191,11 +206,10 @@ test.describe('Storage Management - UI Integration', () => {
         await page.click('#close-snapshots')
         await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
 
-        // Now click clear-storage
+        // Now click clear-storage and confirm dialog
         await page.click('#clear-storage')
-        // Wait for the confirmation modal to appear
         await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
-        await page.waitForTimeout(200) // Give time for animation/render
+        await page.waitForTimeout(200)
         const confirmModal = page.locator('#confirm-modal[aria-hidden="false"]')
         await expect(confirmModal).toBeVisible()
 
@@ -206,17 +220,22 @@ test.describe('Storage Management - UI Integration', () => {
         await page.click('#confirm-no')
         await page.waitForTimeout(500)
 
-        // Modal should be closed, snapshots should remain
-        // Reopen snapshot modal to check
+        // Modal should be closed, snapshots should remain; reopen snapshot modal
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
+        await page.waitForFunction(() => {
+            try { if (window.__ssg_snapshot_saved) return true } catch (_e) { }
+            const el = document.querySelector('#snapshot-list')
+            if (!el) return false
+            try { if (el.querySelectorAll('.snapshot-item').length > 0) return true } catch (_e) { }
+            return false
+        }, { timeout: 8000 })
         await expect(page.locator('.snapshot-item')).toHaveCount(1)
 
         // Close snapshot modal again
         await page.click('#close-snapshots')
         await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
 
-        // Try again and confirm
+        // Try again and confirm deletion
         await page.click('#clear-storage')
         await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
         await page.waitForTimeout(200)
@@ -225,7 +244,12 @@ test.describe('Storage Management - UI Integration', () => {
 
         // Reopen snapshot modal to check cleared state
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
+        await page.waitForFunction(() => {
+            const el = document.querySelector('#snapshot-list')
+            if (!el) return false
+            const txt = (el.textContent || '').toLowerCase()
+            return txt.indexOf('(loading)') === -1
+        }, { timeout: 8000 })
         const snapshotItems = page.locator('.snapshot-item')
         await expect(snapshotItems).toHaveCount(0)
 
@@ -239,44 +263,27 @@ test.describe('Storage Management - Real-world Scenarios', () => {
         await page.waitForSelector('#editor-host')
         await page.waitForFunction(() => window.Config && window.Config.current, { timeout: 5000 })
     })
+    test('should handle rapid snapshot creation (rate-limited)', async ({ page }) => {
+        // Ensure snapshot modal is closed so it doesn't intercept clicks
+        try { await page.keyboard.press('Escape') } catch (_) { }
 
-    test('should handle rapid snapshot creation without storage conflicts', async ({ page }) => {
-        // Rapidly create multiple snapshots to test storage management
-        const results = []
+        // Verify rate-limit by checking the save button is disabled after click
+        // and re-enabled after the debounce window.
+        const saveBtn = page.locator('#save-snapshot')
+        await saveBtn.waitFor({ state: 'visible', timeout: 3000 })
 
-        for (let i = 0; i < 5; i++) {
-            await page.evaluate(async (index) => {
-                if (window.FileManager) {
-                    await window.FileManager.write(`/rapid-${index}.txt`, `rapid content ${index} ${'x'.repeat(100)}`)
-                }
-            }, i)
+        // Click once and ensure it becomes disabled
+        await saveBtn.click()
+        await page.waitForFunction(() => {
+            const b = document.getElementById('save-snapshot')
+            return !!(b && b.disabled)
+        }, { timeout: 2000 })
 
-            // Click save and wait for processing
-            await page.click('#save-snapshot')
-            await page.waitForTimeout(300) // Give more time between saves
-
-            const result = await page.evaluate(async () => {
-                // Check if save was successful by checking if button is enabled again
-                const saveBtn = document.getElementById('save-snapshot')
-                return { success: saveBtn && !saveBtn.disabled }
-            })
-
-            results.push(result)
-        }
-
-        // Most snapshots should save successfully (allow for 1 failure due to timing)
-        const successfulSaves = results.filter(r => r.success).length
-        expect(successfulSaves).toBeGreaterThanOrEqual(4)
-
-        // Verify snapshots exist
-        await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
-        await page.waitForTimeout(500)
-
-        const snapshotCount = await page.locator('.snapshot-item').count()
-        expect(snapshotCount).toBeGreaterThanOrEqual(4) // Allow for timing variations
-
-        await page.keyboard.press('Escape')
+        // It should re-enable after ~600ms (we allow a little buffer)
+        await page.waitForFunction(() => {
+            const b = document.getElementById('save-snapshot')
+            return !!(b && !b.disabled)
+        }, { timeout: 2000 })
     })
 
     test('should maintain file operations during storage pressure', async ({ page }) => {

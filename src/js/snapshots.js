@@ -25,7 +25,19 @@ export function setupSnapshotSystem() {
     const clearStorageBtn = $('clear-storage')
 
     if (saveSnapshotBtn) {
-        saveSnapshotBtn.addEventListener('click', saveSnapshot)
+        // Wrap the save handler so we disable the button briefly and
+        // avoid concurrent or very-rapid saves which can cause modal
+        // overlay/timing issues in some browsers.
+        saveSnapshotBtn.addEventListener('click', async (ev) => {
+            try {
+                if (saveSnapshotBtn.disabled) return
+                saveSnapshotBtn.disabled = true
+                await saveSnapshot()
+            } finally {
+                // Re-enable after a short debounce window
+                setTimeout(() => { try { saveSnapshotBtn.disabled = false } catch (_) { } }, 600)
+            }
+        })
     }
 
     if (historyBtn) {

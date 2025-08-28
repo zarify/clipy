@@ -65,10 +65,13 @@ test.describe('Storage Management', () => {
 
         // Open snapshot modal
         await page.click('#history')
-        await page.waitForSelector('#snapshot-list')
 
-        // Check if storage info button exists
+        // Wait for snapshot list container to appear (avoid brittle content checks)
+        await page.waitForSelector('#snapshot-list', { timeout: 8000 })
+
+        // The storage info button is part of the snapshot modal UI; wait for it to be present
         const storageInfoButton = page.locator('#storage-info')
+        await storageInfoButton.waitFor({ state: 'visible', timeout: 6000 })
         await expect(storageInfoButton).toBeVisible()
 
         // Close modal

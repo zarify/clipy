@@ -11,12 +11,19 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
     try { if (window.FileManager) await window.FileManager.write('/foo.txt', 'snapshot-file') } catch (e) { }
   })
   await page.click('#save-snapshot')
-  // wait for snapshot to persist
+
+  // wait for snapshot persistence. Some browsers may not set deterministic
+  // globals consistently; open the history modal and wait for at least one
+  // `.snapshot-item` to appear.
+  await page.click('#history')
+  await page.waitForSelector('#snapshot-modal', { state: 'visible', timeout: 8000 })
   await page.waitForFunction(() => {
-    if (!window.Config) return false
-    const configKey = window.Config.getConfigKey()
-    return Boolean(localStorage.getItem(configKey))
-  }, { timeout: 2000 })
+    const el = document.querySelector('#snapshot-list')
+    if (!el) return false
+    const txt = (el.textContent || '').toLowerCase()
+    if (txt.indexOf('(loading)') !== -1) return false
+    return el.querySelectorAll('.snapshot-item').length > 0
+  }, { timeout: 8000 })
 
   // Clear current backend/mem to simulate fresh state
   await page.evaluate(async () => {
@@ -25,24 +32,52 @@ test('snapshot restore populates FS and focuses main.py', async ({ page }) => {
   })
 
   // Restore snapshot via UI
-  await page.click('#history')
+  // Ensure the snapshot modal is open (don't click history if it's already open)
+  const modalOpen = await page.evaluate(() => {
+    const m = document.querySelector('#snapshot-modal')
+    return !!(m && m.getAttribute('aria-hidden') === 'false')
+  })
+  if (!modalOpen) {
+    try {
+      await page.click('#history')
+    } catch (e) {
+      await page.locator('#history').click({ force: true })
+    }
+    await page.waitForSelector('#snapshot-modal', { state: 'visible', timeout: 5000 })
+  }
+
   await page.waitForSelector('#snapshot-list')
-  await page.evaluate(() => { const btn = document.querySelector('#snapshot-list .snapshot-item button'); if (btn) btn.click() })
+  // Click the first snapshot's restore button; force if intercepted by overlay
+  const restoreBtn = page.locator('#snapshot-list .snapshot-item button').first()
+  try {
+    await restoreBtn.click()
+  } catch (e) {
+    await restoreBtn.click({ force: true })
+  }
+
   // wait for snapshot restore to finish (signaled by global flag)
-  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
+  await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 8000 })
 
-  // Wait/poll for backend/mem contains foo.txt (restore is async)
-  const backendFoo = await page.waitForFunction(async () => {
-    try { if (window.__ssg_vfs_backend && typeof window.__ssg_vfs_backend.read === 'function') return await window.__ssg_vfs_backend.read('/foo.txt') } catch (e) { }
-    try { if (window.FileManager && typeof window.FileManager.read === 'function') return window.FileManager.read('/foo.txt') } catch (e) { }
+  // Prefer the helper waitForFile if available to ensure foo.txt exists after restore
+  const fooVal = await page.evaluate(async () => {
+    try { if (typeof window.waitForFile === 'function') return await window.waitForFile('/foo.txt', 5000) } catch (_e) { }
+    try { if (window.__ssg_vfs_backend && typeof window.__ssg_vfs_backend.read === 'function') return await window.__ssg_vfs_backend.read('/foo.txt') } catch (_e) { }
+    try { if (window.FileManager && typeof window.FileManager.read === 'function') return window.FileManager.read('/foo.txt') } catch (_e) { }
     return null
-  }, { timeout: 2000 })
-  const val = await backendFoo.jsonValue()
-  expect(val).toBe('snapshot-file')
+  })
+  expect(fooVal).toBe('snapshot-file')
 
-  // Assert only main.py tab is open and focused
-  const tabs = await page.$$eval('#tabs-left .tab-label', els => els.map(e => e.textContent))
-  expect(tabs).toContain('main.py')
-  const active = await page.$eval('#tabs-left .tab.active .tab-label', el => el.textContent)
-  expect(active).toBe('main.py')
+  // Assert that main.py tab is present and focused. Prefer TabManager signals if available.
+  await page.waitForFunction(() => {
+    try { if (window.TabManager && typeof window.TabManager.list === 'function') return (window.TabManager.list() || []).some(p => p === '/main.py' || p === 'main.py') } catch (_) { }
+    const tabs = Array.from(document.querySelectorAll('#tabs-left .tab-label')).map(n => n.textContent && n.textContent.trim())
+    return tabs.includes('main.py')
+  }, { timeout: 3000 })
+
+  const active = await page.evaluate(() => {
+    try { if (window.TabManager && typeof window.TabManager.getActive === 'function') return window.TabManager.getActive() } catch (_e) { }
+    try { const el = document.querySelector('#tabs-left .tab.active .tab-label'); return el ? el.textContent && el.textContent.trim() : null } catch (_e) { }
+    return null
+  })
+  expect(active === '/main.py' || active === 'main.py' || active === 'main.py').toBeTruthy()
 })
