@@ -1,6 +1,7 @@
 // Tab management integrating files with CodeMirror
 import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE } from './vfs-client.js'
+import { clearAllErrorHighlights } from './code-transform.js'
 import { showInputModal, showConfirmModal } from './modals.js'
 import { appendTerminalDebug } from './terminal.js'
 
@@ -234,9 +235,15 @@ export function initializeTabManager(codeMirror, textareaElement) {
     }
 
     if (cm) {
-        cm.on('change', scheduleTabSave)
+        cm.on('change', () => {
+            try { if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights() } catch (_e) { }
+            scheduleTabSave()
+        })
     } else if (textarea) {
-        textarea.addEventListener('input', scheduleTabSave)
+        textarea.addEventListener('input', () => {
+            try { if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights() } catch (_e) { }
+            scheduleTabSave()
+        })
     }
 
     // Ensure main file is open in initial tab and selected
