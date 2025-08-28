@@ -133,7 +133,18 @@ export function selectTab(path) {
     active = n
     const content = FileManager.read(n) || ''
 
-    if (cm) cm.setValue(content)
+    if (cm) {
+        // When switching tabs programmatically we call cm.setValue(), which
+        // fires CodeMirror 'change' events. Those change handlers clear
+        // error highlights (to remove stale highlights on edits). That has
+        // the unfortunate side-effect of erasing stored highlights during
+        // a tab switch. To preserve highlights across tab switches we
+        // temporarily suppress the change-handler's clearAllErrorHighlights
+        // behaviour while performing the programmatic setValue().
+        try { window.__ssg_suppress_clear_highlights = true } catch (_e) { }
+        cm.setValue(content)
+        try { setTimeout(() => { window.__ssg_suppress_clear_highlights = false }, 0) } catch (_e) { }
+    }
     else if (textarea) textarea.value = content
 
     // Configure editor mode based on file extension (python for .py, plain for others)
@@ -236,7 +247,12 @@ export function initializeTabManager(codeMirror, textareaElement) {
 
     if (cm) {
         cm.on('change', () => {
-            try { if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights() } catch (_e) { }
+            try {
+                // Respect suppression flag set during programmatic setValue()
+                if (!window.__ssg_suppress_clear_highlights) {
+                    if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights()
+                }
+            } catch (_e) { }
             scheduleTabSave()
         })
     } else if (textarea) {
