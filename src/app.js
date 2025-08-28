@@ -136,9 +136,19 @@ async function main() {
                         await FileManager.write(activePath, current)
                     }
 
-                    // Always persist the MAIN_FILE with current editor contents
-                    const currentMain = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
-                    await FileManager.write(MAIN_FILE, currentMain)
+                    // Only persist MAIN_FILE from the editor if the active tab is MAIN_FILE
+                    // or if MAIN_FILE does not yet exist in the FileManager. This prevents
+                    // accidentally overwriting /main.py with the contents of another open tab
+                    // (e.g. when a traceback caused the editor to open a different file).
+                    try {
+                        const mainExists = !!FileManager.read(MAIN_FILE)
+                        if (activePath === MAIN_FILE || !mainExists) {
+                            const currentMain = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+                            await FileManager.write(MAIN_FILE, currentMain)
+                        }
+                    } catch (_e) {
+                        // best-effort: if FileManager.read/write fail, avoid overwriting main
+                    }
                 } catch (_) { /* ignore write errors */ }
 
                 // Get the main file content and run it

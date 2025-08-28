@@ -8,36 +8,79 @@
 try {
     if (typeof window !== 'undefined') {
         if (!Array.isArray(window.__ssg_error_highlights)) window.__ssg_error_highlights = []
+        if (typeof window.__ssg_error_highlights_map !== 'object' || window.__ssg_error_highlights_map === null) window.__ssg_error_highlights_map = {}
         if (typeof window.__ssg_error_highlighted !== 'boolean') window.__ssg_error_highlighted = false
         if (typeof window.__ssg_error_line_number === 'undefined') window.__ssg_error_line_number = null
     }
 } catch (e) { }
 
 export function highlightMappedTracebackInEditor(filePath, lineNumber) {
-    // Open/select the file tab if possible
+    // Normalize the incoming file path so our internal maps always use a
+    // leading-slash form (e.g. '/other.py'). This prevents mismatches where
+    // highlights are stored under "other.py" but tabs/select logic looks up
+    // "/other.py".
+    const normPath = (typeof filePath === 'string' && filePath.startsWith('/')) ? filePath : ('/' + String(filePath || '').replace(/^\/+/, ''))
+
+    // Open/select the file tab if possible (use normalized path)
     if (window.TabManager && typeof window.TabManager.openTab === 'function') {
-        window.TabManager.openTab(filePath)
+        window.TabManager.openTab(normPath)
     }
     if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
-        window.TabManager.selectTab(filePath)
+        window.TabManager.selectTab(normPath)
     }
-    // Highlight the line in CodeMirror
+    // Highlight the line in CodeMirror when available, but always record
+    // the highlight in our maps so it can be re-applied later if the editor
+    // isn't initialized yet (tests and some flows call this early).
     const cm = window.cm
-    if (!cm || typeof lineNumber !== 'number') return
+    if (typeof lineNumber !== 'number') return
     const zeroIndexLine = Math.max(0, lineNumber - 1)
-    // Remove previous highlight if present
+    // Remove any previous highlights for this same file to avoid stacking.
+    // Accept both normalized ('/x.py') and non-normalized ('x.py') keys because
+    // some callers historically passed paths without a leading slash. This
+    // ensures the initial highlight doesn't miss the stored entry.
     try {
-        if (typeof window.__ssg_error_line_number === 'number') {
-            cm.removeLineClass(window.__ssg_error_line_number, 'background', 'cm-error-line')
-            window.__ssg_error_line_number = null
+        window.__ssg_error_highlights_map = window.__ssg_error_highlights_map || {}
+        const altPath = String(filePath || '').startsWith('/') ? String(filePath || '').replace(/^\/+/, '') : ('/' + String(filePath || '').replace(/^\/+/, ''))
+        const prevLines = window.__ssg_error_highlights_map[normPath] || []
+        const prevLinesAlt = window.__ssg_error_highlights_map[altPath] || []
+        for (const ln of prevLines.concat(prevLinesAlt)) {
+            try { if (cm) cm.removeLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
         }
+        // update array: remove entries for this file (either key form)
+        if (Array.isArray(window.__ssg_error_highlights)) {
+            window.__ssg_error_highlights = window.__ssg_error_highlights.filter(h => !(h && (h.filePath === normPath || h.filePath === altPath)))
+        }
+        // reset map entries for both forms
+        window.__ssg_error_highlights_map[normPath] = []
+        try { delete window.__ssg_error_highlights_map[altPath] } catch (_e) { }
     } catch (e) { }
-    // Add highlight and track it
+    // Record highlight in our maps and emit an event; apply to CodeMirror
+    // only if the editor instance is present.
     try {
-        cm.addLineClass(zeroIndexLine, 'background', 'cm-error-line')
-        window.__ssg_error_highlights.push({ filePath, line: zeroIndexLine })
+        window.__ssg_error_highlights = window.__ssg_error_highlights || []
+        window.__ssg_error_highlights_map = window.__ssg_error_highlights_map || {}
+        window.__ssg_error_highlights.push({ filePath: normPath, line: zeroIndexLine })
+        window.__ssg_error_highlights_map[normPath] = [zeroIndexLine]
         window.__ssg_error_highlighted = true;
-        window.__ssg_error_line_number = zeroIndexLine
+        try {
+            window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []
+            const ev = { when: Date.now(), action: 'highlight_applied', filePath: normPath, line: zeroIndexLine }
+            window.__ssg_terminal_event_log.push(ev)
+            window.__ssg_last_highlight_applied = ev
+        } catch (_e) { }
+
+        if (cm) {
+            // Apply immediately so the highlight is visible as soon as the
+            // tab is opened. Also schedule a second apply on the next paint to
+            // survive any subsequent CodeMirror render caused by setValue()
+            // in TabManager.selectTab.
+            try { cm.addLineClass(zeroIndexLine, 'background', 'cm-error-line') } catch (_e) { }
+            try {
+                requestAnimationFrame(() => {
+                    try { cm.addLineClass(zeroIndexLine, 'background', 'cm-error-line') } catch (_e) { }
+                })
+            } catch (_e) { }
+        }
     } catch (e) { }
 }
 
@@ -48,16 +91,33 @@ export function highlightMappedTracebackInEditor(filePath, lineNumber) {
 export function clearAllErrorHighlights() {
     const cm = window.cm;
     if (!cm) return;
-    if (Array.isArray(window.__ssg_error_highlights)) {
-        for (const { filePath, line } of window.__ssg_error_highlights) {
-            try {
-                cm.removeLineClass(line, 'background', 'cm-error-line');
-            } catch (e) { }
+    try {
+        window.__ssg_error_highlights_map = window.__ssg_error_highlights_map || {}
+        for (const fp of Object.keys(window.__ssg_error_highlights_map)) {
+            const lines = window.__ssg_error_highlights_map[fp] || []
+            for (const ln of lines) {
+                try { cm.removeLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
+            }
         }
-    }
+    } catch (_e) { }
+    // Fallback: also clear any array-tracked entries
+    try {
+        if (Array.isArray(window.__ssg_error_highlights)) {
+            for (const { line } of window.__ssg_error_highlights) {
+                try { cm.removeLineClass(line, 'background', 'cm-error-line') } catch (_e) { }
+            }
+        }
+    } catch (_e) { }
     window.__ssg_error_highlights = [];
+    window.__ssg_error_highlights_map = {}
     window.__ssg_error_highlighted = false;
     window.__ssg_error_line_number = null;
+    try {
+        window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []
+        const ev = { when: Date.now(), action: 'highlights_cleared' }
+        window.__ssg_terminal_event_log.push(ev)
+        window.__ssg_last_highlights_cleared = ev
+    } catch (_e) { }
 }
 
 // Code transformation and wrapping utilities
@@ -262,6 +322,7 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     // so callers can perform that replacement.
     // Debug output is recorded in the event log; avoid noisy console.debug here.
     try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_debug', mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
+    try { window.__ssg_last_mapped_event = { when: Date.now(), mapped: String(mapped || '') } } catch (_e) { }
 
 
     // Optionally show small source context for first mapped line

@@ -142,6 +142,34 @@ export function selectTab(path) {
         }
     } catch (_e) { }
 
+    // Re-apply any stored error highlights for this file. Using the per-file
+    // highlights map ensures highlights for other files are preserved and can
+    // be re-applied when their tabs are selected.
+    try {
+        if (cm && window.__ssg_error_highlights_map && typeof window.__ssg_error_highlights_map === 'object') {
+            // ensure we lookup using the same normalization rules as highlight code
+            const key = n.startsWith('/') ? n : ('/' + String(n).replace(/^\/+/, ''))
+            const altKey = key.startsWith('/') ? key.replace(/^\/+/, '') : ('/' + key)
+            // Look up both normalized and alt key forms so older stored entries
+            // without a leading slash are still applied.
+            const lines = window.__ssg_error_highlights_map[key] || window.__ssg_error_highlights_map[altKey] || []
+            // Apply highlights after the next paint to ensure CodeMirror has
+            // updated its internal line handles following setValue(). This
+            // avoids a class being lost when setValue triggers a re-render.
+            try {
+                requestAnimationFrame(() => {
+                    for (const ln of lines) {
+                        try { cm.addLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
+                    }
+                })
+            } catch (_e) {
+                for (const ln of lines) {
+                    try { cm.addLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
+                }
+            }
+        }
+    } catch (_e) { }
+
     render()
 }
 

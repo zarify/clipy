@@ -2,7 +2,7 @@
 import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
 import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs-client.js'
-import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor } from './code-transform.js'
+import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor, clearAllErrorHighlights } from './code-transform.js'
 
 export async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
     const executionState = getExecutionState()
@@ -143,12 +143,31 @@ async function syncVFSAfterRun() {
         } else {
             // ensure localStorage fallback is updated for MAIN_FILE so tests can read it
             try {
-                const cm = window.cm
-                const textarea = document.getElementById('code')
-                const cur = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
-                const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                map['/main.py'] = cur
-                localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                // Prefer the authoritative FileManager copy of MAIN_FILE when available.
+                try {
+                    const FileManager = getFileManager()
+                    let mainContent = null
+                    if (FileManager && typeof FileManager.read === 'function') {
+                        mainContent = FileManager.read(MAIN_FILE)
+                    }
+                    // Fallback to the current editor content only if FileManager doesn't have MAIN_FILE
+                    if (mainContent == null) {
+                        const cm = window.cm
+                        const textarea = document.getElementById('code')
+                        mainContent = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+                    }
+                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                    map[MAIN_FILE] = mainContent || ''
+                    localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                } catch (_e) {
+                    // Best-effort fallback: write current editor content if anything fails
+                    const cm = window.cm
+                    const textarea = document.getElementById('code')
+                    const cur = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                    map['/main.py'] = cur
+                    localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                }
             } catch (_e) { }
         }
     } catch (e) {
@@ -175,6 +194,9 @@ export async function runPythonCode(code, cfg) {
     } catch (err) {
         appendTerminalDebug('⚠️ State clearing failed:', err)
     }
+
+    // clear any existing editor warnings
+    clearAllErrorHighlights()
 
     // Get timeout from config (default 30 seconds)
     const timeoutSeconds = cfg?.execution?.timeoutSeconds || 30
@@ -345,6 +367,7 @@ export async function runPythonCode(code, cfg) {
                                 const mapped = mapTracebackAndShow(errMsg, headerLines, MAIN_FILE)
                                 try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_result', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(errMsg || '').slice(0, 200), mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
                                 try { window.__ssg_last_mapped = String(mapped || '') } catch (_e) { }
+                                try { window.__ssg_last_mapped_event = { when: Date.now(), headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, mapped: String(mapped || '') } } catch (_e) { }
                                 try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'execution_replace_call', mappedType: typeof mapped, mappedPreview: (typeof mapped === 'string') ? mapped.slice(0, 200) : null }) } catch (_e) { }
                                 // Replace buffered raw stderr with mapped traceback
                                 try { replaceBufferedStderr(mapped) } catch (_e) { }
@@ -405,6 +428,7 @@ export async function runPythonCode(code, cfg) {
                             const mapped = mapTracebackAndShow(String(e), headerLines, MAIN_FILE)
                             try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_result', headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, rawPreview: String(e || '').slice(0, 200), mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200) }) } catch (_e) { }
                             try { window.__ssg_last_mapped = String(mapped || '') } catch (_e) { }
+                            try { window.__ssg_last_mapped_event = { when: Date.now(), headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, mapped: String(mapped || '') } } catch (_e) { }
                             try {
                                 if (mapped) {
                                     // Attempt editor highlight/open for mapped tracebacks
