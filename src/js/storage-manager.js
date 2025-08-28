@@ -13,7 +13,12 @@ const CRITICAL_THRESHOLD = 0.9 // Critical at 90% capacity
  */
 export function getStorageUsage() {
     let totalSize = 0
-    const breakdown = {}
+    const breakdown = {
+        snapshots: 0,
+        files: 0,
+        autosave: 0,
+        other: 0
+    }
 
     for (let key in localStorage) {
         if (localStorage.hasOwnProperty(key)) {
@@ -23,14 +28,13 @@ export function getStorageUsage() {
 
             // Categorize storage
             if (key.startsWith('snapshots_')) {
-                const category = 'snapshots'
-                breakdown[category] = (breakdown[category] || 0) + size
+                breakdown.snapshots += size
             } else if (key === 'ssg_files_v1') {
-                breakdown['files'] = size
+                breakdown.files += size
             } else if (key === 'autosave') {
-                breakdown['autosave'] = size
+                breakdown.autosave += size
             } else {
-                breakdown['other'] = (breakdown['other'] || 0) + size
+                breakdown.other += size
             }
         }
     }

@@ -407,6 +407,7 @@ function openSnapshotModal() {
 
 function showStorageInfoInTerminal() {
     showStorageInfo()
+    try { activateSideTab('terminal') } catch (_e) { }
 }
 
 function closeSnapshotModal() {
