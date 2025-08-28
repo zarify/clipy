@@ -36,43 +36,9 @@ Implementation notes
 - Keep matching engine pluggable: a registry map for matcher types (`regex`, `ast`). Each matcher returns a list of matches { file?, line?, message, id }.
 - For edit-time regexes that target filenames, match against a list of project files (localStorage mirror + FileManager API).
 - Add a small `FeedbackStore` that maintains current matches and selected highlight.
-
-Edge cases
-- Expensive regexes or very frequent edit evaluation -> debounce and async evaluation (web worker if needed).
-- Misbehaving capture groups in messages -> sanitize and escape before insertion.
-
-Tests
-- Unit tests for parser/validator, regex matcher, and that resetFeedback clears state.
-
-Estimated effort: 2–3 days
-
----
-
-## 2) Feedback UI panel & interactions
-Priority: High
-Why: Users and authors need a visible area for feedback and tests results.
-
-Tasks
-- Add a third side-tab (Feedback) next to Instructions/Terminal or a combined tab with subpanels for edit-time feedback and runtime/test feedback.
-- Implement `FeedbackList` UI: list of feedback entries, severity icons, badge for match counts, click-to-highlight behavior.
-- Highlighting behavior:
-  - Clicking a feedback item opens the file (TabManager.openTab) and highlights the line (reuse `highlightMappedTracebackInEditor`).
-  - Clicking an already-active feedback clears highlight.
-- Add visibility toggle per feedback (visibleByDefault override in UI) with persistence in local UI preferences.
-
-Acceptance criteria
-- Feedback items appear when matches are found.
-- Click behavior opens file + highlights; toggling behaves as described.
-
-Edge cases
-- Multiple matches for same feedback -> list expands to per-match entries.
-- Highlighting across multiple files: switch tabs appropriately.
-
-Tests
-```markdown
 # TODO (Copilot) — Prioritized implementation plan
 
-This document reorganizes the items in `project/TODO.md` into a practical, ordered implementation plan with acceptance criteria, data/contract notes, likely edge cases, and testing hints.
+This document reorganizes the items in `project/TODO.md` into a practical, ordered implementation plan with acceptance criteria, data/contract notes, likely edge cases, testing hints, and a concise progress log of recent work.
 
 ---
 
@@ -128,7 +94,7 @@ Tasks
 - Add a third side-tab (Feedback) next to Instructions/Terminal or a combined tab with subpanels for edit-time feedback and runtime/test feedback.
 - Implement `FeedbackList` UI: list of feedback entries, severity icons, badge for match counts, click-to-highlight behavior.
 - Highlighting behavior:
-  - Clicking a feedback item opens the file (TabManager.openTab) and highlights the line (reuse `highlightMappedTracebackInEditor`).
+  - Clicking a feedback item opens the file (TabManager.openTab) and highlights the line (distinct feedback style).
   - Clicking an already-active feedback clears highlight.
 - Add visibility toggle per feedback (visibleByDefault override in UI) with persistence in local UI preferences.
 
@@ -210,6 +176,156 @@ Estimated effort: 3–5 days (depending on approach)
 Priority: High (after Feedback core)
 Why: Tests produce feedback and are central to assignments.
 
+Tasks
+- Add a new script area (or config section) where authors define tests. Test shape example:
+  - id
+  - description
+  - setup: optional files or snapshot to load
+  - stdin: optional inputs
+  - expected_stdout/expected_stderr: string or regex
+  - expected_return: optional object
+  - timeoutMs: optional
+- Runner contract:
+  - Run each test in a fresh runtime state (clear runtime and filesystem or use a snapshot), capture stdout/stderr, and return pass/fail + diffs.
+- Integrate test results into Feedback area with per-test feedback mappings.
+
+Acceptance criteria
+- Author-defined test suite runs when user requests "Run tests" and results appear in Feedback panel.
+- Tests run reliably with timeouts and isolated state.
+
+Edge cases
+- Tests that require filesystem state: offer a way in test definition to provide starter files or a snapshot.
+- Support flaky tests via retries optional in author config.
+
+Tests
+- Unit tests verifying runner captures stdout/stderr and returns accurate pass/fail.
+- Playwright verifying UI flow for test run and result display.
+
+Estimated effort: 3–6 days
+
+---
+
+## 7) Authoring tools & config versioning page
+Priority: Medium-High
+Why: Authors need a pleasant interface for building tests and feedback without hand-editing JSON.
+
+Tasks
+- New authoring page (separate route) that loads an existing config and exposes editors for:
+  - instructions
+  - feedback entries (form-based)
+  - tests (form-based)
+- Implement simple semantic versioning on save:
+  - Maintain a `meta.version` field (semver string) in the config.
+  - Automatically suggest a patch bump (e.g. 1.2.0 -> 1.2.1) for routine edits; allow the author to choose minor/major via an explicit selector when desired.
+  - Do not attempt to implement a full history/audit UI at this stage (per clarified preference for a simple semantic bump).
+- Provide preview / validation panel to show how feedback and tests will behave.
+
+Acceptance criteria
+- Authors can load, edit, validate, and save configs with automatic versioning.
+
+Acceptance criteria (updated)
+- Authors can load, edit, validate, and save configs; saving will update the `meta.version` field per semantic-version rules (auto-patch suggestion with optional manual override).
+- No history UI is required for initial delivery; older versions may be stored as optional snapshots on demand but are not surfaced in a full audit trail UI.
+
+Edge cases
+- Conflicting saves: warn and allow merging or overwrite with warning.
+
+Estimated effort: 4–6 days
+
+---
+
+## 8) Workspace/snapshot download as ZIP
+Priority: Medium
+Why: Useful for students to download their work or authors to archive snapshots.
+
+Tasks
+- Add UI actions: "Download workspace" (zips current files) and per-snapshot download link.
+- Implement zipping client-side (JS) using a small library (JSZip) or simple in-browser zip creation.
+- Respect storage limits and include a small manifest file inside the zip.
+
+Acceptance criteria
+- Downloads a zip containing all workspace files with correct paths and a manifest.
+- Snapshot downloads are identical to snapshot state.
+
+Edge cases
+- Large workspaces hitting memory limits – warn the user and abort gracefully.
+
+Estimated effort: 1–2 days
+
+---
+
+## 9) Misc / polish
+- Accessibility: ensure Feedback/Terminal/Editor interactions are keyboard accessible and ARIA-labeled.
+- Internationalization: messages in feedback should be localizable.
+- Performance: profile feedback evaluation on large files; consider web worker offload.
+- Tests: add unit + Playwright flows covering the end-to-end author-config -> student-run -> feedback -> highlight.
+
+Estimated effort: ongoing across implementation
+
+---
+
+## Progress log — what I've implemented so far
+
+This is a concise record of the work completed in this session so it can be reflected in the TODO and used for follow-up tasks.
+
+### Completed
+
+- Feedback core API
+  - Implemented `src/js/feedback.js`: core APIs `resetFeedback(config)`, `evaluateFeedbackOnEdit(code, path)`, `evaluateFeedbackOnRun(ioCapture)`, and an event emitter (`on`/`off`).
+  - Store shape maintains `editMatches` and `runMatches` separately and emits combined `matches`.
+  - Behavior: edit evaluation clears runMatches; run evaluation sets runMatches; resetFeedback clears both.
+
+- Feedback UI
+  - Implemented `src/js/feedback-ui.js`: renders Feedback panel with Editor and Run sections, shows titles for `visibleByDefault`, displays matched messages, shows severity icons, and emits `ssg:feedback-click` with payload.
+  - UI hooks exposed: `window.__ssg_set_feedback_config`, `window.__ssg_set_feedback_matches`, and `initializeFeedbackUI`.
+
+- Click-to-open-and-highlight wiring
+  - Added app-level listener for `ssg:feedback-click` in `src/js/app.js` that opens/selects files and applies highlights.
+  - Implemented `highlightFeedbackLine(file, line)` in `src/js/code-transform.js` to apply a distinct friendlier highlight (`.cm-feedback-line`), stored separately from error highlights.
+  - `src/js/tabs.js` re-applies feedback highlights when a tab is selected (uses `__ssg_feedback_highlights_map`).
+  - User edits now clear both error and feedback highlights (tabs change handler updated).
+
+- Styling
+  - Added `.cm-feedback-line` to `src/style.css` with a friendly gradient, left border, and inset shadow to make feedback highlights more obvious and approachable.
+
+- Execution/run integration
+  - `src/js/execution.js` clears feedback highlights along with error highlights before running and re-evaluates feedback after runtime output is appended (short delayed re-eval to handle streaming output).
+
+- Tests
+  - Updated/hardened existing Playwright tests touching feedback to be robust about panel activation and selectors.
+  - Added `tests/playwright_feedback_click.spec.js` to test click-to-highlight, edit clearing, and explicit clearing.
+  - Ran focused Playwright suites locally — tests passed.
+
+### Files added/edited (high level)
+- src/js/feedback.js — core feedback store and evaluation
+- src/js/feedback-ui.js — feedback panel rendering and hooks
+- src/js/execution.js — clear feedback highlights on run; re-evaluate feedback after output
+- src/js/editor.js — debounce hook to evaluate edits (existing)
+- src/js/code-transform.js — added `highlightFeedbackLine` and `clearAllFeedbackHighlights`, feedback storage maps
+- src/js/tabs.js — re-apply and clear feedback highlights on tab select and edits
+- src/js/app.js — app listener for `ssg:feedback-click`, expose clear helpers for tests
+- src/style.css — `.cm-feedback-line` styling
+- tests/playwright_feedback_click.spec.js — new test for click-highlight and clearing
+
+### Current behavior notes
+- Feedback highlights are stored separately from error highlights so both can coexist.
+- User edits and runs clear both feedback and error highlights (suppression flag still prevents clears during programmatic tab setValue).
+- If both classes are present on the same line, the visual result is a combination; CSS specificity or ordering determines which background is dominant. No automatic re-apply is performed when feedback is cleared (error highlights remain cleared unless re-applied by error mapping).
+
+---
+
+## Next recommended tasks
+1. Add a Playwright test that asserts precedence behavior when both error and feedback highlight the same line (optional but useful).
+2. Decide on deterministic precedence policy and implement it:
+   - Option A (CSS dominance): make `.cm-error-line` visually dominant so errors always show on top.
+   - Option B (reapply errors): reapply stored error highlights after feedback clears so errors are restored.
+3. Add unit tests for `Feedback` core (validator and regex matcher).
+
+If you want, I will implement Option B (reapply error highlights when feedback is cleared) next and add the precedence test — this keeps semantics explicit and predictable. Otherwise I can implement the quicker CSS dominance change.
+
+---
+
+If anything above needs to be reworded or expanded in the TODO, tell me which section to adjust and I'll update it.
 Tasks
 - Add a new script area (or config section) where authors define tests. Test shape example:
   - id
