@@ -6,7 +6,10 @@ export async function restoreCurrentSnapshotIfExists() {
     const snaps = getSnapshotsForCurrentConfig()
     const idx = snaps.findIndex(s => s.id === '__current__')
     if (idx !== -1) {
-        await restoreSnapshot(idx, snaps)
+        // When restoring the special '__current__' snapshot on startup,
+        // suppress activating/focusing the terminal so page-load output
+        // doesn't cause a distracting auto-switch.
+        await restoreSnapshot(idx, snaps, true)
         return true
     }
     return false
@@ -15,7 +18,7 @@ export async function restoreCurrentSnapshotIfExists() {
 import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs-client.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
-import { appendTerminal } from './terminal.js'
+import { appendTerminal, activateSideTab } from './terminal.js'
 import { getConfigKey, getConfigIdentity } from './config.js'
 import { safeSetItem, checkStorageHealth, showStorageInfo } from './storage-manager.js'
 
@@ -151,6 +154,7 @@ async function saveSnapshot() {
 
         const identity = getConfigIdentity()
         appendTerminal(`Snapshot saved for ${identity} (${new Date(snap.ts).toLocaleString()})`, 'runtime')
+        try { activateSideTab('terminal') } catch (_e) { }
         // Signal to tests and other code that a snapshot save has completed.
         // Only expose this signal in dev mode so production doesn't leak test hooks.
         try {
@@ -205,7 +209,7 @@ function renderSnapshots() {
     })
 }
 
-async function restoreSnapshot(index, snapshots) {
+async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
     try {
         const s = snapshots[index]
         if (!s) return
@@ -331,6 +335,9 @@ async function restoreSnapshot(index, snapshots) {
             console.error('Failed to schedule restore flag:', e)
         }
 
+        // If this restore was initiated by an interactive action, activate the terminal tab.
+        try { if (!suppressSideTab) activateSideTab('terminal') } catch (_e) { }
+
         // Also queue restored files for tab opening so the UI re-opens them.
         try {
             const restoredFiles = Object.keys(snap.files || {}).filter(p => p && p !== MAIN_FILE)
@@ -443,6 +450,7 @@ async function clearStorage() {
         const storageKey = getSnapshotStorageKey()
         localStorage.removeItem(storageKey)
         appendTerminal(`Cleared all snapshots for ${configIdentity}`, 'runtime')
+        try { activateSideTab('terminal') } catch (_e) { }
 
         // Update the modal if it's open
         try {
