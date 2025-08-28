@@ -2,7 +2,7 @@
 import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
 import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs-client.js'
-import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor, clearAllErrorHighlights } from './code-transform.js'
+import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor, clearAllErrorHighlights, clearAllFeedbackHighlights } from './code-transform.js'
 
 export async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
     const executionState = getExecutionState()
@@ -196,7 +196,10 @@ export async function runPythonCode(code, cfg) {
     }
 
     // clear any existing editor warnings
-    clearAllErrorHighlights()
+    try {
+        if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights()
+        if (typeof clearAllFeedbackHighlights === 'function') clearAllFeedbackHighlights()
+    } catch (_e) { }
 
     // Get timeout from config (default 30 seconds)
     const timeoutSeconds = cfg?.execution?.timeoutSeconds || 30

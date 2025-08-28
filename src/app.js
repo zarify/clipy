@@ -25,7 +25,7 @@ import { runPythonCode } from './js/execution.js'
 import { setupInputHandling } from './js/input-handling.js'
 
 // Code transformation 
-import { transformAndWrap } from './js/code-transform.js'
+import { transformAndWrap, highlightMappedTracebackInEditor, highlightFeedbackLine, clearAllErrorHighlights, clearAllFeedbackHighlights } from './js/code-transform.js'
 
 // Additional features
 import { setupSnapshotSystem } from './js/snapshots.js'
@@ -97,6 +97,20 @@ async function main() {
         // Expose TabManager globally for compatibility
         try { window.TabManager = TabManager } catch (e) { }
 
+        // Expose feedback highlight clear helper for tests and debugging
+        try {
+            if (typeof window.clearAllFeedbackHighlights !== 'function') {
+                window.clearAllFeedbackHighlights = function () {
+                    try { if (typeof clearAllFeedbackHighlights === 'function') clearAllFeedbackHighlights() } catch (_e) { }
+                }
+            }
+            if (typeof window.clearAllErrorHighlights !== 'function') {
+                window.clearAllErrorHighlights = function () {
+                    try { if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights() } catch (_e) { }
+                }
+            }
+        } catch (_e) { }
+
         // Restore from the special 'current' snapshot if it exists
         try {
             const { restoreCurrentSnapshotIfExists } = await import('./js/snapshots.js')
@@ -135,6 +149,38 @@ async function main() {
             const content = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
             const path = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || '/main.py'
             try { if (window.Feedback && window.Feedback.evaluateFeedbackOnEdit) window.Feedback.evaluateFeedbackOnEdit(content, path) } catch (_e) { }
+        } catch (_e) { }
+
+        // Wire feedback UI clicks to open/select files and apply highlights.
+        // The UI dispatches `ssg:feedback-click` events with the entry payload
+        // and an optional `match` object. Use the existing helpers to open the
+        // tab and highlight the mapped line when possible.
+        try {
+            window.addEventListener('ssg:feedback-click', (ev) => {
+                try {
+                    const payload = ev && ev.detail ? ev.detail : null
+                    if (!payload) return
+                    const match = payload.match || null
+                    // Prefer payload.match.file if present (edit-time matcher)
+                    if (match && match.file) {
+                        try { highlightFeedbackLine(match.file, match.line || 1) } catch (_e) { }
+                        return
+                    }
+                    // Fall back to entry-level file/line fields
+                    if (payload.file && typeof payload.line === 'number') {
+                        try { highlightFeedbackLine(payload.file, payload.line) } catch (_e) { }
+                        return
+                    }
+                    // If the entry specified an explicit action (e.g. open-file), perform it
+                    if (payload.action && payload.action.type === 'open-file' && payload.action.path) {
+                        try {
+                            const p = payload.action.path
+                            if (window.TabManager && typeof window.TabManager.openTab === 'function') window.TabManager.openTab(p)
+                            if (window.TabManager && typeof window.TabManager.selectTab === 'function') window.TabManager.selectTab(p)
+                        } catch (_e) { }
+                    }
+                } catch (_e) { }
+            })
         } catch (_e) { }
 
         // 7. Setup runtime APIs and controls

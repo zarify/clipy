@@ -1,7 +1,7 @@
 // Tab management integrating files with CodeMirror
 import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE } from './vfs-client.js'
-import { clearAllErrorHighlights } from './code-transform.js'
+import { clearAllErrorHighlights, clearAllFeedbackHighlights } from './code-transform.js'
 import { showInputModal, showConfirmModal } from './modals.js'
 import { appendTerminalDebug } from './terminal.js'
 
@@ -173,11 +173,28 @@ export function selectTab(path) {
                     for (const ln of lines) {
                         try { cm.addLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
                     }
+                    // Also reapply feedback highlights for this file if present
+                    try {
+                        if (window.__ssg_feedback_highlights_map && typeof window.__ssg_feedback_highlights_map === 'object') {
+                            const flines = window.__ssg_feedback_highlights_map[key] || window.__ssg_feedback_highlights_map[altKey] || []
+                            for (const fln of flines) {
+                                try { cm.addLineClass(fln, 'background', 'cm-feedback-line') } catch (_e) { }
+                            }
+                        }
+                    } catch (_e) { }
                 })
             } catch (_e) {
                 for (const ln of lines) {
                     try { cm.addLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
                 }
+                try {
+                    if (window.__ssg_feedback_highlights_map && typeof window.__ssg_feedback_highlights_map === 'object') {
+                        const flines = window.__ssg_feedback_highlights_map[key] || window.__ssg_feedback_highlights_map[altKey] || []
+                        for (const fln of flines) {
+                            try { cm.addLineClass(fln, 'background', 'cm-feedback-line') } catch (_e) { }
+                        }
+                    }
+                } catch (_e) { }
             }
         }
     } catch (_e) { }
@@ -251,13 +268,17 @@ export function initializeTabManager(codeMirror, textareaElement) {
                 // Respect suppression flag set during programmatic setValue()
                 if (!window.__ssg_suppress_clear_highlights) {
                     if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights()
+                    if (typeof clearAllFeedbackHighlights === 'function') clearAllFeedbackHighlights()
                 }
             } catch (_e) { }
             scheduleTabSave()
         })
     } else if (textarea) {
         textarea.addEventListener('input', () => {
-            try { if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights() } catch (_e) { }
+            try {
+                if (typeof clearAllErrorHighlights === 'function') clearAllErrorHighlights()
+                if (typeof clearAllFeedbackHighlights === 'function') clearAllFeedbackHighlights()
+            } catch (_e) { }
             scheduleTabSave()
         })
     }

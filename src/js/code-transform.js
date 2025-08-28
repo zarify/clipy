@@ -11,6 +11,9 @@ try {
         if (typeof window.__ssg_error_highlights_map !== 'object' || window.__ssg_error_highlights_map === null) window.__ssg_error_highlights_map = {}
         if (typeof window.__ssg_error_highlighted !== 'boolean') window.__ssg_error_highlighted = false
         if (typeof window.__ssg_error_line_number === 'undefined') window.__ssg_error_line_number = null
+        // feedback-specific highlights (click-to-highlight) stored separately
+        if (!Array.isArray(window.__ssg_feedback_highlights)) window.__ssg_feedback_highlights = []
+        if (typeof window.__ssg_feedback_highlights_map !== 'object' || window.__ssg_feedback_highlights_map === null) window.__ssg_feedback_highlights_map = {}
     }
 } catch (e) { }
 
@@ -82,6 +85,69 @@ export function highlightMappedTracebackInEditor(filePath, lineNumber) {
             } catch (_e) { }
         }
     } catch (e) { }
+}
+
+/**
+ * Highlight a line as a 'feedback' highlight (distinct from error highlight).
+ * This uses a separate map and CSS class so styles do not clash.
+ */
+export function highlightFeedbackLine(filePath, lineNumber) {
+    const normPath = (typeof filePath === 'string' && filePath.startsWith('/')) ? filePath : ('/' + String(filePath || '').replace(/^\/+/, ''))
+    const cm = window.cm
+    if (typeof lineNumber !== 'number') return
+    const zeroIndexLine = Math.max(0, lineNumber - 1)
+
+    // remove previous feedback highlights for this file
+    try {
+        window.__ssg_feedback_highlights_map = window.__ssg_feedback_highlights_map || {}
+        const altPath = String(filePath || '').startsWith('/') ? String(filePath || '').replace(/^\/+/, '') : ('/' + String(filePath || '').replace(/^\/+/, ''))
+        const prev = window.__ssg_feedback_highlights_map[normPath] || []
+        const prevAlt = window.__ssg_feedback_highlights_map[altPath] || []
+        for (const ln of prev.concat(prevAlt)) {
+            try { if (cm) cm.removeLineClass(ln, 'background', 'cm-feedback-line') } catch (_e) { }
+        }
+        window.__ssg_feedback_highlights = window.__ssg_feedback_highlights || []
+        window.__ssg_feedback_highlights = window.__ssg_feedback_highlights.filter(h => !(h && (h.filePath === normPath || h.filePath === altPath)))
+        window.__ssg_feedback_highlights_map[normPath] = []
+        try { delete window.__ssg_feedback_highlights_map[altPath] } catch (_e) { }
+    } catch (_e) { }
+
+    // record and apply
+    try {
+        window.__ssg_feedback_highlights = window.__ssg_feedback_highlights || []
+        window.__ssg_feedback_highlights_map = window.__ssg_feedback_highlights_map || {}
+        window.__ssg_feedback_highlights.push({ filePath: normPath, line: zeroIndexLine })
+        window.__ssg_feedback_highlights_map[normPath] = [zeroIndexLine]
+        try {
+            if (cm) {
+                try { cm.addLineClass(zeroIndexLine, 'background', 'cm-feedback-line') } catch (_e) { }
+                try { requestAnimationFrame(() => { try { cm.addLineClass(zeroIndexLine, 'background', 'cm-feedback-line') } catch (_e) { } }) } catch (_e) { }
+            }
+        } catch (_e) { }
+    } catch (_e) { }
+}
+
+export function clearAllFeedbackHighlights() {
+    const cm = window.cm
+    if (!cm) return
+    try {
+        window.__ssg_feedback_highlights_map = window.__ssg_feedback_highlights_map || {}
+        for (const fp of Object.keys(window.__ssg_feedback_highlights_map)) {
+            const lines = window.__ssg_feedback_highlights_map[fp] || []
+            for (const ln of lines) {
+                try { cm.removeLineClass(ln, 'background', 'cm-feedback-line') } catch (_e) { }
+            }
+        }
+    } catch (_e) { }
+    try {
+        if (Array.isArray(window.__ssg_feedback_highlights)) {
+            for (const { line } of window.__ssg_feedback_highlights) {
+                try { cm.removeLineClass(line, 'background', 'cm-feedback-line') } catch (_e) { }
+            }
+        }
+    } catch (_e) { }
+    window.__ssg_feedback_highlights = []
+    window.__ssg_feedback_highlights_map = {}
 }
 
 /**

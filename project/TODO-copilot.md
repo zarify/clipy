@@ -69,6 +69,78 @@ Edge cases
 - Highlighting across multiple files: switch tabs appropriately.
 
 Tests
+```markdown
+# TODO (Copilot) — Prioritized implementation plan
+
+This document reorganizes the items in `project/TODO.md` into a practical, ordered implementation plan with acceptance criteria, data/contract notes, likely edge cases, and testing hints.
+
+---
+
+## High-level goals
+- Provide in-UI, authorable feedback (edit- and runtime-based) that highlights code and explains failures to students.
+- Provide a lightweight program testing mechanism authors can define in config, run in the existing runtime, and show results in the Feedback area.
+- Provide authoring tools and versioning for config files.
+- Allow users to download workspace/snapshots as zip archives.
+
+---
+
+## 1) Feedback subsystem (core infra)
+Priority: Highest
+Why first: Core for many other features (UI feedback panel, test output hooking, clickable highlights).
+
+Tasks
+- Add a stable config schema for feedback entries (store in problem config). Example minimal feedback entry:
+  - id: string
+  - title: string
+  - when: ["edit"|"run"|"test"]
+  - pattern: { type: "regex" | "ast", target: "code"|"filename"|"stdout"|"stderr"|"stdin", expression: string }
+  - message: string (can include placeholders from capture groups)
+  - severity: [info|hint|warning|error]
+  - visibleByDefault: boolean
+  - action: optional object (e.g. open-file, highlight-line)
+
+Acceptance criteria
+- Config file parser validates feedback entries and rejects invalid types.
+- A new `Feedback` JS module exports: `resetFeedback(config)`, `evaluateFeedbackOnEdit(code, path)`, `evaluateFeedbackOnRun(ioCapture)`, and emits events for UI to render.
+- Feedback data is kept per-config and reset when code is run (per TODO).
+
+Implementation notes
+- Keep matching engine pluggable: a registry map for matcher types (`regex`, `ast`). Each matcher returns a list of matches { file?, line?, message, id }.
+- For edit-time regexes that target filenames, match against a list of project files (localStorage mirror + FileManager API).
+- Add a small `FeedbackStore` that maintains current matches and selected highlight.
+
+Edge cases
+- Expensive regexes or very frequent edit evaluation -> debounce and async evaluation (web worker if needed).
+- Misbehaving capture groups in messages -> sanitize and escape before insertion.
+
+Tests
+- Unit tests for parser/validator, regex matcher, and that resetFeedback clears state.
+
+Estimated effort: 2–3 days
+
+---
+
+## 2) Feedback UI panel & interactions
+Priority: High
+Why: Users and authors need a visible area for feedback and tests results.
+
+Tasks
+- Add a third side-tab (Feedback) next to Instructions/Terminal or a combined tab with subpanels for edit-time feedback and runtime/test feedback.
+- Implement `FeedbackList` UI: list of feedback entries, severity icons, badge for match counts, click-to-highlight behavior.
+- Highlighting behavior:
+  - Clicking a feedback item opens the file (TabManager.openTab) and highlights the line (reuse `highlightMappedTracebackInEditor`).
+  - Clicking an already-active feedback clears highlight.
+- Add visibility toggle per feedback (visibleByDefault override in UI) with persistence in local UI preferences.
+
+Acceptance criteria
+- Feedback items appear when matches are found.
+- Click behavior opens file + highlights; toggling behaves as described.
+
+Edge cases
+- Multiple matches for same feedback -> list expands to per-match entries.
+- Highlighting across multiple files: switch tabs appropriately.
+
+Tests
 - Playwright tests that type code triggering a feedback regex and confirm highlight and UI updates.
 
 Estimated effort: 2–3 days
@@ -240,32 +312,82 @@ Estimated effort: ongoing across implementation
 
 ---
 
-## Gaps or enhancements I recommend
-- Capture of source code locations from AST matchers so messages can be anchored to exact nodes rather than line guesses.
-- A simple author preview panel that runs their regex/AST checks against a sample code input to show matches instantly.
-- A small migration utility to convert older configs to new schema (helpful once we iterate schema changes).
-- Consider feedback templating with capture-based placeholders (e.g. `{{1}}` for regex group 1) to make messages more informative.
-- Consider server-side optional execution for heavy AST parsing or complex test suites if client performance becomes an issue.
+## Progress log — what I've implemented so far
 
-Note on versioning: per your preference for a simple semantic-version bump (clarifying question 5), I recommend implementing the auto-patch suggestion + manual override approach above. We can add a lightweight snapshot-on-save option later if you want the ability to store individual snapshots without building a full audit UI.
+Below is a concise record of the work completed in this session so it can be reflected in the TODO and used for follow-up tasks.
+
+- Feedback core API
+  - Added `src/js/feedback.js` (core): exports and implements `resetFeedback(config)`, `evaluateFeedbackOnEdit(code, path)`, `evaluateFeedbackOnRun(ioCapture)`, and event emitter `on`/`off` used by UI and app orchestration.
+  - Store shape updated to maintain `editMatches` and `runMatches` separately and emit combined `matches` events.
+  - Behavior: edit evaluation clears runMatches; run evaluation sets runMatches; resetFeedback clears both.
+
+- Feedback UI
+  - Added/updated `src/js/feedback-ui.js`: renders Feedback panel with two sections (Editor feedback / Run-time feedback), shows titles for `visibleByDefault` entries, renders messages only when matched, shows severity icons (💡 ℹ️ ⚠️) and CSS classes, attaches click event that emits `ssg:feedback-click` with payload.
+  - Exposed UI hooks: `window.__ssg_set_feedback_config` and `window.__ssg_set_feedback_matches` and `initializeFeedbackUI`.
+
+- Editor integration and evaluation
+  - Editor debounce flow triggers `evaluateFeedbackOnEdit` after edits (debounced ~300ms) in `src/js/editor.js`.
+  - Execution flow calls `Feedback.evaluateFeedbackOnRun(...)` after runtime output is appended to the terminal, with a short delayed re-evaluation to handle streaming output (`src/js/execution.js`).
+
+- Styling
+  - `src/style.css` updated with feedback panel styles, severity color hints, `.feedback-entry`, `.feedback-msg`, and related classes.
+
+- Traceback & highlights
+  - `src/js/code-transform.js` contains `highlightMappedTracebackInEditor` and `clearAllErrorHighlights` that store highlights in `window.__ssg_error_highlights_map` and apply to CodeMirror lines when a tab is selected.
+  - Fixed a regression where programmatic tab switching cleared highlights: `src/js/tabs.js` now suppresses highlight clearing while `selectTab` performs `cm.setValue(content)` so stored highlights persist across tab switches until a real user edit occurs.
+
+- Tests and test fixes
+  - Added and updated Playwright tests around Feedback behavior: `tests/playwright_feedback_run.spec.js`, `tests/playwright_feedback_live.spec.js`, and test harness adjustments.
+  - Hardening changes made to tests so they explicitly re-open the Feedback tab when needed and wait for attached + visible states (avoids flakiness when Run activates Terminal).
+  - Ran full test suite and iterated until focused flaky tests were stabilized; traces were inspected to diagnose timing races.
+
+Files changed (high level)
+- src/js/feedback.js — core feedback store and evaluation
+- src/js/feedback-ui.js — feedback panel rendering and hooks
+- src/js/execution.js — call evaluateFeedbackOnRun after terminal append + delayed re-eval
+- src/js/editor.js — debounce hook to evaluate edits
+- src/js/code-transform.js — highlight mapping and storage (existing, exercised/validated)
+- src/js/tabs.js — preserve highlights across programmatic tab switches (added suppression flag)
+- src/style.css — new panel styles and severity colors
+- tests/playwright_feedback_run.spec.js — added/hardened run-time feedback test
+- tests/playwright_feedback_live.spec.js — adjusted expectations and robust waits
+
+Status: core flows implemented, UI renders config titles and matches, edit/run separation and semantics implemented, tests updated and passing locally.
 
 ---
 
-## Clarifying questions
-1. Where should author configs be stored/managed long-term? (local repo files, server backend, or both?)
-- Author configs should be downloaded.
-- Problem configs should be able to be loaded via a URL parameter, so that a page+params can be bookmarked or linked to. This also lets us store configs locally and load them via URL param
-2. Do you want feedback patterns to support capture-group substitution in messages (e.g. show `Found unexpected variable: \1`)?
-- Yes, as long as it doesn't come at too high an authoring complexity cost. If it becomes too complex, consider a 'feedback builder' function that assembles the rules for an author.
-3. For AST-based matching: do you prefer a JS-side Python parser, or should we attempt to run AST checks inside the MicroPython runtime and expose a small IPC? (trade-offs documented above)
-- Since the runtime is modified I would prefer a JS Python parser that will work on the student code, not the code that is actually running in the runtime
-4. For program testing, should tests run in an isolated clone of the current workspace (snapshot) or be ok to run in-place if we `clearMicroPythonState()` between tests?
-- They should be ok to run in-place as long as state is cleared. However we will need to suppress the regular output and FS state in the UI while running the tests and just show the results.
-5. Do we need user-visible versioning history for configs (audit trail), or is a simple semantic-version bump enough?
-- Simple semantic version bump is enough.
-6. Any specific size limits or UX expectations for zipping/downloading workspaces/snapshots?
-- I would not expect any size limit issues, and at the end of the day it's the student's machine. Perhaps just put a sensible high end limit like 10MB or something.
+## Next implementation task (my recommendation)
+
+I recommend implementing the click-to-open-and-highlight feature next. This closes a visible UX gap and enables a natural feedback->editor flow, and it's a small, well-contained task with clear acceptance tests.
+
+Why this next
+- It is high-value for student UX: clicking a feedback item should open the file and focus the exact line, which makes feedback actionable.
+- Low risk: code paths already exist for highlighting (highlightMappedTracebackInEditor) and for opening tabs (`TabManager.openTab` / `selectTab`). We need to wire the feedback UI click payload to those helpers and ensure the highlight is re-applied reliably.
+
+Planned changes
+- Update `src/js/feedback-ui.js` click handler to dispatch the existing `ssg:feedback-click` (already done) and implement a central listener in `src/app.js` (or a new `feedback-click` handler module) that:
+  - Receives the feedback entry and its match info (file and line if present).
+  - If a `file`/`line` is present: call `TabManager.openTab(file)` then `TabManager.selectTab(file)` and then `highlightMappedTracebackInEditor(file, line)`.
+  - If only an id is present, optionally open the doc/help or show the message inline.
+- Add a Playwright test that:
+  - Installs a feedback rule that anchors to a specific file/line.
+  - Opens Feedback panel, clicks the feedback entry, and asserts that the correct tab is active and that the editor line has `cm-error-line` class applied.
+
+Acceptance criteria
+- Clicking a feedback entry with a mapped `file` + `line` opens/selects that tab and applies an editor line highlight that persists while the tab is active and until an edit occurs.
+- The highlight is reapplied when switching back to the tab (uses `__ssg_error_highlights_map`).
+- Playwright test verifies the flow end-to-end.
+
+Estimated effort: 1 day (implementation + test)
+
+If you want I can implement that now: I'll wire the app-level event listener to call `TabManager.openTab` / `selectTab` and `highlightMappedTracebackInEditor`, then add the Playwright test and run the suite.
 
 ---
 
-If that order/priority looks good I will create `project/TODO-copilot.md` (already created) and can start implementing the top-priority items — tell me which one you'd like me to start with and I'll create specific implementation tasks and PR-style changes.
+If you'd prefer a different next task, the other good candidates are:
+- Add unit tests for the feedback core (validator and matcher) — high ROI for correctness.
+- Implement a minimal test-runner UI integration (author-defined tests -> Feedback) — larger but high value.
+
+Tell me which of the above you want me to pick and I'll start the implementation immediately.
+
+```
