@@ -130,10 +130,33 @@ function evaluateFeedbackOnRun(ioCapture) {
             const target = p.target
             const re = _applyRegex(p.expression, p.flags)
             if (!re) continue
-            const text = String((ioCapture && ioCapture[target]) || '')
-            const m = text.match(re)
-            if (m) {
-                matches.push({ message: _formatMessage(entry.message, m), id: entry.id, target })
+            if (target === 'filename') {
+                // Support filename being provided as an array or a string
+                const val = (ioCapture && ioCapture.filename) || ''
+                let found = null
+                if (Array.isArray(val)) {
+                    for (const fname of val) {
+                        try {
+                            if (String(fname || '').match(re)) { found = fname; break }
+                        } catch (_e) { }
+                    }
+                } else {
+                    // Accept newline-joined or single-string forms
+                    const s = String(val || '')
+                    const parts = s.split(/\r?\n/).map(x => x.trim()).filter(x => x)
+                    for (const fname of parts) {
+                        try { if (String(fname).match(re)) { found = fname; break } } catch (_e) { }
+                    }
+                }
+                if (found !== null) {
+                    matches.push({ message: _formatMessage(entry.message, []), id: entry.id, target, filename: found })
+                }
+            } else {
+                const text = String((ioCapture && ioCapture[target]) || '')
+                const m = text.match(re)
+                if (m) {
+                    matches.push({ message: _formatMessage(entry.message, m), id: entry.id, target })
+                }
             }
         }
     }

@@ -486,6 +486,32 @@ export async function runPythonCode(code, cfg) {
 
             // Sync VFS after execution
             await syncVFSAfterRun()
+
+            // Notify Feedback subsystem with run-time captures: stdout, stderr, and filenames
+            try {
+                if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
+                    try {
+                        const outEl = document.getElementById('terminal-output')
+                        const stdoutFull = outEl ? (outEl.textContent || '') : ''
+                        const stderrFull = (typeof window.__ssg_last_mapped === 'string' && window.__ssg_last_mapped) ? window.__ssg_last_mapped : ''
+                        // gather filenames from FileManager or localStorage mirror
+                        let filenamesArr = []
+                        try {
+                            const FileManager = getFileManager()
+                            if (FileManager && typeof FileManager.list === 'function') {
+                                const files = FileManager.list() || []
+                                if (Array.isArray(files)) filenamesArr = files.slice()
+                            }
+                        } catch (_e) {
+                            try {
+                                const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                                filenamesArr = Object.keys(map || {})
+                            } catch (_e2) { filenamesArr = [] }
+                        }
+                        window.Feedback.evaluateFeedbackOnRun({ stdout: stdoutFull, stderr: stderrFull, filename: filenamesArr })
+                    } catch (_e) { /* swallow feedback errors */ }
+                }
+            } catch (_e) { }
         } else {
             appendTerminal('Runtime error: no runtime adapter available', 'runtime')
         }

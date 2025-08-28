@@ -201,7 +201,7 @@ test.describe('runtime feedback: stdout, stdin, stderr, filename creation', () =
         const matchesCount = await page.evaluate(() => {
             try {
                 if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
-                    const out = window.Feedback.evaluateFeedbackOnRun({ filename: '/newfile.txt' })
+                    const out = window.Feedback.evaluateFeedbackOnRun({ filename: ['/newfile.txt'] })
                     return Array.isArray(out) ? out.length : 0
                 }
             } catch (_e) { }
