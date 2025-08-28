@@ -319,6 +319,28 @@ async function restoreSnapshot(index, snapshots) {
             console.error('Failed to schedule restore flag:', e)
         }
 
+        // Also queue restored files for tab opening so the UI re-opens them.
+        try {
+            const restoredFiles = Object.keys(snap.files || {}).filter(p => p && p !== MAIN_FILE)
+            if (restoredFiles.length) {
+                try {
+                    // set pending tabs and attempt to flush immediately
+                    window.__ssg_pending_tabs = Array.from(new Set((window.__ssg_pending_tabs || []).concat(restoredFiles)))
+                } catch (_e) { window.__ssg_pending_tabs = restoredFiles }
+
+                try {
+                    if (window.TabManager && typeof window.TabManager.flushPendingTabs === 'function') {
+                        try { window.TabManager.flushPendingTabs() } catch (_e) { }
+                    } else if (window.TabManager && typeof window.TabManager.openTab === 'function') {
+                        // Fallback: open each restored file explicitly
+                        for (const p of restoredFiles) {
+                            try { window.TabManager.openTab(p) } catch (_e) { }
+                        }
+                    }
+                } catch (_e) { }
+            }
+        } catch (_e) { }
+
         // Open only MAIN_FILE as focused tab
         try {
             if (window.TabManager && typeof window.TabManager.openTab === 'function') {

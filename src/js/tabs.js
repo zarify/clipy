@@ -242,6 +242,21 @@ export function initializeTabManager(codeMirror, textareaElement) {
     // Ensure main file is open in initial tab and selected
     openTab(MAIN_FILE)
 
+    // Re-open any existing files from the FileManager so tabs persist across
+    // page reloads and snapshot restores. Exclude the protected MAIN_FILE
+    // because it's already opened above.
+    try {
+        const FileManager = getFileManager()
+        if (FileManager && typeof FileManager.list === 'function') {
+            const files = FileManager.list() || []
+            for (const p of files) {
+                try {
+                    if (p && p !== MAIN_FILE) openTab(p)
+                } catch (_e) { }
+            }
+        }
+    } catch (_e) { }
+
     // If any tabs were queued while TabManager wasn't available, open them now
     try {
         const pending = (window.__ssg_pending_tabs || [])
