@@ -481,8 +481,41 @@ export async function loadMicroPythonRuntime(cfg) {
                     try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'runtime_stderr_hooked' }) } catch (_e) { }
 
                     // Custom stdin function to replace browser prompts with terminal input
+                    // Prefer delegating to the async inputHandler when available to avoid
+                    // duplicate/resolving races where both stdin and inputHandler are invoked
                     const stdin = () => {
-                        console.log('STDIN FUNCTION CALLED - our custom stdin is working!')
+                        // If we have an inputHandler (async path), delegate to it
+                        if (typeof inputHandler === 'function') {
+                            try {
+                                appendTerminalDebug('Delegating legacy stdin to inputHandler')
+                                return Promise.resolve(inputHandler('')).then((v) => {
+                                    const val = (typeof v === 'string') ? v : (v == null ? '' : String(v))
+                                    return val + '\n'
+                                }).catch((err) => {
+                                    appendTerminalDebug('Delegated inputHandler failed: ' + err)
+                                    // Fallback to legacy pending-input behavior
+                                    return new Promise((resolve) => {
+                                        window.__ssg_pending_input = {
+                                            resolve: (value) => {
+                                                delete window.__ssg_pending_input
+                                                try { setTerminalInputEnabled(false) } catch (_e) { }
+                                                appendTerminal(`DEBUG: Resolving stdin with: ${value}`, 'runtime')
+                                                resolve(value + '\n')
+                                            },
+                                            promptText: ''
+                                        }
+                                        try { setTerminalInputEnabled(true, ''); } catch (_e) { }
+                                        const stdinBox = $('stdin-box')
+                                        if (stdinBox) { try { stdinBox.focus() } catch (_e) { } }
+                                    })
+                                })
+                            } catch (err) {
+                                appendTerminalDebug('stdin delegation error: ' + err)
+                                // fall through to legacy behavior below
+                            }
+                        }
+
+                        // Legacy path if no inputHandler available
                         appendTerminal('DEBUG: Custom stdin function called!', 'runtime')
                         return new Promise((resolve) => {
                             // Set up input collection using the existing terminal input system
