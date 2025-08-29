@@ -109,6 +109,10 @@ function writeFilesToFS(files) {
         if (!mpInstance || !mpInstance.FS) return
         for (const p of Object.keys(files || {})) {
             try {
+                try {
+                    const preview = (typeof files[p] === 'string') ? String(files[p]).slice(0, 200) : (files[p] && files[p].length ? ('<binary:' + files[p].length + '>') : '<empty>')
+                    post({ type: 'debug', text: 'writeFilesToFS: ' + String(p) + ' len=' + (typeof files[p] === 'string' ? String(files[p]).length : (files[p] && files[p].length ? files[p].length : 0)) + ' preview=' + preview })
+                } catch (e) { post({ type: 'debug', text: 'writeFilesToFS: ' + String(p) }) }
                 const dir = p.split('/').slice(0, -1).join('/') || '/'
                 try { mpInstance.FS.mkdirTree(dir) } catch (e) { }
                 const data = files[p]
@@ -137,20 +141,89 @@ async function handleRunTest(test) {
             writeFilesToFS(test.files)
         }
         const mainToRun = (test.main && typeof test.main === 'string') ? test.main : null
-        if (mainToRun) {
-            await runtimeAdapter.run(mainToRun)
-        } else if (test.entry && typeof test.entry === 'string') {
-            await runtimeAdapter.run(`import ${test.entry.replace(/\.[^/.]+$/, '')}`)
-        } else if (mpInstance && mpInstance.FS && typeof mpInstance.FS.readFile === 'function') {
+        // Helper to run an import expression directly. Previously we executed
+        // a Python wrapper string which caused the runtime to report the
+        // wrapper as the traceback source (e.g. "<stdin>"). Running the
+        // import expression directly ensures tracebacks refer to the actual
+        // module files (for example "/main.py"). We rely on the host-side
+        // heuristic that moves tracebacks from stdout->stderr when needed.
+        const runImport = async (importExpr) => {
             try {
-                const exists = mpInstance.FS.lookupPath('/main.py').node
-                if (exists) {
-                    await runtimeAdapter.run('import main')
-                }
-            } catch (e) { }
+                await runtimeAdapter.run(importExpr)
+            } catch (e) {
+                // Some runtimes surface Python tracebacks by rejecting the
+                // promise with an error whose message contains the traceback.
+                // Capture that text, filter out wrapper-inserted lines like
+                // `File "<stdin>"`, and treat the result as stderr so the
+                // host can display it without the import wrapper noise.
+                try {
+                    const raw = String(e || '')
+                    const filtered = raw.split('\n').filter(l => !l.includes('File "<stdin>"')).join('\n')
+                    if (filtered) {
+                        stderrBuf.push(filtered)
+                        post({ type: 'stderr', text: filtered })
+                    }
+                } catch (_err) { }
+                // Swallow the error here; the harness will inspect buffers
+                // and determine pass/fail. Returning allows the test run to
+                // continue to the buffer-heuristic and result assembly.
+            }
         }
 
+        if (mainToRun) {
+            // Write the inline main to /main.py inside the runtime FS so the
+            // traceback filename will point to /main.py when printed.
+            try { writeFilesToFS({ '/main.py': mainToRun }) } catch (e) { }
+            await runImport('import main')
+        } else if (test.entry && typeof test.entry === 'string') {
+            const mod = test.entry.replace(/\.[^/.]+$/, '')
+            await runImport(`import ${mod}`)
+        } else {
+            // If no main/entry provided, attempt to import /main.py directly.
+            // Some runtime FS implementations may not expose lookupPath or
+            // behave inconsistently, so attempt the import and let it fail
+            // gracefully if the file doesn't exist.
+            try {
+                post({ type: 'debug', text: 'attempting import main' })
+                await runImport('import main')
+                post({ type: 'debug', text: 'import main completed' })
+            } catch (e) {
+                post({ type: 'debug', text: 'import main failed: ' + String(e) })
+                // ignore -- handled below via buffers/heuristic
+            }
+        }
+
+        // Diagnostic debug: report buffer sizes and small previews so the
+        // host can see whether the runtime emitted any output.
+        try {
+            const joinedOut = (stdoutBuf && stdoutBuf.length) ? stdoutBuf.join('') : ''
+            const joinedErr = (stderrBuf && stderrBuf.length) ? stderrBuf.join('') : ''
+            post({ type: 'debug', text: 'afterRun stdout.len=' + (stdoutBuf ? stdoutBuf.length : 0) + ' stderr.len=' + (stderrBuf ? stderrBuf.length : 0) })
+            if (joinedOut) post({ type: 'debug', text: 'afterRun stdout.preview=' + String(joinedOut).slice(0, 200) })
+            if (joinedErr) post({ type: 'debug', text: 'afterRun stderr.preview=' + String(joinedErr).slice(0, 200) })
+        } catch (e) { }
+
         const duration = Date.now() - start
+
+        // Heuristic: some MicroPython runtimes emit exception tracebacks
+        // through the stdout callback. If stderr is empty but stdout
+        // contains a traceback, move the traceback suffix into stderr so
+        // the host can treat it as stderr.
+        try {
+            if ((!stderrBuf || stderrBuf.length === 0) && stdoutBuf && stdoutBuf.length) {
+                const joined = stdoutBuf.join('')
+                const tbIdx = joined.indexOf('Traceback (most recent call last):')
+                const tbIdxAlt = tbIdx === -1 ? joined.indexOf('Traceback') : tbIdx
+                if (tbIdxAlt !== -1) {
+                    const before = joined.slice(0, tbIdxAlt)
+                    const after = joined.slice(tbIdxAlt)
+                    // replace buffers
+                    stdoutBuf = before ? [before] : []
+                    stderrBuf = after ? [after] : []
+                }
+            }
+        } catch (e) { /* best-effort, don't fail the test harness */ }
+
         // Assemble streamed chunks: if any chunk contains a newline already,
         // assume the runtime included line breaks and join as-is. Otherwise
         // insert a single '\n' between chunks so multi-chunk prints like

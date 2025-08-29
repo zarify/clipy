@@ -19,8 +19,13 @@
   "tests": [
     {
       "id": "t-hello",
-      "description": "prints the sample greeting",
-      "expected_stdout": "Hello from MicroPython"
+      "description": "prints anything",
+      "show_stderr": true,
+      "expected_stdout": {
+        "type": "regex",
+        "expression": ".+",
+        "flags": ""
+      }
     },
     {
       "id": "t-single-word",

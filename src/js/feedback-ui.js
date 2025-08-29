@@ -23,10 +23,10 @@ function renderList() {
         const cfgTests = Array.isArray(_config && _config.tests ? _config.tests : null) ? _config.tests : []
         if (!Array.isArray(cfgTests) || cfgTests.length === 0) {
             runBtn.disabled = true
-            runBtn.title = 'No tests defined in config'
+            runBtn.title = 'No tests defined'
             runBtn.setAttribute('aria-disabled', 'true')
         } else {
-            runBtn.title = 'Run author-provided tests'
+            runBtn.title = 'Run tests'
             runBtn.setAttribute('aria-disabled', 'false')
         }
 
@@ -98,20 +98,34 @@ function renderList() {
                 titleRow.appendChild(titleEl)
                 tr.appendChild(titleRow)
 
-                // Only surface failure details (stderr/stdout/traceback) if the author requested it
-                // by setting `show_traceback: true` on the test config entry.  If no author entry
-                // exists, fallback to previous behavior and show details for failing tests.
-                const shouldShowDetails = authorEntry ? !!authorEntry.show_traceback : (!r.passed && (r.stdout || r.stderr || r.reason))
+                // Only surface failure details when the author explicitly requests it.
+                // The config can opt-in with `show_stderr: true` (or legacy `show_traceback`).
+                // By policy we never show stdout to the user in feedback UI; stderr is
+                // shown only if the author enabled it. If no author entry exists, default
+                // to not showing any details.
+                const shouldShowDetails = authorEntry ? !!(authorEntry.show_stderr || authorEntry.show_traceback) : false
 
-                if (shouldShowDetails && (!r.passed && (r.stdout || r.stderr || r.reason))) {
-                    const details = document.createElement('div')
-                    details.className = 'feedback-msg'
-                    let text = ''
-                    if (r.reason) text += '[' + r.reason + '] '
-                    if (r.stderr) text += 'stderr: ' + r.stderr + '\n'
-                    if (r.stdout) text += 'stdout: ' + r.stdout
-                    details.textContent = text
-                    tr.appendChild(details)
+                if (shouldShowDetails && (!r.passed && (r.stderr || r.reason))) {
+                    const detailsWrap = document.createElement('div')
+                    detailsWrap.className = 'feedback-msg'
+                    // Reason (short label) if present
+                    if (r.reason) {
+                        const reasonEl = document.createElement('div')
+                        reasonEl.className = 'feedback-reason'
+                        reasonEl.textContent = '[' + r.reason + ']'
+                        detailsWrap.appendChild(reasonEl)
+                    }
+                    // Render stderr in a monospace, pre-wrapped block so line breaks
+                    // and indentation are preserved and readable on a light background.
+                    if (r.stderr) {
+                        const stderrEl = document.createElement('div')
+                        stderrEl.className = 'test-stderr'
+                        stderrEl.style.whiteSpace = 'pre-wrap'
+                        stderrEl.style.fontFamily = 'monospace'
+                        stderrEl.textContent = r.stderr
+                        detailsWrap.appendChild(stderrEl)
+                    }
+                    tr.appendChild(detailsWrap)
                 }
 
                 tr.addEventListener('click', () => {
@@ -232,8 +246,22 @@ export function appendTestOutput({ id, type, text }) {
     try {
         if (!id) return
         _streamBuffers[id] = _streamBuffers[id] || { stdout: '', stderr: '' }
-        if (type === 'stdout') _streamBuffers[id].stdout += text
-        else if (type === 'stderr') _streamBuffers[id].stderr += text
+        // Preserve line breaks between streamed chunks. The runtime may emit
+        // small chunks without newlines; if neither the existing buffer nor
+        // the incoming chunk contain a newline, insert a single '\n'
+        // between them to avoid glueing separate logical lines together.
+        const appendChunk = (key, chunk) => {
+            const cur = _streamBuffers[id][key] || ''
+            if (!cur) {
+                _streamBuffers[id][key] = chunk
+                return
+            }
+            const hasNewlineCur = cur.indexOf('\n') !== -1
+            const hasNewlineChunk = (typeof chunk === 'string') && chunk.indexOf('\n') !== -1
+            _streamBuffers[id][key] = (hasNewlineCur || hasNewlineChunk) ? (cur + chunk) : (cur + '\n' + chunk)
+        }
+        if (type === 'stdout') appendChunk('stdout', text)
+        else if (type === 'stderr') appendChunk('stderr', text)
 
         // If we already have a result entry for this id, update it
         const idx = _testResults.findIndex(r => String(r.id) === String(id))
@@ -442,22 +470,34 @@ function showTestResultsModal(results) {
             fb.appendChild(ff)
         }
 
-        // Show stderr/stdout/reason if present (collapsed)
-        const details = []
-        if (r.reason) details.push('Reason: ' + r.reason)
-        if (r.stderr) details.push('stderr: ' + r.stderr)
-        if (r.stdout) details.push('stdout: ' + r.stdout)
-        if (details.length) {
-            const det = document.createElement('div')
-            det.className = 'test-io'
-            det.style.marginTop = '8px'
-            det.style.background = '#f8f8f8'
-            det.style.padding = '8px'
-            det.style.borderRadius = '4px'
-            det.style.fontFamily = 'monospace'
-            det.style.whiteSpace = 'pre-wrap'
-            det.textContent = details.join('\n')
-            fb.appendChild(det)
+        // Show stderr/reason only when author explicitly requests it. Do not
+        // expose stdout to the end user from author tests by default.
+        const showDetails = meta && (meta.show_stderr || meta.show_traceback)
+        if (r.reason || (showDetails && r.stderr)) {
+            const detWrap = document.createElement('div')
+            detWrap.className = 'test-io'
+            detWrap.style.marginTop = '8px'
+            detWrap.style.background = '#f8f8f8'
+            detWrap.style.padding = '8px'
+            detWrap.style.borderRadius = '4px'
+            detWrap.style.fontFamily = 'monospace'
+
+            if (r.reason) {
+                const reasonEl = document.createElement('div')
+                reasonEl.textContent = 'Reason: ' + r.reason
+                reasonEl.style.marginBottom = '6px'
+                detWrap.appendChild(reasonEl)
+            }
+
+            if (showDetails && r.stderr) {
+                const stderrEl = document.createElement('div')
+                stderrEl.className = 'test-stderr'
+                stderrEl.style.whiteSpace = 'pre-wrap'
+                stderrEl.textContent = r.stderr
+                detWrap.appendChild(stderrEl)
+            }
+
+            fb.appendChild(detWrap)
         }
 
         row.appendChild(fb)

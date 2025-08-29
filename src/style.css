@@ -325,6 +325,20 @@ pre#terminal-output {
     color: #ffb3b3
 }
 
+/* Styling for stderr shown inside feedback/test modals (light background)
+   Reuse monospace font, preserve whitespace, and use a subtle red tint. */
+.test-stderr {
+    background: #fff6f6;
+    color: #8b1e1e;
+    border: 1px solid rgba(139, 30, 30, 0.08);
+    padding: 8px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.95rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
 .term-stdin {
     color: #bfe8b4
 }
