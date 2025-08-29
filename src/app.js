@@ -198,15 +198,33 @@ async function main() {
                         return
                     }
 
-                    // Define runFn that will write MAIN_FILE and call runPythonCode
-                    // use the adapter factory so tests can import it directly
+                    // Define runFn that will either use the sandboxed iframe runner (preferred)
+                    // or fall back to the adapter factory. This is feature-flagged by
+                    // window.__ssg_use_sandboxed_tests.
                     try {
-                        const adapterMod = await import('./js/test-runner-adapter.js')
                         const vfs = await import('./js/vfs-client.js')
-                        const createRunFn = adapterMod && adapterMod.createRunFn ? adapterMod.createRunFn : adapterMod.default && adapterMod.default.createRunFn
                         const getFileManager = vfs.getFileManager
                         const MAIN_FILE = vfs.MAIN_FILE
-                        const runFn = createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig: () => (window.Config && window.Config.current) ? window.Config.current : {} })
+
+                        let runFn = null
+                        if (window.__ssg_use_sandboxed_tests) {
+                            // Use sandboxed iframe runner (Phase 1)
+                            try {
+                                const sandbox = await import('./js/test-runner-sandbox.js')
+                                const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                                const mainContent = FileManager ? (FileManager.read(MAIN_FILE) || '') : ''
+                                runFn = sandbox.createSandboxedRunFn({ runtimeUrl: (cfg && cfg.runtime && cfg.runtime.url) || '/vendor/micropython.mjs', filesSnapshot: { [MAIN_FILE]: mainContent } })
+                            } catch (e) {
+                                appendTerminal('Failed to initialize sandboxed runner: ' + e, 'runtime')
+                                // fall through to adapter
+                            }
+                        }
+
+                        if (!runFn) {
+                            const adapterMod = await import('./js/test-runner-adapter.js')
+                            const createRunFn = adapterMod && adapterMod.createRunFn ? adapterMod.createRunFn : adapterMod.default && adapterMod.default.createRunFn
+                            runFn = createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig: () => (window.Config && window.Config.current) ? window.Config.current : {} })
+                        }
 
                         // Run tests using the created runFn
                         const results = await runTests(tests, { runFn })

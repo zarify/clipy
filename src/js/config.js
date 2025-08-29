@@ -53,7 +53,7 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         links: Array.isArray(rawConfig.links) ? rawConfig.links : [],
         runtime: {
             type: rawConfig.runtime?.type || 'micropython',
-            url: rawConfig.runtime?.url || './vendor/micropython.wasm'
+            url: rawConfig.runtime?.url || '/vendor/micropython.wasm'
         },
         execution: {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
@@ -94,7 +94,7 @@ function getDefaultConfig() {
         links: [],
         runtime: {
             type: 'micropython',
-            url: './vendor/micropython.wasm'
+            url: '/vendor/micropython.wasm'
         },
         execution: {
             timeoutSeconds: 30,

@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Clipy Sandbox Smoke Host</title>
+</head>
+
+<body>
+    <div id="out">starting...</div>
+    <script type="module">
+        import { createSandboxedRunFn } from '/js/test-runner-sandbox.js'
+
+            ; (async () => {
+                const out = document.getElementById('out')
+                try {
+                    out.textContent = 'creating runFn'
+                    const runFn = createSandboxedRunFn({ runtimeUrl: '/vendor/micropython.mjs', iframeSrc: '/tests/runner.html', filesSnapshot: { '/main.py': 'print("SMOKE")' } })
+                    out.textContent = 'running test'
+                    const res = await runFn({ id: 'smoke1', main: 'print("SMOKE")', stdin: '', timeoutMs: 20000 })
+                    window.__smoke_result = res
+                    out.textContent = JSON.stringify(res)
+                } catch (e) {
+                    out.textContent = 'error: ' + e
+                    window.__smoke_result = { passed: false, stderr: String(e) }
+                }
+            })()
+    </script>
+</body>
+
+</html>

@@ -3,6 +3,7 @@ import { $ } from './utils.js'
 let _matches = []
 let _config = { feedback: [] }
 let _testResults = []
+let _streamBuffers = {}
 
 function renderList() {
     try {
@@ -197,12 +198,31 @@ export function setTestResults(results) {
     renderList()
 }
 
+export function appendTestOutput({ id, type, text }) {
+    try {
+        if (!id) return
+        _streamBuffers[id] = _streamBuffers[id] || { stdout: '', stderr: '' }
+        if (type === 'stdout') _streamBuffers[id].stdout += text
+        else if (type === 'stderr') _streamBuffers[id].stderr += text
+
+        // If we already have a result entry for this id, update it
+        const idx = _testResults.findIndex(r => String(r.id) === String(id))
+        if (idx !== -1) {
+            const existing = _testResults[idx]
+            existing.stdout = _streamBuffers[id].stdout
+            existing.stderr = _streamBuffers[id].stderr
+            renderList()
+        }
+    } catch (_e) { }
+}
+
 export function initializeFeedbackUI() {
     try {
         // expose hooks for other modules to push matches or config
         window.__ssg_set_feedback_matches = setFeedbackMatches
         window.__ssg_set_feedback_config = setFeedbackConfig
         window.__ssg_set_test_results = setTestResults
+        window.__ssg_append_test_output = appendTestOutput
     } catch (_e) { }
 }
 

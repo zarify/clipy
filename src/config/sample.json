@@ -10,7 +10,7 @@
   ],
   "runtime": {
     "type": "micropython",
-    "url": "./vendor/micropython.wasm"
+    "url": "/vendor/micropython.wasm"
   },
   "execution": {
     "timeoutSeconds": 30,
