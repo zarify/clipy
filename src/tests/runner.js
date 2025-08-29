@@ -151,10 +151,25 @@ async function handleRunTest(test) {
         }
 
         const duration = Date.now() - start
-        return { id: test.id, passed: true, stdout: stdoutBuf.join(''), stderr: stderrBuf.join(''), durationMs: duration }
+        // Assemble streamed chunks: if any chunk contains a newline already,
+        // assume the runtime included line breaks and join as-is. Otherwise
+        // insert a single '\n' between chunks so multi-chunk prints like
+        // print('a\nb') become 'a\nb' instead of 'ab'.
+        const assemble = (buf) => {
+            if (!buf || !buf.length) return ''
+            const hasNewline = buf.some(s => typeof s === 'string' && s.indexOf('\n') !== -1)
+            return hasNewline ? buf.join('') : buf.join('\n')
+        }
+        return { id: test.id, passed: true, stdout: assemble(stdoutBuf), stderr: assemble(stderrBuf), durationMs: duration }
     } catch (err) {
         const duration = Date.now() - start
-        return { id: test.id, passed: false, stdout: stdoutBuf.join(''), stderr: (stderrBuf.join('') + '\n' + String(err)), durationMs: duration, reason: String(err) }
+        const assemble = (buf) => {
+            if (!buf || !buf.length) return ''
+            const hasNewline = buf.some(s => typeof s === 'string' && s.indexOf('\n') !== -1)
+            return hasNewline ? buf.join('') : buf.join('\n')
+        }
+        const stderrJoined = assemble(stderrBuf)
+        return { id: test.id, passed: false, stdout: assemble(stdoutBuf), stderr: (stderrJoined ? (stderrJoined + '\n' + String(err)) : String(err)), durationMs: duration, reason: String(err) }
     }
 }
 

@@ -23,6 +23,20 @@
       "expected_stdout": "Hello from MicroPython"
     },
     {
+      "id": "t-single-word",
+      "description": "testing a single Hello",
+      "expected_stdout": "Hello"
+    },
+    {
+      "id": "t-regex-multiline",
+      "description": "testing multiline regex",
+      "expected_stdout": {
+        "type": "regex",
+        "expression": "Hello\\nfrom MicroPython",
+        "flags": ""
+      }
+    },
+    {
       "id": "t-multiline",
       "description": "Testing multiline output",
       "expected_stdout": "Hello\nfrom MicroPython"
