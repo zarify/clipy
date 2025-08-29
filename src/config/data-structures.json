@@ -16,6 +16,19 @@
         "timeoutSeconds": 30,
         "maxOutputLines": 1000
     },
+    "tests": [
+        {
+            "id": "ds-list-print",
+            "description": "prints the fruits list",
+            "expected_stdout": "Fruits:"
+        },
+        {
+            "id": "ds-append",
+            "description": "appending grape results in grape present",
+            "main": "fruits = ['apple','banana']\nfruits.append('grape')\nprint('grape' in fruits)",
+            "expected_stdout": "True"
+        }
+    ],
     "feedback": [
         {
             "id": "ds-list",

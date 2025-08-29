@@ -29,16 +29,27 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
                             window.__ssg_append_test_output({ id: tid, type: m.type, text: m.text })
                         }
                     } catch (e) { }
+                    try { console.debug && console.debug('[sandbox] stream', m.type, (m.text || '').slice ? (m.text || '').slice(0, 200) : m.text) } catch (e) { }
                 } else if (m.type === 'stdinRequest') {
+                    // If the runner provided a prompt string, surface it to the host UI
+                    try {
+                        const tid = iframe.__ssg_current_test_id || (test && test.id)
+                        if (m.prompt && typeof window.__ssg_show_stdin_prompt === 'function') {
+                            try { window.__ssg_show_stdin_prompt({ id: tid, prompt: m.prompt }) } catch (e) { }
+                        }
+                    } catch (e) { }
+
                     // reply immediately with queued stdin (string or array)
                     let v = ''
                     if (typeof test.stdin === 'string') v = test.stdin
                     else if (Array.isArray(test.stdin)) v = test.stdin.shift() || ''
                     iframe.contentWindow.postMessage({ type: 'stdinResponse', value: String(v) }, '*')
                 } else if (m.type === 'testResult') {
+                    try { console.debug && console.debug('[sandbox] testResult', m) } catch (e) { }
                     cleanup()
                     resolve(m)
                 } else if (m.type === 'error') {
+                    try { console.debug && console.debug('[sandbox] error', m) } catch (e) { }
                     cleanup()
                     resolve({ id: test.id, passed: false, stdout: '', stderr: String(m.error), durationMs: 0, reason: m.error })
                 }

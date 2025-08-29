@@ -101,6 +101,9 @@ async function main() {
         // Expose TabManager globally for compatibility
         try { window.TabManager = TabManager } catch (e) { }
 
+        // Prefer sandboxed iframe-based tests by default for better isolation.
+        try { if (typeof window !== 'undefined' && typeof window.__ssg_use_sandboxed_tests === 'undefined') window.__ssg_use_sandboxed_tests = true } catch (_e) { }
+
         // Expose feedback highlight clear helper for tests and debugging
         try {
             if (typeof window.clearAllFeedbackHighlights !== 'function') {
@@ -146,7 +149,13 @@ async function main() {
         try { setFeedbackConfig(cfg) } catch (_e) { }
 
         // Now initialize Feedback subsystem with the config so it can evaluate and emit matches
-        try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg) } catch (_e) { }
+        try {
+            if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg)
+            // Re-apply full configuration to the UI after Feedback.resetFeedback
+            // because resetFeedback emits a 'reset' event with a normalized feedback-only
+            // payload which would otherwise overwrite the UI's full config (including tests).
+            try { setFeedbackConfig(cfg) } catch (_e) { }
+        } catch (_e) { }
 
         // Initial feedback evaluation for starter content
         try {
@@ -190,8 +199,10 @@ async function main() {
         // Listen for Run tests button and execute author-defined tests if present
         try {
             window.addEventListener('ssg:run-tests-click', async () => {
+                try { console.debug && console.debug('[app] received ssg:run-tests-click') } catch (_e) { }
                 try {
                     const cfg = window.Config && window.Config.current ? window.Config.current : null
+                    try { console.debug && console.debug('[app] current config', !!cfg, cfg && Array.isArray(cfg.tests) ? cfg.tests.length : 0) } catch (_e) { }
                     const tests = (cfg && Array.isArray(cfg.tests)) ? cfg.tests : []
                     if (!tests || !tests.length) {
                         try { appendTerminal('No tests defined in config', 'runtime') } catch (_e) { }
@@ -231,7 +242,13 @@ async function main() {
                         try { appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime') } catch (_e) { }
 
                         // Update UI with results and feed failures into Feedback
-                        try { if (typeof window.__ssg_set_test_results === 'function') window.__ssg_set_test_results(results) } catch (_e) { }
+                        try {
+                            if (typeof window.__ssg_set_test_results === 'function') {
+                                try { console.debug && console.debug('[app] publishing test results', results && results.length) } catch (_e) { }
+                                window.__ssg_set_test_results(results)
+                                try { console.debug && console.debug('[app] published test results') } catch (_e) { }
+                            }
+                        } catch (_e) { }
                         if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
                             for (const r of results) {
                                 if (!r.passed) {

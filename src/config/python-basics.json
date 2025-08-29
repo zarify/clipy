@@ -17,6 +17,23 @@
         "timeoutSeconds": 30,
         "maxOutputLines": 1000
     },
+    "tests": [
+        {
+            "id": "pb-vars",
+            "description": "prints Name, Age and Height",
+            "expected_stdout": "Name: Alice"
+        },
+        {
+            "id": "pb-stdin-format",
+            "description": "reads two values and prints formatted output",
+            "main": "a = input()\nb = input()\nprint(f'A={a},B={b}')",
+            "stdin": [
+                "one",
+                "two"
+            ],
+            "expected_stdout": "A=one,B=two"
+        }
+    ],
     "feedback": [
         {
             "id": "pb-fstring",

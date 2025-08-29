@@ -10,12 +10,26 @@
   ],
   "runtime": {
     "type": "micropython",
-    "url": "/vendor/micropython.wasm"
+    "url": "/vendor/micropython.mjs"
   },
   "execution": {
     "timeoutSeconds": 30,
     "maxOutputLines": 1000
   },
+  "tests": [
+    {
+      "id": "t-hello",
+      "description": "prints the sample greeting",
+      "expected_stdout": "Hello from MicroPython"
+    },
+    {
+      "id": "t-echo",
+      "description": "echo input using input()",
+      "main": "x = input()\nprint('GOT:' + x)",
+      "stdin": "hello",
+      "expected_stdout": "GOT:hello"
+    }
+  ],
   "feedback": [
     {
       "id": "f-avoid-print-or-def",

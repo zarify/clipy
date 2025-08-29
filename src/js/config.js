@@ -1,7 +1,8 @@
 // Configuration loading and management
 import { $ } from './utils.js'
 
-export const configUrl = './config/sample.json'
+// Use root-based path so servers serving `/src` as document root resolve correctly
+export const configUrl = '/config/sample.json'
 
 let config = null
 
@@ -68,6 +69,9 @@ function validateAndNormalizeConfigInternal(rawConfig) {
                 ast: Array.isArray(rawConfig.feedback?.ast) ? rawConfig.feedback.ast : [],
                 regex: Array.isArray(rawConfig.feedback?.regex) ? rawConfig.feedback.regex : []
             }
+        ,
+        // Include author-provided tests array if present
+        tests: Array.isArray(rawConfig.tests) ? rawConfig.tests : []
     }
 
     // Validate runtime URL is not empty
