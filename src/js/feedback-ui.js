@@ -226,7 +226,6 @@ export function setTestResults(results) {
     _testResults = Array.isArray(results) ? results : []
     try { console.debug && console.debug('[feedback-ui] setTestResults', _testResults.length) } catch (e) { }
     renderList()
-    try { showTestResultsModal(_testResults) } catch (e) { }
 }
 
 export function appendTestOutput({ id, type, text }) {
@@ -255,6 +254,7 @@ function createResultsModal() {
     modal.id = 'test-results-modal'
     modal.setAttribute('role', 'dialog')
     modal.setAttribute('aria-modal', 'true')
+    modal.setAttribute('aria-labelledby', 'test-results-title')
     modal.style.position = 'fixed'
     modal.style.left = '0'
     modal.style.top = '0'
@@ -272,6 +272,9 @@ function createResultsModal() {
     overlay.style.right = '0'
     overlay.style.bottom = '0'
     overlay.style.background = 'rgba(0,0,0,0.45)'
+    // Do not intercept pointer events on the overlay so automated clicks
+    // (e.g. Playwright) are not blocked while the modal is being created.
+    overlay.style.pointerEvents = 'none'
     modal.appendChild(overlay)
 
     const box = document.createElement('div')
@@ -285,6 +288,8 @@ function createResultsModal() {
     box.style.borderRadius = '8px'
     box.style.padding = '18px'
     box.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)'
+    // Ensure the modal content box receives pointer events
+    box.style.pointerEvents = 'auto'
     modal.appendChild(box)
 
     const closeBtn = document.createElement('button')
@@ -297,6 +302,7 @@ function createResultsModal() {
     box.appendChild(closeBtn)
 
     const title = document.createElement('h2')
+    title.id = 'test-results-title'
     title.textContent = 'Test results'
     title.style.marginTop = '6px'
     title.style.marginBottom = '12px'
@@ -306,8 +312,48 @@ function createResultsModal() {
     content.className = 'test-results-content'
     box.appendChild(content)
 
-    // close when clicking overlay
-    overlay.addEventListener('click', () => closeTestResultsModal())
+    // Note: overlay is non-interactive to avoid blocking automated UI actions.
+    // Closing the modal should be done via the Close button or ESC.
+
+    // Accessibility: trap focus, handle ESC, and restore focus on close
+    let previouslyFocused = null
+    function keyHandler(e) {
+        if (e.key === 'Escape') {
+            e.stopPropagation()
+            closeTestResultsModal()
+            return
+        }
+        if (e.key === 'Tab') {
+            // simple focus trap within box
+            const focusable = box.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+            if (!focusable || focusable.length === 0) return
+            const first = focusable[0]
+            const last = focusable[focusable.length - 1]
+            if (e.shiftKey) {
+                if (document.activeElement === first) {
+                    e.preventDefault()
+                    last.focus()
+                }
+            } else {
+                if (document.activeElement === last) {
+                    e.preventDefault()
+                    first.focus()
+                }
+            }
+        }
+    }
+
+    modal._attachAccessibility = () => {
+        previouslyFocused = document.activeElement
+        document.addEventListener('keydown', keyHandler, true)
+        // focus the close button by default
+        try { closeBtn.focus() } catch (e) { }
+    }
+
+    modal._detachAccessibility = () => {
+        document.removeEventListener('keydown', keyHandler, true)
+        try { if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus() } catch (e) { }
+    }
 
     document.body.appendChild(modal)
     return modal
@@ -316,7 +362,10 @@ function createResultsModal() {
 function closeTestResultsModal() {
     const modal = document.getElementById('test-results-modal')
     if (!modal) return
-    try { modal.remove() } catch (e) { modal.style.display = 'none' }
+    try {
+        if (modal._detachAccessibility) modal._detachAccessibility()
+        modal.remove()
+    } catch (e) { modal.style.display = 'none' }
 }
 
 function showTestResultsModal(results) {
@@ -326,6 +375,9 @@ function showTestResultsModal(results) {
     const content = modal.querySelector('.test-results-content')
     if (!content) return
     content.innerHTML = ''
+
+    // attach accessibility handlers when showing
+    try { if (modal._attachAccessibility) modal._attachAccessibility() } catch (e) { }
 
     // Map config tests for metadata lookup
     const cfgMap = new Map()
@@ -417,13 +469,49 @@ function showTestResultsModal(results) {
     if (box) box.focus()
 }
 
+// Public helper that will create or refresh the modal when explicitly requested.
+function showOrUpdateTestResultsModal(results) {
+    // If modal already exists, just refresh content; otherwise create and show it.
+    try {
+        // Always update internal results state so appendTestOutput/renderList reflect latest
+        if (Array.isArray(results)) _testResults = results
+        // If the modal doesn't exist yet, create it and show loading if results are empty
+        const modalExists = !!document.getElementById('test-results-modal')
+        if (!modalExists && (!results || !Array.isArray(results) || results.length === 0)) {
+            showTestResultsLoading()
+            return
+        }
+        // Otherwise show/refresh with current results
+        showTestResultsModal(_testResults)
+    } catch (e) { }
+}
+
+function showTestResultsLoading() {
+    const modal = createResultsModal()
+    const content = modal.querySelector('.test-results-content')
+    if (!content) return
+    content.innerHTML = ''
+    const loading = document.createElement('div')
+    loading.className = 'test-results-loading'
+    loading.textContent = 'Running tests...'
+    loading.style.padding = '18px'
+    content.appendChild(loading)
+    try { if (modal._attachAccessibility) modal._attachAccessibility() } catch (e) { }
+}
+
 export function initializeFeedbackUI() {
     try {
+        // Ensure no stale modal from previous runs remains
+        try { closeTestResultsModal() } catch (e) { }
         // expose hooks for other modules to push matches or config
         window.__ssg_set_feedback_matches = setFeedbackMatches
         window.__ssg_set_feedback_config = setFeedbackConfig
         window.__ssg_set_test_results = setTestResults
         window.__ssg_append_test_output = appendTestOutput
+        // Expose explicit modal controls so the app can open/refresh/close the modal
+        window.__ssg_show_test_results = (results) => showOrUpdateTestResultsModal(results)
+        window.__ssg_show_test_results_loading = showTestResultsLoading
+        window.__ssg_close_test_results = closeTestResultsModal
     } catch (_e) { }
 }
 

@@ -237,6 +237,8 @@ async function main() {
                             runFn = createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig: () => (window.Config && window.Config.current) ? window.Config.current : {} })
                         }
 
+                        // Show loading modal immediately so it doesn't block Run button
+                        try { if (typeof window.__ssg_show_test_results_loading === 'function') window.__ssg_show_test_results_loading() } catch (_e) { }
                         // Run tests using the created runFn
                         const results = await runTests(tests, { runFn })
                         try { appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime') } catch (_e) { }
@@ -248,6 +250,8 @@ async function main() {
                                 window.__ssg_set_test_results(results)
                                 try { console.debug && console.debug('[app] published test results') } catch (_e) { }
                             }
+                            // Explicitly open/refresh the modal now that results exist
+                            try { if (typeof window.__ssg_show_test_results === 'function') window.__ssg_show_test_results(results) } catch (_e) { }
                         } catch (_e) { }
                         if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
                             for (const r of results) {
