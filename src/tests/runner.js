@@ -27,8 +27,7 @@ async function initRuntime(runtimeUrl) {
         if (!loaderFn && typeof globalThis.loadMicroPython === 'function') loaderFn = globalThis.loadMicroPython
 
         if (loaderFn) {
-            // Ensure global Module has inputHandler set before runtime initialization
-            try { globalThis.Module = globalThis.Module || {}; globalThis.Module.inputHandler = inputHandler } catch (e) { }
+            // (module inputHandler will be set after we declare it) - don't set it here
             const stdout = (chunk) => {
                 const text = (typeof chunk === 'string') ? chunk : (new TextDecoder().decode(chunk || new Uint8Array()))
                 stdoutBuf.push(text)
@@ -39,20 +38,7 @@ async function initRuntime(runtimeUrl) {
                 stderrBuf.push(text)
                 post({ type: 'stderr', text })
             }
-            const stdin = () => {
-                return new Promise((resolve) => {
-                    pendingStdinResolve = resolve
-                    post({ type: 'stdinRequest' })
-                    setTimeout(() => {
-                        if (pendingStdinResolve) {
-                            try { pendingStdinResolve('') } catch (e) { }
-                            pendingStdinResolve = null
-                            post({ type: 'debug', text: 'stdin timeout, returning empty' })
-                        }
-                    }, 20000)
-                })
-            }
-
+            // Define inputHandler first so stdin can delegate to it when available.
             const inputHandler = async function (promptText = '') {
                 return new Promise((resolve) => {
                     // Use the same pendingStdinResolve mechanism so parent can reply via postMessage
@@ -69,8 +55,35 @@ async function initRuntime(runtimeUrl) {
                 })
             }
 
+            // Custom stdin: delegate to inputHandler when present to avoid dual-calls
+            const stdin = () => {
+                if (typeof inputHandler === 'function') {
+                    try {
+                        // Delegate to inputHandler and return its resolved value
+                        return Promise.resolve(inputHandler('')).then(v => (v == null ? '' : String(v)))
+                    } catch (e) {
+                        post({ type: 'debug', text: 'stdin delegation failed: ' + String(e) })
+                        // fall through to legacy behavior
+                    }
+                }
+
+                return new Promise((resolve) => {
+                    pendingStdinResolve = resolve
+                    post({ type: 'stdinRequest' })
+                    setTimeout(() => {
+                        if (pendingStdinResolve) {
+                            try { pendingStdinResolve('') } catch (e) { }
+                            pendingStdinResolve = null
+                            post({ type: 'debug', text: 'stdin timeout, returning empty' })
+                        }
+                    }, 20000)
+                })
+            }
+
             // Initialize the runtime and capture the mpInstance
             try {
+                // Ensure Module.inputHandler is populated for runtimes that probe Module
+                try { globalThis.Module = globalThis.Module || {}; globalThis.Module.inputHandler = inputHandler } catch (e) { }
                 mpInstance = await loaderFn({ url: '/vendor/micropython.wasm', stdout, stderr, stdin, linebuffer: true, inputHandler })
             } catch (e) {
                 post({ type: 'error', error: String(e) })

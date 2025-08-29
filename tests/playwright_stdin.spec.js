@@ -262,4 +262,42 @@ test.describe('stdin inline prompt behavior', () => {
             return t && t.textContent && t.textContent.indexOf('Line: hi') !== -1 && t.textContent.indexOf('OK done') !== -1
         }, { timeout: 5000 })
     })
+
+    test('Multiple consecutive stdin occurrences (echo loop)', async ({ page }) => {
+        // allow more time for this longer interactive test on slow CI/browser
+        test.setTimeout(120000)
+        await openPage(page)
+
+        // Program: prompt 10 times and echo index and input
+        await page.evaluate(() => {
+            const src = `for i in range(10):\n    word = input('Word: ')\n    print(f"{i} - Got: {word}")`
+            if (window.cm) window.cm.setValue(src)
+            else document.getElementById('code').value = src
+        })
+        // Wait for autosave
+        await page.waitForFunction(() => {
+            const el = document.getElementById('autosave-indicator')
+            return el && el.textContent && el.textContent.indexOf('Saved') !== -1
+        }, { timeout: 2000 })
+
+        await page.click('#run')
+
+        // For each prompt, type a distinct word and press Enter
+        for (let i = 0; i < 10; i++) {
+            await page.waitForFunction(() => { const b = document.getElementById('stdin-box'); return b && !b.disabled }, { timeout: 8000 })
+            const word = 'w' + i
+            await page.type('#stdin-box', word)
+            await page.keyboard.press('Enter')
+        }
+        // After sending all inputs, wait for the terminal to contain all expected lines
+        await page.waitForFunction(() => {
+            const t = document.getElementById('terminal-output')
+            if (!t || !t.textContent) return false
+            const text = t.textContent
+            for (let j = 0; j < 10; j++) {
+                if (text.indexOf(`${j} - Got: w${j}`) === -1) return false
+            }
+            return true
+        }, { timeout: 30000 })
+    })
 })
