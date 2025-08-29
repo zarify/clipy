@@ -164,7 +164,13 @@ window.addEventListener('message', async (ev) => {
     try {
         if (msg.type === 'init') {
             const ok = await initRuntime(msg.runtimeUrl || '/vendor/micropython.mjs')
-            if (ok) post({ type: 'ready' })
+            if (ok) {
+                // If the parent supplied an initial files snapshot (e.g. /main.py),
+                // write those into the runtime FS so tests without an explicit
+                // `main` can import/run the user's MAIN_FILE.
+                try { if (msg.files && typeof msg.files === 'object') writeFilesToFS(msg.files) } catch (e) { log('write init files failed', e) }
+                post({ type: 'ready' })
+            }
         } else if (msg.type === 'runTest') {
             const timeout = (msg.test && msg.test.timeoutMs) || 20000
             let finished = false

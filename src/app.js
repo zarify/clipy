@@ -96,6 +96,19 @@ async function main() {
         try { dbg('dbg: after initializeVFS', !!FileManager) } catch (_e) { }
         const TabManager = initializeTabManager(cm, textarea)
 
+        // Ensure MAIN_FILE exists in the FileManager. If it doesn't, populate
+        // it with the config starter so tests that rely on the starter output
+        // (for example t-hello) will execute the user's MAIN_FILE content.
+        try {
+            const { MAIN_FILE } = await import('./js/vfs-client.js')
+            try {
+                const exists = !!(FileManager && FileManager.read && FileManager.read(MAIN_FILE))
+                if (!exists && FileManager && typeof cfg.starter === 'string') {
+                    try { FileManager.write(MAIN_FILE, cfg.starter) } catch (_e) { }
+                }
+            } catch (_e) { }
+        } catch (_e) { }
+
         try { dbg('dbg: after initializeTabManager', !!TabManager) } catch (_e) { }
 
         // Expose TabManager globally for compatibility
@@ -223,7 +236,7 @@ async function main() {
                             try {
                                 const sandbox = await import('./js/test-runner-sandbox.js')
                                 const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
-                                const mainContent = FileManager ? (FileManager.read(MAIN_FILE) || '') : ''
+                                const mainContent = (FileManager ? (FileManager.read(MAIN_FILE) || '') : '')
                                 runFn = sandbox.createSandboxedRunFn({ runtimeUrl: (cfg && cfg.runtime && cfg.runtime.url) || '/vendor/micropython.mjs', filesSnapshot: { [MAIN_FILE]: mainContent } })
                             } catch (e) {
                                 appendTerminal('Failed to initialize sandboxed runner: ' + e, 'runtime')

@@ -23,6 +23,11 @@
       "expected_stdout": "Hello from MicroPython"
     },
     {
+      "id": "t-multiline",
+      "description": "Testing multiline output",
+      "expected_stdout": "Hello\nfrom MicroPython"
+    },
+    {
       "id": "t-echo",
       "description": "echo input using input()",
       "main": "x = input()\nprint('GOT:' + x)",
