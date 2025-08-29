@@ -182,6 +182,7 @@ export function selectTab(path) {
                             }
                         }
                     } catch (_e) { }
+                    try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
                 })
             } catch (_e) {
                 for (const ln of lines) {
@@ -195,6 +196,7 @@ export function selectTab(path) {
                         }
                     }
                 } catch (_e) { }
+                try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
             }
         }
     } catch (_e) { }

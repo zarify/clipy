@@ -2,12 +2,27 @@ import { $ } from './utils.js'
 
 let _matches = []
 let _config = { feedback: [] }
+let _testResults = []
 
 function renderList() {
     try {
         const host = $('feedback-list')
         if (!host) return
+        // Clear host first, then add run-tests control at top
         host.innerHTML = ''
+        const controlRow = document.createElement('div')
+        controlRow.style.display = 'flex'
+        controlRow.style.justifyContent = 'flex-end'
+        controlRow.style.marginBottom = '6px'
+        const runBtn = document.createElement('button')
+        runBtn.className = 'btn'
+        runBtn.id = 'run-tests-btn'
+        runBtn.textContent = 'Run tests'
+        runBtn.addEventListener('click', () => {
+            try { window.dispatchEvent(new CustomEvent('ssg:run-tests-click')) } catch (_e) { }
+        })
+        controlRow.appendChild(runBtn)
+        host.appendChild(controlRow)
 
         // Build a map of matches by id for quick lookup
         const matchMap = new Map()
@@ -31,6 +46,56 @@ function renderList() {
         const runHeader = document.createElement('h3')
         runHeader.textContent = 'Run-time feedback'
         runSection.appendChild(runHeader)
+
+        // --- Test results section (if any) ---
+        const testsSection = document.createElement('div')
+        testsSection.className = 'feedback-section feedback-tests-section'
+        const testsHeader = document.createElement('h3')
+        testsHeader.textContent = 'Test results'
+        testsSection.appendChild(testsHeader)
+
+        if (Array.isArray(_testResults) && _testResults.length) {
+            for (const r of _testResults) {
+                const tr = document.createElement('div')
+                tr.className = 'feedback-entry test-entry ' + (r.passed ? 'test-pass' : 'test-fail')
+                tr.setAttribute('data-test-id', String(r.id || ''))
+
+                const titleRow = document.createElement('div')
+                titleRow.className = 'feedback-title-row'
+                const icon = document.createElement('span')
+                icon.className = 'feedback-icon'
+                icon.textContent = r.passed ? '✅' : '❌'
+                titleRow.appendChild(icon)
+                const titleEl = document.createElement('div')
+                titleEl.className = 'feedback-title'
+                titleEl.textContent = (r.id || '') + (r.description ? (': ' + r.description) : '')
+                titleRow.appendChild(titleEl)
+                tr.appendChild(titleRow)
+
+                // optional details
+                if (!r.passed && (r.stdout || r.stderr || r.reason)) {
+                    const details = document.createElement('div')
+                    details.className = 'feedback-msg'
+                    let text = ''
+                    if (r.reason) text += '[' + r.reason + '] '
+                    if (r.stderr) text += 'stderr: ' + r.stderr + '\n'
+                    if (r.stdout) text += 'stdout: ' + r.stdout
+                    details.textContent = text
+                    tr.appendChild(details)
+                }
+
+                tr.addEventListener('click', () => {
+                    try { window.dispatchEvent(new CustomEvent('ssg:test-click', { detail: r })) } catch (_e) { }
+                })
+
+                testsSection.appendChild(tr)
+            }
+        } else {
+            const p = document.createElement('div')
+            p.className = 'feedback-msg feedback-msg-hidden'
+            p.textContent = '(no test results)'
+            testsSection.appendChild(p)
+        }
 
         for (const entry of _config.feedback) {
             const id = entry.id || ''
@@ -127,11 +192,17 @@ export function setFeedbackMatches(matches) {
     renderList()
 }
 
+export function setTestResults(results) {
+    _testResults = Array.isArray(results) ? results : []
+    renderList()
+}
+
 export function initializeFeedbackUI() {
     try {
         // expose hooks for other modules to push matches or config
         window.__ssg_set_feedback_matches = setFeedbackMatches
         window.__ssg_set_feedback_config = setFeedbackConfig
+        window.__ssg_set_test_results = setTestResults
     } catch (_e) { }
 }
 

@@ -22,6 +22,7 @@ import {
     setupKeyboardInterrupt
 } from './js/micropython.js'
 import { runPythonCode } from './js/execution.js'
+import { runTests } from './js/test-runner.js'
 import { setupInputHandling } from './js/input-handling.js'
 
 // Code transformation 
@@ -45,6 +46,9 @@ try {
     }
     // Expose storage info for debugging
     window.showStorageInfo = showStorageInfo
+    // Expose highlight helpers for tests/debugging
+    try { window.highlightMappedTracebackInEditor = highlightMappedTracebackInEditor } catch (_e) { }
+    try { window.highlightFeedbackLine = highlightFeedbackLine } catch (_e) { }
 } catch (_e) { }
 
 // Startup debug helper - enable by setting `window.__ssg_debug_startup = true`
@@ -180,6 +184,68 @@ async function main() {
                         } catch (_e) { }
                     }
                 } catch (_e) { }
+            })
+        } catch (_e) { }
+
+        // Listen for Run tests button and execute author-defined tests if present
+        try {
+            window.addEventListener('ssg:run-tests-click', async () => {
+                try {
+                    const cfg = window.Config && window.Config.current ? window.Config.current : null
+                    const tests = (cfg && Array.isArray(cfg.tests)) ? cfg.tests : []
+                    if (!tests || !tests.length) {
+                        try { appendTerminal('No tests defined in config', 'runtime') } catch (_e) { }
+                        return
+                    }
+
+                    // Define runFn that will write MAIN_FILE and call runPythonCode
+                    // use the adapter factory so tests can import it directly
+                    try {
+                        const adapterMod = await import('./js/test-runner-adapter.js')
+                        const vfs = await import('./js/vfs-client.js')
+                        const createRunFn = adapterMod && adapterMod.createRunFn ? adapterMod.createRunFn : adapterMod.default && adapterMod.default.createRunFn
+                        const getFileManager = vfs.getFileManager
+                        const MAIN_FILE = vfs.MAIN_FILE
+                        const runFn = createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig: () => (window.Config && window.Config.current) ? window.Config.current : {} })
+
+                        // Run tests using the created runFn
+                        const results = await runTests(tests, { runFn })
+                        try { appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime') } catch (_e) { }
+
+                        // Update UI with results and feed failures into Feedback
+                        try { if (typeof window.__ssg_set_test_results === 'function') window.__ssg_set_test_results(results) } catch (_e) { }
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
+                            for (const r of results) {
+                                if (!r.passed) {
+                                    try { window.Feedback.evaluateFeedbackOnRun({ stdout: r.stdout || '', stderr: r.stderr || '' }) } catch (_e) { }
+                                }
+                            }
+                        }
+                        return
+                    } catch (_e) {
+                        try { appendTerminal('Test run failed to start: ' + _e, 'runtime') } catch (_err) { }
+                        return
+                    }
+                    // Run tests and publish results
+                    const results = await runTests(tests, { runFn })
+                    try {
+                        appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime')
+                    } catch (_e) { }
+
+                    // Push results into Feedback as runMatches (create simple feedback entries per failing test)
+                    try {
+                        // Update Feedback UI test results if setter is available
+                        try { if (typeof window.__ssg_set_test_results === 'function') window.__ssg_set_test_results(results) } catch (_e) { }
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
+                            for (const r of results) {
+                                if (!r.passed) {
+                                    // Emit a feedback run evaluation with the stderr/stdout so configured patterns may match
+                                    try { window.Feedback.evaluateFeedbackOnRun({ stdout: r.stdout || '', stderr: r.stderr || '' }) } catch (_e) { }
+                                }
+                            }
+                        }
+                    } catch (_e) { }
+                } catch (_err) { }
             })
         } catch (_e) { }
 

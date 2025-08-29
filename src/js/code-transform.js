@@ -81,6 +81,7 @@ export function highlightMappedTracebackInEditor(filePath, lineNumber) {
             try {
                 requestAnimationFrame(() => {
                     try { cm.addLineClass(zeroIndexLine, 'background', 'cm-error-line') } catch (_e) { }
+                    try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
                 })
             } catch (_e) { }
         }
@@ -122,6 +123,7 @@ export function highlightFeedbackLine(filePath, lineNumber) {
             if (cm) {
                 try { cm.addLineClass(zeroIndexLine, 'background', 'cm-feedback-line') } catch (_e) { }
                 try { requestAnimationFrame(() => { try { cm.addLineClass(zeroIndexLine, 'background', 'cm-feedback-line') } catch (_e) { } }) } catch (_e) { }
+                try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
             }
         } catch (_e) { }
     } catch (_e) { }
@@ -148,6 +150,19 @@ export function clearAllFeedbackHighlights() {
     } catch (_e) { }
     window.__ssg_feedback_highlights = []
     window.__ssg_feedback_highlights_map = {}
+
+    // After removing feedback highlights, re-apply any stored error highlights
+    // so error annotations remain authoritative and visible to the user.
+    try {
+        window.__ssg_error_highlights_map = window.__ssg_error_highlights_map || {}
+        for (const fp of Object.keys(window.__ssg_error_highlights_map)) {
+            const lines = window.__ssg_error_highlights_map[fp] || []
+            for (const ln of lines) {
+                try { cm.addLineClass(ln, 'background', 'cm-error-line') } catch (_e) { }
+            }
+        }
+        try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
+    } catch (_e) { }
 }
 
 /**
