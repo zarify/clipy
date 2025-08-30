@@ -321,7 +321,7 @@ function createResultsModal() {
     modal.appendChild(box)
 
     const closeBtn = document.createElement('button')
-    closeBtn.className = 'btn'
+    closeBtn.className = 'btn modal-close-btn'
     closeBtn.textContent = 'Close'
     closeBtn.style.position = 'absolute'
     closeBtn.style.right = '12px'

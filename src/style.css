@@ -652,6 +652,14 @@ pre#terminal-output {
     margin-top: 12px
 }
 
+/* Shared class for modal Close buttons to ensure consistent styling */
+.modal-close-btn {
+    /* keep same base button appearance but allow centralized tweaks */
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+}
+
 .snapshot-item {
     display: flex;
     align-items: center;

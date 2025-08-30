@@ -29,7 +29,7 @@ import { safeSetItem, checkStorageHealth, showStorageInfo } from './storage-mana
 export function setupSnapshotSystem() {
     const saveSnapshotBtn = $('save-snapshot')
     const historyBtn = $('history')
-    const clearStorageBtn = $('clear-storage')
+    // Note: Clear storage moved into the snapshot modal (button id snapshot-clear-storage)
 
     if (saveSnapshotBtn) {
         // Wrap the save handler so we disable the button briefly and
@@ -51,9 +51,8 @@ export function setupSnapshotSystem() {
         historyBtn.addEventListener('click', openSnapshotModal)
     }
 
-    if (clearStorageBtn) {
-        clearStorageBtn.addEventListener('click', clearStorage)
-    }
+    // Defer wiring modal clear button until modal is opened; openSnapshotModal will
+    // attach behavior to the modal button. (Keep setupSnapshotSystem simple.)
 
     // Check storage health on startup
     setTimeout(() => checkStorageHealth(), 1000)
@@ -490,6 +489,29 @@ function openSnapshotModal() {
     if (closeBtn) {
         closeBtn.removeEventListener('click', closeSnapshotModal) // Remove any existing listeners
         closeBtn.addEventListener('click', closeSnapshotModal)
+    }
+
+    // Wire the Clear storage button inside the modal
+    try {
+        const modalClear = $('snapshot-clear-storage')
+        if (modalClear) {
+            // remove any previous handlers
+            try { modalClear.removeEventListener('click', onSnapshotClearClicked) } catch (_e) { }
+            modalClear.addEventListener('click', onSnapshotClearClicked)
+        }
+    } catch (_e) { }
+}
+
+async function onSnapshotClearClicked(ev) {
+    try {
+        // Close the snapshot modal first so the confirm modal can be shown cleanly
+        const modal = $('snapshot-modal')
+        try { closeModal(modal) } catch (_e) { }
+
+        // Reuse existing clearStorage flow which shows a confirm modal
+        await clearStorage()
+    } catch (e) {
+        console.error('Failed handling snapshot clear click:', e)
     }
 }
 
