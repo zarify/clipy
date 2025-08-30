@@ -608,6 +608,52 @@ async function main() {
                                     } catch (_e) { }
                                 }
                             }
+
+                            // Detect a single explicit authoring config stored in localStorage
+                            try {
+                                const AUTHOR_CONFIG_KEY = 'author_config'
+                                const rawJson = localStorage.getItem(AUTHOR_CONFIG_KEY)
+                                if (rawJson) {
+                                    try {
+                                        const raw = JSON.parse(rawJson || 'null')
+                                        const normalized = validateAndNormalizeConfig(raw)
+                                        if (normalized) {
+                                            const authorSection = document.createElement('div')
+                                            authorSection.style.marginTop = '8px'
+
+                                            const header = document.createElement('div')
+                                            header.style.fontWeight = '600'
+                                            header.style.margin = '8px 0 4px 0'
+                                            header.textContent = 'Local authoring config (from localStorage)'
+
+                                            const btn = document.createElement('button')
+                                            btn.className = 'btn'
+                                            btn.style.display = 'block'
+                                            btn.style.width = '100%'
+                                            btn.style.textAlign = 'left'
+                                            btn.textContent = `Load author config: ${normalized.title || normalized.id} ${normalized.version ? ('— v' + normalized.version) : ''}`
+                                            btn.addEventListener('click', async () => {
+                                                try {
+                                                    await applyConfigToWorkspace(normalized)
+                                                    closeModal(configModal)
+                                                } catch (e) {
+                                                    const msg = 'Failed to load local author config: ' + (e && e.message ? e.message : e)
+                                                    try { showConfigError(msg, configModal) } catch (_err) { }
+                                                }
+                                            })
+
+                                            authorSection.appendChild(header)
+                                            authorSection.appendChild(btn)
+                                            try {
+                                                listContainer.parentNode.insertBefore(authorSection, listContainer)
+                                            } catch (_e) { }
+                                        }
+                                    } catch (_e) {
+                                        // Malformed JSON or validation failed; surface a minimal inline error
+                                        try { showConfigError('Invalid local author config in localStorage', configModal) } catch (_err) { }
+                                    }
+                                }
+                            } catch (_e) { }
                         }
                     } catch (_e) { }
                 }
