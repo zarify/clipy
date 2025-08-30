@@ -52,17 +52,13 @@ test.describe('Storage Management - Quota Handling', () => {
         await page.click('#history')
         await page.waitForSelector('#snapshot-list')
 
-        // Check if storage info button exists and is visible
-        const storageInfoButton = page.locator('#storage-info')
-        await expect(storageInfoButton).toBeVisible()
+        // Check footer summary presence
+        const footer = page.locator('#snapshot-storage-summary')
+        await expect(footer).toBeVisible()
 
-        // Click storage info button
-        await storageInfoButton.click()
-
-        // Wait for terminal output to appear
-        await page.waitForTimeout(1000)
-
-        // Check terminal contains storage info
+        // Trigger storage info function to populate terminal
+        await page.evaluate(() => { try { window.showStorageInfo() } catch (e) { } })
+        await page.waitForTimeout(500)
         const terminalContent = await page.locator('#terminal-output').textContent()
         expect(terminalContent).toContain('Storage Usage:')
         expect(terminalContent).toMatch(/\d+\.\d+MB/)
@@ -226,13 +222,16 @@ test.describe('Storage Management - Cleanup Operations', () => {
         await checkboxes.nth(0).check()
         await checkboxes.nth(1).check()
 
-        // Delete selected snapshots
-        await page.click('#delete-selected')
+        // Delete one snapshot via trash button
+        const deleteButtons = page.locator('.snapshot-item button[aria-label="Delete snapshot"]')
+        await expect(deleteButtons.first()).toBeVisible()
+        const before = await page.locator('.snapshot-item').count()
+        await deleteButtons.first().click()
+        await page.waitForSelector('#confirm-modal[aria-hidden="false"]')
+        await page.click('#confirm-yes')
         await page.waitForTimeout(500)
-
-        // Check remaining snapshots
         const remainingCount = await page.locator('.snapshot-item').count()
-        expect(remainingCount).toBe(2)
+        expect(remainingCount).toBe(before - 1)
 
         // Close modal
         await page.keyboard.press('Escape')

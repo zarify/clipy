@@ -75,10 +75,10 @@ test.describe('Storage Management', () => {
             return el.innerText && !el.innerText.includes('(loading)')
         }, { timeout: 10000 })
 
-        // The storage info button is part of the snapshot modal UI; wait for it to be present
-        const storageInfoButton = page.locator('#storage-info')
-        await storageInfoButton.waitFor({ state: 'visible', timeout: 8000 })
-        await expect(storageInfoButton).toBeVisible()
+        // The snapshot footer summary should be present
+        const footer = page.locator('#snapshot-storage-summary')
+        await footer.waitFor({ state: 'visible', timeout: 8000 })
+        await expect(footer).toBeVisible()
 
         // Close modal
         await page.keyboard.press('Escape')

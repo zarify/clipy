@@ -116,15 +116,16 @@ test.describe('Storage Management - UI Integration', () => {
             return false
         }, { timeout: 8000 })
 
-        // Check that storage info button is present
-        const storageInfoBtn = page.locator('#storage-info')
-        await expect(storageInfoBtn).toBeVisible()
+        // Check footer summary is present and contains snapshot/storage info
+        const footer = page.locator('#snapshot-storage-summary')
+        await expect(footer).toBeVisible()
+        const footerText = await footer.textContent()
+        expect(footerText).toMatch(/\d+ snapshot\(s\)/i)
+        expect(footerText).toMatch(/file\(s\)/i)
 
-        // Click storage info
-        await storageInfoBtn.click()
-        await page.waitForTimeout(1000)
-
-        // Check terminal output contains storage information
+        // Also invoke the storage info function to ensure terminal output is produced
+        await page.evaluate(() => { try { window.showStorageInfo() } catch (e) { } })
+        await page.waitForTimeout(500)
         const terminalOutput = await page.locator('#terminal-output').textContent()
         expect(terminalOutput).toContain('Storage Usage:')
         expect(terminalOutput).toContain('Snapshots:')
@@ -164,17 +165,19 @@ test.describe('Storage Management - UI Integration', () => {
 
         // Check that cleanup options are available
         await expect(page.locator('#clear-storage')).toBeVisible()
-        await expect(page.locator('#delete-selected')).toBeVisible()
 
-        // Test delete selected functionality
-        const checkboxes = page.locator('.snapshot-item input[type="checkbox"]')
-        await checkboxes.first().check()
+        // There should be per-item delete buttons (trash icon)
+        const deleteButtons = page.locator('.snapshot-item button[aria-label="Delete snapshot"]')
+        await expect(deleteButtons.first()).toBeVisible()
 
-        // Delete selected button should be enabled/visible
-        await expect(page.locator('#delete-selected')).toBeVisible()
-
-        // Clear storage button should be available
-        await expect(page.locator('#clear-storage')).toBeVisible()
+        // Click first delete and confirm
+        const initialCount = await page.locator('.snapshot-item').count()
+        await deleteButtons.nth(0).click()
+        await page.waitForSelector('#confirm-modal[aria-hidden="false"]')
+        await page.click('#confirm-yes')
+        await page.waitForTimeout(300)
+        const afterCount = await page.locator('.snapshot-item').count()
+        expect(afterCount).toBe(initialCount - 1)
 
         await page.keyboard.press('Escape')
     })

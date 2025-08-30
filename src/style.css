@@ -233,6 +233,53 @@ textarea#code {
     border: 1px solid transparent
 }
 
+/* Snapshot modal: single-line snapshot items */
+.snapshot-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #f1f3f7;
+    white-space: nowrap;
+}
+
+.snapshot-item:last-child {
+    border-bottom: 0
+}
+
+.snapshot-item>div,
+.snapshot-item>button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px
+}
+
+.snapshot-item .snapshot-ts {
+    font-weight: 600;
+    margin-right: 6px
+}
+
+.snapshot-item .snapshot-meta {
+    color: #666;
+    font-size: 0.9em;
+    white-space: nowrap
+}
+
+.snapshot-item button {
+    padding: 6px 8px;
+    min-width: 36px;
+    justify-content: center
+}
+
+.snapshot-item button[aria-label="Load snapshot"] {
+    margin-right: 8px
+}
+
+.snapshot-item button[aria-label="Delete snapshot"] {
+    margin-left: 8px
+}
+
 /* Reduce editor height so page fits without scrolling by default */
 .cm-editor {
     height: 320px
@@ -342,6 +389,14 @@ pre#terminal-output {
     font-size: 0.95rem;
     white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+/* Test results modal content: limit height and allow scrolling for long result lists */
+.test-results-content {
+    max-height: 56vh;
+    /* match snapshot modal sensible max */
+    overflow: auto;
+    padding: 6px 2px;
 }
 
 .term-stdin {
@@ -541,6 +596,17 @@ pre#terminal-output {
     width: 90%
 }
 
+/* Snapshot list container: limit height and allow scrolling when many snapshots exist */
+#snapshot-list {
+    max-height: 56vh;
+    /* responsive sensible maximum */
+    overflow: auto;
+    border: 1px solid #eee;
+    padding: 6px;
+    border-radius: 6px;
+    background: #fff;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;
@@ -573,36 +639,61 @@ pre#terminal-output {
 }
 
 .snapshot-item {
-    padding: 8px;
-    border-bottom: 1px solid #eee;
     display: flex;
-    flex-direction: column;
-    gap: 4px
-}
-
-.snapshot-item-header {
-    display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+    white-space: nowrap;
 }
 
-.snapshot-item-header input {
-    margin-right: 8px;
+.snapshot-item:last-child {
+    border-bottom: 0
 }
 
-.snapshot-info {
-    font-size: 11px;
+.snapshot-ts {
+    font-weight: 600;
+    margin-right: 8px
+}
+
+.snapshot-meta {
     color: var(--text-disabled);
-    font-family: monospace;
-    background: var(--editor-bg);
-    padding: 2px 6px;
-    border-radius: 3px;
-    border: 1px solid var(--border);
+    font-size: 0.9em;
+    font-family: monospace
 }
 
-.snapshot-date {
-    font-size: 11px;
-    color: var(--text-disabled);
+/* Mid area truncation to keep single-line layout */
+.snapshot-mid {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    /* allow flex child to shrink */
+    overflow: hidden;
+}
+
+.snapshot-mid .snapshot-ts {
+    flex: 0 0 auto
+}
+
+.snapshot-mid .snapshot-meta {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+/* Keep load/delete buttons compact and fixed width to avoid layout shifts */
+.snapshot-load-btn,
+.snapshot-delete-btn {
+    flex: 0 0 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
 }
 
 /* File editor modal */

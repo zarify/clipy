@@ -3,7 +3,11 @@ export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig }
 
 // Restore from the special 'current' snapshot if it exists
 export async function restoreCurrentSnapshotIfExists() {
-    const snaps = getSnapshotsForCurrentConfig()
+    let snaps = getSnapshotsForCurrentConfig()
+    // Show most-recent snapshots first
+    try {
+        snaps = snaps.sort((a, b) => (b && b.ts || 0) - (a && a.ts || 0))
+    } catch (_e) { }
     const idx = snaps.findIndex(s => s.id === '__current__')
     if (idx !== -1) {
         // When restoring the special '__current__' snapshot on startup,
@@ -182,31 +186,90 @@ function renderSnapshots() {
     }
 
     snapshotList.innerHTML = ''
+    // Helper to compute approximate byte size of snapshot
+    function computeSnapshotSize(snap) {
+        try {
+            let total = 0
+            const files = snap.files || {}
+            for (const k of Object.keys(files)) {
+                const v = String(files[k] || '')
+                total += new TextEncoder().encode(v).length
+            }
+            return total
+        } catch (e) { return 0 }
+    }
+
+    let grandTotal = 0
     snaps.forEach((s, i) => {
         const div = document.createElement('div')
         div.className = 'snapshot-item'
+        div.style.display = 'flex'
+        div.style.alignItems = 'center'
+        div.style.justifyContent = 'space-between'
+        div.style.padding = '6px 4px'
 
-        const left = document.createElement('div')
-        left.innerHTML = `<label><input type="checkbox" data-idx="${i}"> ${new Date(s.ts).toLocaleString()}</label>`
+        // Left: load icon (accessible button)
+        const leftBtn = document.createElement('button')
+        leftBtn.className = 'btn btn-ghost snapshot-load-btn'
+        leftBtn.title = 'Load snapshot'
+        leftBtn.setAttribute('aria-label', 'Load snapshot')
+        leftBtn.innerHTML = '⤓' // load icon
+        leftBtn.addEventListener('click', () => restoreSnapshot(i, snaps))
 
-        const right = document.createElement('div')
-        const restore = document.createElement('button')
-        restore.textContent = 'Restore'
-        restore.addEventListener('click', () => restoreSnapshot(i, snaps))
-
-        // Show file count as additional info
+        // Middle: single-line info (timestamp + files + size)
         const fileCount = Object.keys(s.files || {}).length
-        const info = document.createElement('small')
-        info.textContent = ` (${fileCount} files)`
-        info.style.marginLeft = '8px'
-        info.style.color = '#666'
+        const sizeBytes = computeSnapshotSize(s)
+        grandTotal += sizeBytes
+        const sizeText = sizeBytes < 1024 ? `${sizeBytes}B` : (sizeBytes < 1024 * 1024 ? `${Math.round(sizeBytes / 1024)}KB` : `${(sizeBytes / (1024 * 1024)).toFixed(2)}MB`)
+        const mid = document.createElement('div')
+        mid.className = 'snapshot-mid'
+        mid.style.flex = '1'
+        mid.style.padding = '0 8px'
+        mid.style.display = 'flex'
+        mid.style.alignItems = 'center'
+        mid.style.justifyContent = 'flex-start'
+        mid.style.gap = '8px'
+        mid.innerHTML = `<span class="snapshot-ts">${new Date(s.ts).toLocaleString()}</span> <small class="snapshot-meta" style="color:#666">(${fileCount} file${fileCount === 1 ? '' : 's'}, ${sizeText} used)</small>`
 
-        right.appendChild(restore)
-        left.appendChild(info)
-        div.appendChild(left)
-        div.appendChild(right)
+        // Right: delete (trash) icon as accessible button
+        const delBtn = document.createElement('button')
+        delBtn.className = 'btn btn-ghost snapshot-delete-btn'
+        delBtn.title = 'Delete snapshot'
+        delBtn.setAttribute('aria-label', 'Delete snapshot')
+        delBtn.innerHTML = '🗑️'
+        delBtn.addEventListener('click', async () => {
+            const ok = await showConfirmModal('Delete snapshot', 'Delete this snapshot? This action cannot be undone.')
+            if (!ok) return
+            try {
+                const arr = getSnapshotsForCurrentConfig()
+                // Remove by matching timestamp (stable id may not exist)
+                const idxToRemove = arr.findIndex(x => x.ts === s.ts)
+                if (idxToRemove !== -1) {
+                    arr.splice(idxToRemove, 1)
+                    saveSnapshotsForCurrentConfig(arr)
+                    renderSnapshots()
+                    appendTerminal('Snapshot deleted', 'runtime')
+                }
+            } catch (e) {
+                appendTerminal('Failed to delete snapshot: ' + e, 'runtime')
+            }
+        })
+
+        div.appendChild(leftBtn)
+        div.appendChild(mid)
+        div.appendChild(delBtn)
         snapshotList.appendChild(div)
     })
+
+    // Update footer summary with grand total and number of snapshots
+    try {
+        const footer = document.getElementById('snapshot-storage-summary')
+        if (footer) {
+            const totalFiles = snaps.reduce((acc, s) => acc + Object.keys(s.files || {}).length, 0)
+            const totalText = grandTotal < 1024 ? `${grandTotal}B` : (grandTotal < 1024 * 1024 ? `${Math.round(grandTotal / 1024)}KB` : `${(grandTotal / (1024 * 1024)).toFixed(2)}MB`)
+            footer.textContent = `${snaps.length} snapshot(s), ${totalFiles} file(s), ${totalText} total`
+        }
+    } catch (_e) { }
 }
 
 async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
@@ -424,22 +487,9 @@ function openSnapshotModal() {
 
     // Setup modal controls
     const closeBtn = $('close-snapshots')
-    const deleteBtn = $('delete-selected')
-    const storageInfoBtn = $('storage-info')
-
     if (closeBtn) {
         closeBtn.removeEventListener('click', closeSnapshotModal) // Remove any existing listeners
         closeBtn.addEventListener('click', closeSnapshotModal)
-    }
-
-    if (deleteBtn) {
-        deleteBtn.removeEventListener('click', deleteSelectedSnapshots) // Remove any existing listeners
-        deleteBtn.addEventListener('click', deleteSelectedSnapshots)
-    }
-
-    if (storageInfoBtn) {
-        storageInfoBtn.removeEventListener('click', showStorageInfoInTerminal)
-        storageInfoBtn.addEventListener('click', showStorageInfoInTerminal)
     }
 }
 
@@ -453,25 +503,7 @@ function closeSnapshotModal() {
     closeModal(modal)
 }
 
-function deleteSelectedSnapshots() {
-    const snapshotList = $('snapshot-list')
-    if (!snapshotList) return
-
-    const checks = Array.from(snapshotList.querySelectorAll('input[type=checkbox]:checked'))
-    if (!checks.length) {
-        appendTerminal('No snapshots selected for deletion', 'runtime')
-        return
-    }
-
-    const idxs = checks.map(c => Number(c.getAttribute('data-idx'))).sort((a, b) => b - a)
-    const snaps = getSnapshotsForCurrentConfig()
-
-    for (const i of idxs) snaps.splice(i, 1)
-    saveSnapshotsForCurrentConfig(snaps)
-    renderSnapshots()
-
-    appendTerminal(`Deleted ${idxs.length} snapshot(s)`, 'runtime')
-}
+// Note: bulk-delete / checkbox UI removed in favor of per-item delete buttons.
 
 async function clearStorage() {
     const configIdentity = getConfigIdentity()
