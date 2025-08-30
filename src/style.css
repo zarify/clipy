@@ -24,25 +24,30 @@ header {
     padding: 12px 18px;
     display: flex;
     justify-content: space-between;
-    align-items: center
-}
 
-.config-info {
-    text-align: right;
-    line-height: 1.3;
-    font-family: monospace;
-    font-size: 11px;
-}
+    .author-tab .CodeMirror {
+        width: 100%;
+    }
 
-.config-info {
-    cursor: pointer;
-    /* indicate clickable */
-}
+    .author-tab .CodeMirror-gutters {
+        background: #f4f6fb;
+        border-right: 1px solid #e6e6e9;
+    }
 
-.config-info small {
-    display: block;
-    color: #666;
-    font-size: 0.85em
+    .author-tab .CodeMirror pre {
+        /* small left padding so code doesn't butt up against the gutter */
+        padding-left: 6px;
+        box-sizing: border-box;
+    }
+
+    /* Ensure the CodeMirror scroll area doesn't hide content behind the gutter */
+    .author-tab .CodeMirror-scroll {
+        padding-left: 6px !important;
+    }
+
+    .author-tab .CodeMirror {
+        position: relative;
+    }
 }
 
 .main-grid {
@@ -283,6 +288,34 @@ textarea#code {
 /* Reduce editor height so page fits without scrolling by default */
 .cm-editor {
     height: 320px
+}
+
+/* CodeMirror gutter and content padding fixes so line numbers don't overlap code.
+   Scoped to the authoring page to avoid changing editor styles elsewhere. */
+.author-tab .CodeMirror {
+    border: 1px solid #e6e6e9;
+    border-radius: 4px;
+    box-sizing: border-box;
+    min-height: 320px;
+}
+
+.author-tab .CodeMirror-gutters {
+    background: #f4f6fb;
+    border-right: 1px solid #e6e6e9;
+    box-sizing: border-box;
+}
+
+.author-tab .CodeMirror-gutters .CodeMirror-gutter {
+    /* let the gutter size itself but ensure a reasonable minimum */
+    min-width: 3.2em;
+    padding: 4px 6px;
+}
+
+/* Do not force heavy padding on CodeMirror internals — let the editor
+   handle layout. Provide a small scroll container padding so text doesn't
+   touch the right edge. */
+.author-tab .CodeMirror-scroll {
+    padding-right: 8px !important;
 }
 
 /* Error highlight for CodeMirror (marked by addLineClass 'cm-error-line') */
@@ -744,4 +777,38 @@ pre#terminal-output {
 
 .file-actions button {
     margin-left: 8px
+}
+
+/* Authoring page overrides: ensure the authoring tab strip and panels
+   occupy the full width and are not affected by the site's column grid. */
+.author-tabs {
+    width: 100%;
+}
+
+.author-tabs>div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.author-tab {
+    width: 100%;
+    margin-top: 12px;
+}
+
+/* Visual active state for author tab buttons */
+.tab-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+/* Author tab visibility: hide panels by default and show when active
+   JS will toggle the "active" class on the visible panel. This avoids
+   fighting inline styles and keeps the behavior deterministic. */
+.author-tab {
+    display: none;
+}
+
+.author-tab.active {
+    display: block;
 }
