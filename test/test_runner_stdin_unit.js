@@ -19,7 +19,16 @@ async function run() {
         const outEl = document.getElementById('terminal-output')
         if (!outEl) throw new Error('terminal-output missing')
 
-        const numInputs = (code.match(/input\(/g) || []).length
+        // Heuristic: if the code has a for-loop like `for i in range(N):` and
+        // an input() inside the loop, simulate N prompts. Otherwise count
+        // literal occurrences of input() in the source.
+        let numInputs = 0
+        const loopMatch = code.match(/for\s+\w+\s+in\s+range\((\d+)\)/)
+        if (loopMatch && /input\(/.test(code)) {
+            numInputs = parseInt(loopMatch[1], 10)
+        } else {
+            numInputs = (code.match(/input\(/g) || []).length
+        }
         const answers = []
 
         // Ensure a place to record prompts for optional assertion
@@ -96,6 +105,21 @@ async function run() {
     // The runPythonCode recorded promptText values in global.__ssg_seen_prompts
     assert(Array.isArray(global.__ssg_seen_prompts))
     assert(global.__ssg_seen_prompts.length >= 1)
+
+    // 5) Guard: multiple consecutive inputs (10 iterations) should be fed correctly
+    const inputs = []
+    for (let i = 0; i < 10; i++) inputs.push('w' + i)
+    const t4 = { id: 's4', main: 'for i in range(10):\n    word = input()\n    print(word)', stdin: inputs }
+    const r4 = await runFn(t4)
+    console.log('DEBUG run result r4:', JSON.stringify(r4))
+    const out4 = (outEl && outEl.textContent) ? String(outEl.textContent) : ''
+    // The fake runtime prints answers.join('\n'), so expect joined inputs
+    assert(r4 && typeof r4.stdout === 'string')
+    const gotLines = r4.stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    assert(gotLines.length === 10, 'expected 10 output lines')
+    for (let i = 0; i < 10; i++) {
+        assert(gotLines[i] === ('w' + i), `expected line ${i} to be w${i} but got ${gotLines[i]}`)
+    }
 
     console.log('OK')
 }

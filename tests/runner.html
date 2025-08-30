@@ -8,7 +8,18 @@
 </head>
 
 <body>
-    <script type="module" src="/tests/runner.js"></script>
+    <script type="module">
+        (async () => {
+            try {
+                await import('/tests/runner.js')
+                try { window.__runner_loaded = true } catch (_e) { }
+            } catch (err) {
+                try { window.__runner_error = String(err) } catch (_e) { }
+                try { window.__runner_loaded = false } catch (_e) { }
+                try { console.error('runner import failed', err) } catch (_e) { }
+            }
+        })()
+    </script>
 </body>
 
 </html>
