@@ -6,6 +6,70 @@ export const configUrl = '/config/sample.json'
 
 let config = null
 
+// Optional discovery list (a JSON file listing available config filenames)
+export const configIndexUrl = '/config/index.json'
+
+// Fetch list of available config files from server (index.json expected)
+export async function fetchAvailableServerConfigs() {
+    try {
+        const res = await fetch(configIndexUrl)
+        if (!res.ok) throw new Error('Not found')
+        const list = await res.json()
+        if (!Array.isArray(list)) return []
+        return list
+    } catch (e) {
+        // Fallback: attempt to read a hard-coded sample.json only
+        try {
+            const res = await fetch('/config/sample.json')
+            if (!res.ok) throw e
+            return ['sample.json']
+        } catch (_e) { return [] }
+    }
+}
+
+// Load a config by a user-supplied URL or filename. If `input` looks like a full URL,
+// fetch it directly; otherwise treat it as a filename under /config/.
+export async function loadConfigFromStringOrUrl(input) {
+    if (!input) throw new Error('No input')
+    const trimmed = String(input).trim()
+    let urlToLoad = trimmed
+    try {
+        // If it appears to be a plain filename without protocol, load from /config/
+        if (!/^https?:\/\//i.test(trimmed)) {
+            urlToLoad = '/config/' + encodeURIComponent(trimmed)
+        }
+        const res = await fetch(urlToLoad)
+        if (!res.ok) throw new Error('Failed to fetch: ' + res.status + ' ' + res.statusText)
+        let raw
+        try {
+            raw = await res.json()
+        } catch (e) {
+            throw new Error('Failed to parse JSON from ' + urlToLoad + ': ' + e.message)
+        }
+        const normalized = validateAndNormalizeConfigInternal(raw)
+        config = normalized
+        try { if (typeof window !== 'undefined') window.Config = window.Config || {}; window.Config.current = config } catch (_e) { }
+        return normalized
+    } catch (e) {
+        // Enhance common cross-origin/fetch errors with a hint
+        if (e instanceof TypeError && /failed to fetch/i.test(String(e.message))) {
+            throw new Error('Network error when fetching ' + urlToLoad + '. This may be a CORS or network issue. Original: ' + e.message)
+        }
+        throw e
+    }
+}
+
+// Load a config from a File object (FileList[0] from an <input type=file>)
+export async function loadConfigFromFile(file) {
+    if (!file) throw new Error('No file')
+    const text = await file.text()
+    const raw = JSON.parse(text)
+    const normalized = validateAndNormalizeConfigInternal(raw)
+    config = normalized
+    try { if (typeof window !== 'undefined') window.Config = window.Config || {}; window.Config.current = config } catch (_e) { }
+    return normalized
+}
+
 export async function loadConfig() {
     if (config) return config
 
@@ -141,6 +205,12 @@ export function initializeInstructions(cfg) {
         const identity = getConfigIdentity()
         const title = cfg?.title || 'Python Playground'
         configTitleLine.textContent = `${title} (${identity})`
+        // Make the header config display discoverable and interactive
+        try {
+            configTitleLine.setAttribute('role', 'button')
+            configTitleLine.setAttribute('tabindex', '0')
+            configTitleLine.setAttribute('title', 'Click to open configuration')
+        } catch (_e) { }
     }
 
     // Also set individual components for backwards compatibility

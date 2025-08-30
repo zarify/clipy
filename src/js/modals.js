@@ -10,6 +10,7 @@ function _getFocusable(container) {
 // Open modal with accessibility features
 export function openModal(modal) {
     try {
+        console.debug && console.debug('[modals] openModal', modal && modal.id)
         if (!modal) return
 
         // Record previously focused element for restore
@@ -58,6 +59,7 @@ export function openModal(modal) {
 // Close modal and restore focus
 export function closeModal(modal) {
     try {
+        console.debug && console.debug('[modals] closeModal', modal && modal.id)
         if (!modal) return
 
         modal.setAttribute('aria-hidden', 'true')

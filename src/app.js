@@ -2,8 +2,10 @@
 // This replaces the monolithic main.js with organized, maintainable modules
 
 // Core utilities and configuration
-import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig } from './js/config.js'
+import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile } from './js/config.js'
 import { $ } from './js/utils.js'
+
+import { openModal, closeModal } from './js/modals.js'
 
 // Terminal and UI
 import { initializeTerminal, setupSideTabs, setupClearTerminalButton } from './js/terminal.js'
@@ -338,7 +340,7 @@ async function main() {
                             const MAIN_FILE = vfs.MAIN_FILE
                             const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
                             if (FileManager) {
-                                // Delete all files except MAIN_FILE, then write MAIN_FILE and any extra files specified by config
+                                // Delete all files except MAIN_FILE
                                 try {
                                     const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
                                     for (const p of existing) {
@@ -349,14 +351,13 @@ async function main() {
                                     }
                                 } catch (_e) { }
 
-                                // Write MAIN_FILE from config.starter
+                                // Write MAIN_FILE and extra files
                                 try {
                                     if (typeof FileManager.write === 'function') {
                                         await FileManager.write(MAIN_FILE, newCfg?.starter || '')
                                     }
                                 } catch (_e) { }
 
-                                // If the config supplies extra files (config.files as map), write them
                                 try {
                                     if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
                                         for (const [p, content] of Object.entries(newCfg.files)) {
@@ -427,6 +428,203 @@ async function main() {
                 await runPythonCode(code, cfg)
             })
         }
+
+        // Top-level helper: apply a loaded/normalized config to the workspace (rewrite FS & refresh UI)
+        async function applyConfigToWorkspace(newCfg) {
+            try {
+                const vfs = await import('./js/vfs-client.js')
+                const getFileManager = vfs.getFileManager
+                const MAIN_FILE = vfs.MAIN_FILE
+                const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                if (FileManager) {
+                    // Delete all files except MAIN_FILE
+                    try {
+                        const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                        for (const p of existing) {
+                            try {
+                                if (p === MAIN_FILE) continue
+                                if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
+
+                    // Write MAIN_FILE and extra files
+                    try {
+                        if (typeof FileManager.write === 'function') {
+                            await FileManager.write(MAIN_FILE, newCfg?.starter || '')
+                        }
+                    } catch (_e) { }
+
+                    try {
+                        if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                            for (const [p, content] of Object.entries(newCfg.files)) {
+                                try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                            }
+                        }
+                    } catch (_e) { }
+                }
+
+                // Refresh tabs/editor
+                try { if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') await window.TabManager.syncWithFileManager() } catch (_e) { }
+                try { if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') window.TabManager.refreshOpenTabContents() } catch (_e) { }
+
+                // Update global config reference and UI
+                try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
+                try { initializeInstructions(newCfg) } catch (_e) { }
+                try { appendTerminal('Workspace configured: ' + (newCfg && newCfg.title ? newCfg.title : 'loaded'), 'runtime') } catch (_e) { }
+            } catch (e) {
+                try { appendTerminal('Failed to apply configuration: ' + e, 'runtime') } catch (_e) { }
+            }
+        }
+
+        // Wire config modal UI (open on header click, server list population, URL load, file upload/drop)
+        try {
+            const configInfoEl = document.querySelector('.config-info') || document.querySelector('.config-title-line')
+            const configModal = document.getElementById('config-modal')
+            if (configInfoEl && configModal) {
+                // Click and keyboard handler to open modal
+                const openHandler = async (ev) => {
+                    try {
+                        console.debug('[app] config header activated', ev && ev.type)
+                        openModal(configModal)
+                        // Verify the modal became visible; if not, force it and log
+                        try {
+                            const vis = configModal.getAttribute && configModal.getAttribute('aria-hidden')
+                            console.debug && console.debug('[app] configModal aria-hidden after open:', vis)
+                            if (vis !== 'false') {
+                                console.debug && console.debug('[app] forcing modal visible')
+                                configModal.setAttribute('aria-hidden', 'false')
+                            }
+                        } catch (_e) { }
+
+                        // Populate server list
+                        const listContainer = document.getElementById('config-server-list')
+                        if (listContainer) {
+                            listContainer.textContent = 'Loading...'
+                            const items = await fetchAvailableServerConfigs()
+                            listContainer.innerHTML = ''
+                            // error area
+                            let errorEl = document.getElementById('config-server-error')
+                            if (!errorEl) {
+                                errorEl = document.createElement('div')
+                                errorEl.id = 'config-server-error'
+                                errorEl.style.color = 'var(--text-error, #b00020)'
+                                errorEl.style.fontSize = '0.9em'
+                                errorEl.style.marginTop = '6px'
+                                listContainer.parentNode.insertBefore(errorEl, listContainer.nextSibling)
+                            }
+                            errorEl.textContent = ''
+                            if (!items || !items.length) {
+                                listContainer.textContent = '(no configs available)'
+                            } else {
+                                for (const name of items) {
+                                    try {
+                                        // Try to fetch the config metadata (title/version) for a nicer display.
+                                        let meta = null
+                                        try {
+                                            const url = /^https?:\/\//i.test(name) ? name : '/config/' + encodeURIComponent(name)
+                                            const r = await fetch(url)
+                                            if (r && r.ok) {
+                                                try { meta = await r.json() } catch (_e) { meta = null }
+                                            }
+                                        } catch (_e) { meta = null }
+
+                                        const displayTitle = (meta && meta.title) ? meta.title : name
+                                        const versionText = (meta && meta.version) ? ('v' + meta.version) : ''
+                                        const label = versionText ? `${displayTitle} — ${versionText}` : displayTitle
+
+                                        const btn = document.createElement('button')
+                                        btn.className = 'btn'
+                                        btn.style.display = 'block'
+                                        btn.style.width = '100%'
+                                        btn.style.textAlign = 'left'
+                                        btn.textContent = label
+                                        // keep original filename/identifier available for click handler
+                                        btn.dataset.configSource = name
+                                        btn.addEventListener('click', async () => {
+                                            try {
+                                                const source = btn.dataset.configSource || name
+                                                const normalized = await loadConfigFromStringOrUrl(source)
+                                                await applyConfigToWorkspace(normalized)
+                                                closeModal(configModal)
+                                            } catch (e) {
+                                                // keep modal open and show inline error (use enhanced error message from config.js)
+                                                try {
+                                                    if (errorEl) errorEl.textContent = 'Failed to load config: ' + (e && e.message ? e.message : e)
+                                                    console.error('Failed to load config', e)
+                                                } catch (_err) { }
+                                            }
+                                        })
+                                        listContainer.appendChild(btn)
+                                    } catch (_e) { }
+                                }
+                            }
+                        }
+                    } catch (_e) { }
+                }
+                // attach activation handlers
+                configInfoEl.addEventListener('click', openHandler)
+                configInfoEl.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openHandler(ev) }
+                })
+            }
+
+            // URL load button
+            const urlBtn = document.getElementById('config-load-url')
+            if (urlBtn) {
+                urlBtn.addEventListener('click', async () => {
+                    try {
+                        const input = document.getElementById('config-url-input')
+                        const val = input ? input.value : ''
+                        if (!val) return
+                        const normalized = await loadConfigFromStringOrUrl(val)
+                        await applyConfigToWorkspace(normalized)
+                        if (configModal) closeModal(configModal)
+                    } catch (e) {
+                        try { appendTerminal('Failed to load config from URL: ' + e, 'runtime') } catch (_e) { }
+                    }
+                })
+            }
+
+            // File picker and drop area
+            const filePickerBtn = document.getElementById('config-file-picker')
+            const fileInput = document.getElementById('config-file-input')
+            const dropArea = document.getElementById('config-drop-area')
+            if (filePickerBtn && fileInput) {
+                filePickerBtn.addEventListener('click', () => { try { fileInput.click() } catch (_e) { } })
+                fileInput.addEventListener('change', async (ev) => {
+                    try {
+                        const f = ev && ev.target && ev.target.files ? ev.target.files[0] : null
+                        if (!f) return
+                        const normalized = await loadConfigFromFile(f)
+                        await applyConfigToWorkspace(normalized)
+                        if (configModal) closeModal(configModal)
+                    } catch (e) {
+                        try { appendTerminal('Failed to load config file: ' + e, 'runtime') } catch (_e) { }
+                    }
+                })
+            }
+
+            if (dropArea) {
+                dropArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' })
+                dropArea.addEventListener('drop', async (e) => {
+                    e.preventDefault()
+                    try {
+                        const f = e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files[0] : null
+                        if (!f) return
+                        const normalized = await loadConfigFromFile(f)
+                        await applyConfigToWorkspace(normalized)
+                        if (configModal) closeModal(configModal)
+                    } catch (err) {
+                        try { appendTerminal('Failed to load dropped config: ' + err, 'runtime') } catch (_e) { }
+                    }
+                })
+            }
+
+            // Close button
+            const configClose = document.getElementById('config-close')
+            if (configClose && configModal) configClose.addEventListener('click', () => { try { closeModal(configModal) } catch (_e) { } })
+        } catch (_e) { }
 
         console.log('✅ Clipy application initialized successfully')
         // Clear startup suppression so user actions can switch to terminal normally

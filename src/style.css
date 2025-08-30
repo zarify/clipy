@@ -34,6 +34,11 @@ header {
     font-size: 11px;
 }
 
+.config-info {
+    cursor: pointer;
+    /* indicate clickable */
+}
+
 .config-info small {
     display: block;
     color: #666;

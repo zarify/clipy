@@ -141,6 +141,39 @@
       </div>
     </div>
   </div>
+
+  <!-- Configuration modal -->
+  <div id="config-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="config-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="config-modal-title">Load Configuration</h3>
+      </div>
+      <div style="margin-bottom:8px">
+        <strong>Available configs on server</strong>
+        <div id="config-server-list"
+          style="max-height:200px;overflow:auto;border:1px solid #eee;padding:8px;margin-top:6px">(loading...)</div>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <strong>Load from URL or filename</strong>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <input id="config-url-input" placeholder="config filename or full URL" style="flex:1" />
+          <button id="config-load-url" class="btn">Load</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <strong>Upload a config file</strong>
+        <div id="config-drop-area" style="border:1px dashed #ccc;padding:12px;text-align:center;margin-top:6px">Drop a
+          JSON file here or <button id="config-file-picker" class="btn">Choose file</button></div>
+        <input id="config-file-input" type="file" accept="application/json" style="display:none" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="config-close">Close</button>
+      </div>
+    </div>
+  </div>
   <!-- Input modal for accessible prompt replacements -->
   <div id="input-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="input-modal-title"
     aria-describedby="input-modal-desc">
