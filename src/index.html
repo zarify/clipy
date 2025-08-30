@@ -103,6 +103,11 @@
               <span class="icon" aria-hidden="true">🕘</span>
               <span>History</span>
             </button>
+            <!-- Global clear storage button kept for test compatibility and quick access -->
+            <button id="clear-storage" class="btn btn-danger" title="Clear storage">
+              <span class="icon" aria-hidden="true">🧺</span>
+              <span>Clear storage</span>
+            </button>
           </div>
         </div>
 
@@ -126,9 +131,7 @@
         <div id="snapshot-storage-summary">(calculating storage...)</div>
       </div>
       <div class="modal-actions" style="justify-content:space-between;align-items:center">
-        <div>
-          <button id="snapshot-clear-storage" class="btn btn-danger">Clear storage</button>
-        </div>
+        <div class="snapshot-clear-placeholder"></div>
         <div>
           <button id="close-snapshots" class="btn modal-close-btn">Close</button>
         </div>

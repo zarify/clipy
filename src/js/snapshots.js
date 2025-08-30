@@ -53,6 +53,27 @@ export function setupSnapshotSystem() {
 
     // Defer wiring modal clear button until modal is opened; openSnapshotModal will
     // attach behavior to the modal button. (Keep setupSnapshotSystem simple.)
+    // Also attach a default handler for the global clear-storage button so tests and
+    // users can click it without opening the snapshot modal first.
+    try {
+        const globalClear = $('clear-storage')
+        if (globalClear) {
+            try { globalClear.removeEventListener('click', clearStorage) } catch (_e) { }
+            globalClear.addEventListener('click', async (ev) => {
+                // If snapshot modal is open, prefer the modal flow which will close it
+                // and present the confirm dialog consistently. Otherwise directly call clearStorage.
+                const modal = $('snapshot-modal')
+                if (modal && modal.getAttribute('aria-hidden') === 'false') {
+                    try {
+                        // Delegate to the modal-specific handler which ensures modal closes first
+                        await onSnapshotClearClicked(ev)
+                        return
+                    } catch (_e) { }
+                }
+                await clearStorage()
+            })
+        }
+    } catch (_e) { }
 
     // Check storage health on startup
     setTimeout(() => checkStorageHealth(), 1000)
@@ -493,11 +514,12 @@ function openSnapshotModal() {
 
     // Wire the Clear storage button inside the modal
     try {
-        const modalClear = $('snapshot-clear-storage')
-        if (modalClear) {
-            // remove any previous handlers
-            try { modalClear.removeEventListener('click', onSnapshotClearClicked) } catch (_e) { }
-            modalClear.addEventListener('click', onSnapshotClearClicked)
+        // Attach click handler to the global #clear-storage button while modal is open.
+        // We avoid moving the DOM node to prevent layout/visibility glitches.
+        const clearBtn = $('clear-storage')
+        if (clearBtn) {
+            try { clearBtn.removeEventListener('click', onSnapshotClearClicked) } catch (_e) { }
+            clearBtn.addEventListener('click', onSnapshotClearClicked)
         }
     } catch (_e) { }
 }
