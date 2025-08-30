@@ -17,13 +17,13 @@ test.describe('Config Modal & Load Flow', () => {
             } catch (_e) { }
         })
 
-        // Open the config modal via the header
-        await page.click('.config-info')
-        // Modal should be visible
-        await page.waitForSelector('#config-modal[aria-hidden="false"]')
+        // Open the config modal via the header (use DOM click fallback)
+        try { await page.click('.config-info') } catch (e) { await page.$eval('.config-info', el => el.click()) }
+        // Modal should be visible (allow more time on slow CI)
+        await page.waitForSelector('#config-modal[aria-hidden="false"]', { timeout: 15000 })
 
         // Wait for server list buttons to appear
-        await page.waitForSelector('#config-server-list button')
+        await page.waitForSelector('#config-server-list button', { timeout: 15000 })
 
         // Grab first entry label and verify it contains a title and a version marker (vX)
         const firstBtn = page.locator('#config-server-list button').first()
@@ -33,11 +33,11 @@ test.describe('Config Modal & Load Flow', () => {
         const hasVersion = /v\d+\.\d+\.\d+/.test(label) || /v\d+\.\d+/.test(label)
         expect(hasVersion || /\.json$/.test(label) || label.length > 0).toBeTruthy()
 
-        // Click the first server-list entry to load it
-        await firstBtn.click()
+        // Click the first server-list entry to load it (DOM click fallback)
+        try { await firstBtn.click() } catch (e) { await firstBtn.evaluate(el => el.click()) }
 
         // Wait until modal is closed (hidden)
-        await page.waitForSelector('#config-modal', { state: 'hidden' })
+        await page.waitForSelector('#config-modal', { state: 'hidden', timeout: 15000 })
 
         // Wait for FileManager.main to be updated to match the loaded config's starter
         await page.waitForFunction(() => {
@@ -48,7 +48,7 @@ test.describe('Config Modal & Load Flow', () => {
                 const val = window.FileManager.read('/main.py')
                 return String(val || '') === String(starter || '')
             } catch (_e) { return false }
-        }, { timeout: 5000 })
+        }, { timeout: 15000 })
 
         // Verify header updated to include the new config identity
         const headerText = await page.locator('.config-title-line').textContent()

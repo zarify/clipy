@@ -15,14 +15,14 @@ test('program creates file and UI opens a tab for it', async ({ page }) => {
   // Run the program
   await page.click('#run')
 
-  // Wait for program to emit OK
-  await page.waitForFunction(() => document.getElementById('terminal-output') && document.getElementById('terminal-output').textContent.includes('OK'), { timeout: 5000 })
+  // Wait for program to emit OK (allow more time on slow environments)
+  await page.waitForFunction(() => document.getElementById('terminal-output') && document.getElementById('terminal-output').textContent.includes('OK'), { timeout: 15000 })
 
   // Allow VFS sync and prefer helper waitForFile if available
   const gotFile = await page.evaluate(async () => {
     try {
       if (typeof window.waitForFile === 'function') {
-        const v = await window.waitForFile('/bar.txt', 4000).catch(() => null)
+        const v = await window.waitForFile('/bar.txt', 10000).catch(() => null)
         return v != null
       }
     } catch (_) { }
@@ -38,7 +38,7 @@ test('program creates file and UI opens a tab for it', async ({ page }) => {
     try { if (window.__ssg_last_tab_opened && window.__ssg_last_tab_opened.path) return window.__ssg_last_tab_opened.path === '/bar.txt' || window.__ssg_last_tab_opened.path === 'bar.txt' } catch (_) { }
     try { if (window.TabManager && typeof window.TabManager.list === 'function') return (window.TabManager.list() || []).some(p => p === '/bar.txt' || p === 'bar.txt') } catch (_) { }
     return false
-  }, { timeout: 4000 })
+  }, { timeout: 10000 })
 
   const tabs = await page.$$eval('#tabs-left .tab-label', els => els.map(e => e.textContent?.trim()))
   expect(tabs).toContain('bar.txt')

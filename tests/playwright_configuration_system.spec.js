@@ -182,7 +182,7 @@ test.describe('Configuration-Specific Snapshot Isolation', () => {
         await page.waitForSelector('#snapshot-list')
 
         // Check that modal shows configuration context
-        const modalHeader = await page.locator('.modal-header')
+        const modalHeader = await page.locator('#snapshot-modal .modal-header')
         await expect(modalHeader).toBeVisible()
 
         // Verify snapshot items show config-specific information
@@ -341,7 +341,7 @@ test.describe('Configuration UI Components', () => {
         await page.waitForSelector('.modal[aria-hidden="false"]')
 
         // Check modal header exists
-        const modalHeader = page.locator('.modal-header')
+        const modalHeader = page.locator('#snapshot-modal .modal-header')
         await expect(modalHeader).toBeVisible()
 
         // Check modal content styling

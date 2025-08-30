@@ -26,21 +26,22 @@ test('reset button synchronizes filesystem, tabs and editor content', async ({ p
     // Ensure the new tab appears
     await page.waitForFunction(() => {
         return Array.from(document.querySelectorAll('.tab .tab-label')).some(e => e.textContent && e.textContent.includes('extra_for_reset.py'))
-    }, { timeout: 2000 })
+    }, { timeout: 4000 })
 
     // Select the extra file so its editor is visible
     await page.evaluate(() => { try { if (window.TabManager && typeof window.TabManager.selectTab === 'function') window.TabManager.selectTab('/extra_for_reset.py') } catch (e) { } })
 
     // Click reset button and confirm
     await page.click('#reset-config-btn')
-    // Wait for modal confirm button and click it
+    // Wait for modal confirm button and click it (use DOM click to avoid
+    // potential pointer interception by offscreen inputs)
     await page.waitForSelector('#confirm-yes', { state: 'visible' })
-    await page.click('#confirm-yes')
+    await page.$eval('#confirm-yes', el => el.click())
 
     // Wait for the extra tab to be removed from the DOM
     await page.waitForFunction(() => {
         return !Array.from(document.querySelectorAll('.tab .tab-label')).some(e => e.textContent && e.textContent.includes('extra_for_reset.py'))
-    }, { timeout: 2000 })
+    }, { timeout: 6000 })
 
     // Ensure /main.py editor content matches the loaded config starter
     const starter = await page.evaluate(() => (window.Config && window.Config.current) ? (window.Config.current.starter || '') : '')

@@ -217,15 +217,11 @@ test.describe('Storage Management - Cleanup Operations', () => {
         const initialCount = await page.locator('.snapshot-item').count()
         expect(initialCount).toBe(4)
 
-        // Select first two snapshots for deletion
-        const checkboxes = page.locator('.snapshot-item input[type="checkbox"]')
-        await checkboxes.nth(0).check()
-        await checkboxes.nth(1).check()
-
-        // Delete one snapshot via trash button
+        // Use per-item delete button to remove a snapshot
         const deleteButtons = page.locator('.snapshot-item button[aria-label="Delete snapshot"]')
         await expect(deleteButtons.first()).toBeVisible()
         const before = await page.locator('.snapshot-item').count()
+        // Click first delete button and confirm
         await deleteButtons.first().click()
         await page.waitForSelector('#confirm-modal[aria-hidden="false"]')
         await page.click('#confirm-yes')

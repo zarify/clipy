@@ -53,7 +53,8 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   // Restore snapshot A (first saved)
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
-  await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[0]) btns[0].click() })
+  // Click the first snapshot's load button (newest-first ordering)
+  await page.evaluate(() => { const item = document.querySelectorAll('#snapshot-list .snapshot-item')[0]; if (item) { const btn = item.querySelector('button[aria-label="Load snapshot"]'); if (btn) btn.click() } })
   await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
 
   // Assert file exists and has content 'from-A'
@@ -71,7 +72,8 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   // Restore snapshot B (second saved)
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
-  await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[1]) btns[1].click() })
+  // Click the second snapshot's load button (older snapshot)
+  await page.evaluate(() => { const item = document.querySelectorAll('#snapshot-list .snapshot-item')[1]; if (item) { const btn = item.querySelector('button[aria-label="Load snapshot"]'); if (btn) btn.click() } })
   await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
 
   // Assert file is absent
@@ -86,7 +88,8 @@ test('snapshot isolation: files from one snapshot do not persist into another', 
   // Restore snapshot A again
   await page.click('#history')
   await page.waitForSelector('#snapshot-list')
-  await page.evaluate(() => { const btns = Array.from(document.querySelectorAll('#snapshot-list .snapshot-item button')); if (btns && btns[0]) btns[0].click() })
+  // Click the first snapshot's load button again
+  await page.evaluate(() => { const item = document.querySelectorAll('#snapshot-list .snapshot-item')[0]; if (item) { const btn = item.querySelector('button[aria-label="Load snapshot"]'); if (btn) btn.click() } })
   await page.waitForFunction(() => Boolean(window.__ssg_last_snapshot_restore), { timeout: 2000 })
 
   const valA2 = await page.evaluate(async () => {

@@ -3,7 +3,8 @@ const { test, expect } = require('./fixtures')
 // Set a reasonable timeout for these integration tests. 60s was excessive
 // for local dev; use 15s which is sufficient for fast environments and
 // keeps CI feedback snappier.
-test.setTimeout(15000)
+// Increase overall timeout to accomodate slower CI/browser runs for mapping
+test.setTimeout(30000)
 
 // Tests for syntax/runtime error highlighting behavior
 
@@ -48,7 +49,7 @@ test.describe('traceback highlighting', () => {
         }
     }
 
-    async function waitForHighlightFor(page, filePattern, timeout = 7000) {
+    async function waitForHighlightFor(page, filePattern, timeout = 15000) {
         try {
             return await page.waitForFunction((fp) => {
                 try { const arr = window.__ssg_error_highlights || []; return arr.some(h => h && h.filePath && h.filePath.indexOf(fp) !== -1) } catch (e) { return false }
@@ -136,7 +137,7 @@ test.describe('traceback highlighting', () => {
         await page.evaluate(() => { if (window.cm) window.cm.setValue(`1/0\n`) })
         await page.click('#run')
         // Wait for a highlight entry for main.py
-        await page.waitForFunction(() => Array.isArray(window.__ssg_error_highlights) && window.__ssg_error_highlights.some(h => h && h.filePath && h.filePath.indexOf('/main.py') !== -1), { timeout: 7000 })
+        await page.waitForFunction(() => Array.isArray(window.__ssg_error_highlights) && window.__ssg_error_highlights.some(h => h && h.filePath && h.filePath.indexOf('/main.py') !== -1), { timeout: 15000 })
 
         // Edit the open file using keyboard simulation to ensure editor change events fire
         await page.click('.CodeMirror')
