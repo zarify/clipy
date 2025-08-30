@@ -98,7 +98,7 @@ while True:
     });
 
     test('should interrupt tight computation loops', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
 
         // Set infinite computation code
@@ -133,7 +133,7 @@ while True:
     });
 
     test('should handle mixed computation and sleep loops', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 
@@ -168,7 +168,7 @@ while True:
     });
 
     test('should recover cleanly after interrupt', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 
@@ -205,7 +205,7 @@ print("Recovery successful!")
     });
 
     test('should not cause "async operation in flight" errors', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 
@@ -241,7 +241,7 @@ while True:
     });
 
     test('should maintain browser responsiveness during execution', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 
@@ -309,7 +309,7 @@ while True:
     });
 
     test('should interrupt nested function calls with sleep', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 

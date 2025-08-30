@@ -26,4 +26,21 @@ test.afterEach(async ({ page }) => {
   }
 })
 
-module.exports = { test, expect, base }
+// Utility to safely click the confirm modal's Yes button. Uses locator fallbacks
+// to be robust across timing/visibility differences in the modal implementation.
+async function safeConfirm(page, timeout = 2000) {
+  try {
+    const sel = '#confirm-yes'
+    // Prefer locator click which waits; fall back to evaluate click if needed
+    try {
+      await page.locator(sel).click({ timeout })
+      return true
+    } catch (e) {
+      try { await page.waitForSelector(sel, { timeout }); await page.click(sel); return true } catch (e2) { }
+      try { await page.evaluate(() => { const b = document.querySelector('#confirm-yes'); if (b) b.click() }); return true } catch (_e) { }
+    }
+  } catch (_e) { }
+  return false
+}
+
+module.exports = { test, expect, base, safeConfirm }

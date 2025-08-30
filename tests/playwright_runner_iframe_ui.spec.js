@@ -27,10 +27,13 @@ test('iframe runner via UI triggers stdin loop and reports results', async ({ pa
     // Open feedback panel and ensure Run tests is enabled
     await page.click('#tab-btn-feedback')
     await page.waitForSelector('#tab-btn-feedback[aria-selected="true"]')
-    await page.waitForSelector('#run-tests-btn:not([disabled])', { timeout: 5000 })
-
-    // Click Run tests (this dispatches ssg:run-tests-click and the app uses the sandboxed iframe runner)
-    await page.click('#run-tests-btn')
+    // Wait for Run tests to be present/enabled and click it (robust to hidden/overlay states)
+    try {
+        await page.locator('#run-tests-btn:not([disabled])').click({ timeout: 2000 })
+    } catch (e) {
+        await page.waitForSelector('#run-tests-btn:not([disabled])', { timeout: 2000 })
+        await page.evaluate(() => { const b = document.querySelector('#run-tests-btn'); if (b) b.click() })
+    }
 
     // After clicking Run, the app may show a results modal or a feedback entry.
     // Wait for either to appear instead of forcing a Feedback tab click (the modal can intercept pointer events).

@@ -29,6 +29,11 @@ test('file access: opening and reading foo.txt from main.py', async ({ page }) =
     try { if (window.__ssg_vfs_backend && typeof window.__ssg_vfs_backend.mountToEmscripten === 'function' && window.__ssg_runtime_fs) await window.__ssg_vfs_backend.mountToEmscripten(window.__ssg_runtime_fs) } catch (e) { }
   })
 
+  // Wait until the runtime-visible FS contains /foo.txt to avoid racy mounts
+  try {
+    await page.evaluate(() => window.waitForFile && window.waitForFile('/foo.txt', 3000))
+  } catch (e) { /* best-effort */ }
+
   // Write main.py to open and print the file contents
   const userCode = 'with open("foo.txt") as f:\n    data = f.read()\n    print(f"File contents: {data}")'
   await page.evaluate((code) => {

@@ -13,7 +13,7 @@ test.describe('MicroPython Yielding Behavior Tests', () => {
     });
 
     test('should yield properly during time.sleep() calls', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const codeTextarea = page.locator('#code');
 
         await codeTextarea.fill(`
@@ -42,7 +42,7 @@ print("Yielding test complete!")
     });
 
     test('should maintain UI responsiveness during yielding', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code');
 
@@ -83,7 +83,7 @@ print("Long test complete!")
     });
 
     test('should handle rapid yielding operations', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const codeTextarea = page.locator('#code');
 
         await codeTextarea.fill(`
@@ -129,7 +129,7 @@ print("Rapid yielding complete!")
     });
 
     test('should enable/disable yielding as expected', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const codeTextarea = page.locator('#code');
 
         // Test with yielding disabled (should run fast but not interruptible)

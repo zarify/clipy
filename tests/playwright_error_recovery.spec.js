@@ -13,7 +13,7 @@ test.describe('MicroPython Error Recovery Tests', () => {
     });
 
     test('should recover from multiple interrupt cycles', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code'); // Use specific ID selector instead of generic 'textarea'
 
@@ -67,7 +67,7 @@ print("All interrupt cycles completed cleanly")
     });
 
     test('should not accumulate errors across executions', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code'); // Use specific ID selector
 
@@ -114,7 +114,7 @@ print("Test complete - no accumulated errors!")
     });
 
     test('should handle clearInterrupt functionality', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code'); // Use specific ID selector
 
@@ -155,7 +155,7 @@ print("Ready for new execution")
     });
 
     test('should maintain consistent state after errors', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const codeTextarea = page.locator('#code'); // Use specific ID selector
 
         // Run code with Python syntax error
@@ -189,7 +189,7 @@ print(f"Calculation works: {x}")
     });
 
     test('should handle rapid start/stop cycles', async ({ page }) => {
-        const runButton = page.locator('button:has-text("Run")');
+        const runButton = page.locator('#run');
         const stopButton = page.locator('button:has-text("Stop")');
         const codeTextarea = page.locator('#code'); // Use specific ID selector
 

@@ -1,4 +1,6 @@
-// Lightweight test runner stub for Playwright: simulates stdin/echo behavior
+// Lightweight test runner stub for Playwright (served from src/tests)
+// This is the same stub used by the tests directory but copied here so
+// servers serving the `src` directory can load it as a proper module.
 const post = (o) => { try { console.log('[stub post]', o) } catch (_) { } try { window.parent.postMessage(o, '*') } catch (e) { } }
 post({ type: 'loaded' })
 post({ type: 'checkpoint', name: 'stub_loaded' })

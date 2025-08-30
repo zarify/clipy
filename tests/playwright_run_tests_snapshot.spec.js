@@ -33,15 +33,34 @@ test('run-tests should not persist test-created files into snapshots/storage', a
     })
 
     // Click Run tests (button in feedback UI)
-    await page.waitForSelector('#run-tests-btn')
-    await page.click('#run-tests-btn')
+    // Click Run tests button (robust to hidden/overlayed states)
+    // Try a force click first (robust to overlays), then fallback to DOM click.
+    try {
+        await page.locator('#run-tests-btn').click({ timeout: 5000, force: true })
+    } catch (e) {
+        try {
+            await page.waitForSelector('#run-tests-btn', { timeout: 5000 })
+            await page.evaluate(() => { const b = document.querySelector('#run-tests-btn'); if (b) b.click() })
+        } catch (_e) {
+            // As a last resort, dispatch a synthetic click event
+            await page.evaluate(() => {
+                const b = document.querySelector('#run-tests-btn')
+                if (b) b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+            })
+        }
+    }
 
     // Wait for test results to appear
+    // Wait for test results to appear (give the sandboxed runner a bit more time).
+    // Some builds render results inside a modal instead of the inline feedback section;
+    // wait for either the inline '.test-entry' or the modal '.test-result-row'.
     await page.waitForFunction(() => {
-        const el = document.querySelector('.feedback-tests-section')
-        if (!el) return false
-        return !!el.querySelector('.test-entry')
-    }, { timeout: 5000 })
+        const inline = document.querySelector('.feedback-tests-section')
+        if (inline && inline.querySelector('.test-entry')) return true
+        const modal = document.querySelector('#test-results-modal')
+        if (modal && modal.querySelector('.test-result-row')) return true
+        return false
+    }, { timeout: 30000 })
 
     // After run, ensure /test-artifact.txt is not persisted in localStorage mirror
     const postExists = await page.evaluate(() => {

@@ -27,7 +27,8 @@ test.describe('Configuration System', () => {
 
         // Check that config info is displayed in header
         const configInfo = await page.locator('.config-info').textContent()
-        const cleanConfigInfo = configInfo.trim() // Remove leading/trailing whitespace
+        // Strip trailing UI glyphs (like refresh arrows) and extra whitespace
+        const cleanConfigInfo = configInfo.replace(/[\u2190-\u21FF\s]+$/g, '').trim()
         expect(cleanConfigInfo).toMatch(/^.+\s+\(.+@.+\)$/) // Should match "Title (id@version)" pattern
 
         // Verify it shows default config info
@@ -97,7 +98,8 @@ test.describe('Configuration System', () => {
         expect(runtimeConfig.hasUrl).toBe(true)
         expect(runtimeConfig.hasCdnFallback).toBe(false) // Should not have multi-runtime fields
         expect(runtimeConfig.hasRecommended).toBe(false) // Should not have multi-runtime fields
-        expect(runtimeConfig.url).toContain('.wasm') // Should have a valid runtime URL
+        // Accept either .wasm or .mjs runtime bundles
+        expect(runtimeConfig.url).toMatch(/\.(wasm|mjs)$/)
     })
 })
 

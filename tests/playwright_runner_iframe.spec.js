@@ -6,7 +6,10 @@ const { test, expect } = require('./fixtures')
 // the final testResult contains expected echoed inputs.
 
 async function openRunnerPage(page) {
-    await page.goto('http://localhost:8000/tests/runner.html')
+    // The test server serves the `src` directory as the document root. Use
+    // the canonical `/tests/runner.html` path (which maps to `src/tests/runner.html`).
+    const res = await page.goto('http://localhost:8000/tests/runner.html')
+    if (!res || (res.status && res.status() >= 400)) throw new Error('Could not load /tests/runner.html')
 }
 
 test('iframe runner handles multiple stdin prompts', async ({ page }) => {
@@ -62,14 +65,22 @@ test('iframe runner handles multiple stdin prompts', async ({ page }) => {
 
     // Navigate directly to the lightweight stub runner so we can test
     // messaging/stdio behavior without loading the real wasm runtime.
-    await page.goto('http://localhost:8000/tests/runner_stub.html')
-    // Wait a short moment for the stub to post 'loaded'
-    await page.waitForTimeout(200)
+    // Load the stub runner from the canonical `/tests/` path (maps to src/tests/)
+    const res = await page.goto('http://localhost:8000/tests/runner_stub.html')
+    if (!res || (res.status && res.status() >= 400)) throw new Error('Could not load /tests/runner_stub.html')
+    // Wait a short moment for the stub to post 'loaded' and for message listeners to bind
+    await page.waitForTimeout(500)
 
     // Prepare 10 inputs and populate the queue for the exposed handler
     const inputs = []
     for (let i = 0; i < 10; i++) inputs.push('w' + i)
     for (const s of inputs) q.push(s)
+
+    // Send an init handshake message so the stub will respond with 'ready'
+    try {
+        await page.evaluate(() => { window.postMessage({ type: 'init' }, '*') })
+    } catch (e) { /* best-effort */ }
+    await page.waitForTimeout(200)
 
     // Install a short message-forwarder in the page that calls the exposed
     // Node function. This doesn't create a long-lived evaluate promise.
@@ -79,12 +90,10 @@ test('iframe runner handles multiple stdin prompts', async ({ page }) => {
         })
     })
 
-    // Wait for the testResult to be populated by the exposed handler (poll)
-    const start = Date.now()
-    while (!results.resolved && (Date.now() - start) < 20000) {
-        await new Promise(r => setTimeout(r, 100))
-    }
-    const result = results.value
+    // Wait for the stub to set a window global with the final result. This is
+    // more reliable than relying on a single console event and avoids races.
+    await page.waitForFunction(() => { try { return !!window.__last_stub_result } catch (e) { return false } }, { timeout: 30000 })
+    const result = await page.evaluate(() => { try { return window.__last_stub_result || null } catch (e) { return null } })
 
     expect(result).toBeTruthy()
     expect(result.passed).toBeTruthy()
