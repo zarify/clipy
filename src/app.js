@@ -312,88 +312,88 @@ async function main() {
         // 9. Setup snapshot system
         setupSnapshotSystem()
 
-            // Wire reset config button if present: restore loaded config from remote and refresh UI
-            try {
-                const resetBtn = document.getElementById('reset-config-btn')
-                if (resetBtn) {
-                    resetBtn.addEventListener('click', async () => {
-                        try {
-                            const mod = await import('./js/config.js')
-                            const { showConfirmModal } = await import('./js/modals.js')
-                            const ok = await showConfirmModal('Reset workspace', 'Reset workspace to the loaded configuration? This will overwrite current files.')
-                            if (!ok) return
+        // Wire reset config button if present: restore loaded config from remote and refresh UI
+        try {
+            const resetBtn = document.getElementById('reset-config-btn')
+            if (resetBtn) {
+                resetBtn.addEventListener('click', async () => {
+                    try {
+                        const mod = await import('./js/config.js')
+                        const { showConfirmModal } = await import('./js/modals.js')
+                        const ok = await showConfirmModal('Reset workspace', 'Reset workspace to the loaded configuration? This will overwrite current files.')
+                        if (!ok) return
 
-                            // Reload canonical config
-                            let newCfg = null
-                            if (mod && typeof mod.resetToLoadedConfig === 'function') {
-                                newCfg = await mod.resetToLoadedConfig()
-                            } else {
-                                newCfg = (await mod.loadConfig())
-                            }
-
-                            // Replace filesystem contents with what's defined in the config.
-                            try {
-                                const vfs = await import('./js/vfs-client.js')
-                                const getFileManager = vfs.getFileManager
-                                const MAIN_FILE = vfs.MAIN_FILE
-                                const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
-                                if (FileManager) {
-                                    // Delete all files except MAIN_FILE, then write MAIN_FILE and any extra files specified by config
-                                    try {
-                                        const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
-                                        for (const p of existing) {
-                                            try {
-                                                if (p === MAIN_FILE) continue
-                                                if (typeof FileManager.delete === 'function') await FileManager.delete(p)
-                                            } catch (_e) { }
-                                        }
-                                    } catch (_e) { }
-
-                                    // Write MAIN_FILE from config.starter
-                                    try {
-                                        if (typeof FileManager.write === 'function') {
-                                            await FileManager.write(MAIN_FILE, newCfg?.starter || '')
-                                        }
-                                    } catch (_e) { }
-
-                                    // If the config supplies extra files (config.files as map), write them
-                                    try {
-                                        if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
-                                            for (const [p, content] of Object.entries(newCfg.files)) {
-                                                try { await FileManager.write(p, String(content || '')) } catch (_e) { }
-                                            }
-                                        }
-                                    } catch (_e) { }
-                                }
-                            } catch (e) {
-                                try { appendTerminal('Failed to reset filesystem: ' + e, 'runtime') } catch (_e) { }
-                            }
-
-                            // Refresh tabs/editor to reflect programmatic filesystem changes
-                            try {
-                                if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') {
-                                    try { await window.TabManager.syncWithFileManager() } catch (_e) { }
-                                }
-                            } catch (_e) { }
-
-                            // Force-refresh the content of the visible editor/tab
-                            try {
-                                if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') {
-                                    try { window.TabManager.refreshOpenTabContents() } catch (_e) { }
-                                }
-                            } catch (_e) { }
-
-                            // Update global config reference used elsewhere
-                            try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
-                            // Refresh feedback UI with new config if available
-                            try { if (typeof window.__ssg_set_feedback_config === 'function') window.__ssg_set_feedback_config(newCfg) } catch (_e) { }
-                            try { appendTerminal('Workspace reset to loaded configuration', 'runtime') } catch (_e) { }
-                        } catch (e) {
-                            try { appendTerminal('Failed to reset config: ' + e, 'runtime') } catch (_e) { }
+                        // Reload canonical config
+                        let newCfg = null
+                        if (mod && typeof mod.resetToLoadedConfig === 'function') {
+                            newCfg = await mod.resetToLoadedConfig()
+                        } else {
+                            newCfg = (await mod.loadConfig())
                         }
-                    })
-                }
-            } catch (_e) { }
+
+                        // Replace filesystem contents with what's defined in the config.
+                        try {
+                            const vfs = await import('./js/vfs-client.js')
+                            const getFileManager = vfs.getFileManager
+                            const MAIN_FILE = vfs.MAIN_FILE
+                            const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                            if (FileManager) {
+                                // Delete all files except MAIN_FILE, then write MAIN_FILE and any extra files specified by config
+                                try {
+                                    const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                    for (const p of existing) {
+                                        try {
+                                            if (p === MAIN_FILE) continue
+                                            if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                                        } catch (_e) { }
+                                    }
+                                } catch (_e) { }
+
+                                // Write MAIN_FILE from config.starter
+                                try {
+                                    if (typeof FileManager.write === 'function') {
+                                        await FileManager.write(MAIN_FILE, newCfg?.starter || '')
+                                    }
+                                } catch (_e) { }
+
+                                // If the config supplies extra files (config.files as map), write them
+                                try {
+                                    if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                                        for (const [p, content] of Object.entries(newCfg.files)) {
+                                            try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                        }
+                                    }
+                                } catch (_e) { }
+                            }
+                        } catch (e) {
+                            try { appendTerminal('Failed to reset filesystem: ' + e, 'runtime') } catch (_e) { }
+                        }
+
+                        // Refresh tabs/editor to reflect programmatic filesystem changes
+                        try {
+                            if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') {
+                                try { await window.TabManager.syncWithFileManager() } catch (_e) { }
+                            }
+                        } catch (_e) { }
+
+                        // Force-refresh the content of the visible editor/tab
+                        try {
+                            if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') {
+                                try { window.TabManager.refreshOpenTabContents() } catch (_e) { }
+                            }
+                        } catch (_e) { }
+
+                        // Update global config reference used elsewhere
+                        try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
+                        // Refresh feedback UI with new config if available
+                        try { if (typeof window.__ssg_set_feedback_config === 'function') window.__ssg_set_feedback_config(newCfg) } catch (_e) { }
+                        try { appendTerminal('Workspace reset to loaded configuration', 'runtime') } catch (_e) { }
+                    } catch (e) {
+                        try { appendTerminal('Failed to reset config: ' + e, 'runtime') } catch (_e) { }
+                    }
+                })
+            }
+        } catch (_e) { }
 
         // 10. Wire up the Run button
         const runBtn = $('run')

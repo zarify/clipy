@@ -410,10 +410,10 @@ export function initializeTabManager(codeMirror, textareaElement) {
         list,
         getActive,
         forceClose,
-    refresh,
-    closeTabSilent,
-    syncWithFileManager,
-    flushPendingTabs: () => {
+        refresh,
+        closeTabSilent,
+        syncWithFileManager,
+        flushPendingTabs: () => {
             try {
                 const pending = (window.__ssg_pending_tabs || [])
                 if (pending && pending.length) {
