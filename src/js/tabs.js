@@ -126,6 +126,70 @@ export async function closeTab(path) {
     render()
 }
 
+// Close a tab from the UI without deleting the underlying storage entry.
+// Useful when an external operation (like a workspace reset) has already
+// removed files from storage and we only want to update the open-tabs state.
+export function closeTabSilent(path) {
+    const n = _normalizePath(path)
+    openTabs = openTabs.filter(x => x !== n)
+
+    if (active === n) {
+        active = openTabs.length ? openTabs[openTabs.length - 1] : null
+    }
+
+    if (active) {
+        selectTab(active)
+    } else {
+        if (cm) cm.setValue('')
+        else if (textarea) textarea.value = ''
+    }
+
+    render()
+}
+
+// Synchronize the open tabs with the current FileManager listing.
+// - Remove tabs that no longer exist in the FileManager (without deleting storage)
+// - Open tabs for files that exist but aren't currently open (mirrors startup behavior)
+export async function syncWithFileManager() {
+    const FileManager = getFileManager()
+    if (!FileManager) return
+
+    const files = (typeof FileManager.list === 'function') ? FileManager.list() : []
+
+    // Ensure MAIN_FILE is always present in the tabs
+    try {
+        if (!openTabs.includes(MAIN_FILE)) openTab(MAIN_FILE)
+    } catch (_e) { }
+
+    // Remove any open tabs for files that no longer exist
+    try {
+        const currentOpen = Array.from(openTabs)
+        for (const p of currentOpen) {
+            try {
+                if (p === MAIN_FILE) continue
+                if (!files.includes(p)) {
+                    closeTabSilent(p)
+                }
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+
+    // Re-open files present in the FileManager but not currently open
+    try {
+        for (const p of files) {
+            try {
+                if (!openTabs.includes(p)) openTab(p)
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+
+    // Ensure the active tab's editor content is refreshed
+    try {
+        if (active) selectTab(active)
+        else if (MAIN_FILE) selectTab(MAIN_FILE)
+    } catch (_e) { }
+}
+
 export function selectTab(path) {
     const n = _normalizePath(path)
     const FileManager = getFileManager()
@@ -232,6 +296,27 @@ export function refresh() {
     } catch (_e) { }
 }
 
+// Force-refresh visible editor content for the active tab. This is useful
+// after programmatic writes/deletes to ensure the editor displays the
+// latest FileManager contents without requiring the user to switch tabs.
+export function refreshOpenTabContents() {
+    try {
+        const FileManager = getFileManager()
+        if (!FileManager) return
+        if (!active) return
+
+        const content = FileManager.read(active) || ''
+        if (cm) {
+            try { window.__ssg_suppress_clear_highlights = true } catch (_e) { }
+            cm.setValue(content)
+            try { setTimeout(() => { window.__ssg_suppress_clear_highlights = false }, 0) } catch (_e) { }
+            try { if (typeof cm.refresh === 'function') cm.refresh() } catch (_e) { }
+        } else if (textarea) {
+            textarea.value = content
+        }
+    } catch (_e) { }
+}
+
 // Initialize tab manager
 export function initializeTabManager(codeMirror, textareaElement) {
     cm = codeMirror
@@ -325,8 +410,10 @@ export function initializeTabManager(codeMirror, textareaElement) {
         list,
         getActive,
         forceClose,
-        refresh,
-        flushPendingTabs: () => {
+    refresh,
+    closeTabSilent,
+    syncWithFileManager,
+    flushPendingTabs: () => {
             try {
                 const pending = (window.__ssg_pending_tabs || [])
                 if (pending && pending.length) {

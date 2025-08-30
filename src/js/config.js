@@ -24,6 +24,19 @@ export async function loadConfig() {
     }
 }
 
+// Reload the configuration from the remote `configUrl` and reinitialize UI.
+export async function resetToLoadedConfig() {
+    // Force a reload by clearing cached config and invoking loadConfig
+    config = null
+    const cfg = await loadConfig()
+    try {
+        // Reinitialize instructions/UI display
+        initializeInstructions(cfg)
+    } catch (_e) { }
+    try { if (typeof window !== 'undefined') window.Config = window.Config || {}; window.Config.current = cfg } catch (_e) { }
+    return cfg
+}
+
 export function getConfig() {
     return config || getDefaultConfig()
 }
@@ -146,3 +159,5 @@ export function initializeInstructions(cfg) {
         }
     } catch (_e) { }
 }
+
+export default { loadConfig, getConfig, getConfigIdentity, resetToLoadedConfig, validateAndNormalizeConfig }

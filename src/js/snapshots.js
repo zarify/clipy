@@ -213,6 +213,32 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
     try {
         const s = snapshots[index]
         if (!s) return
+        // Before restoring a previous snapshot, copy any existing '__current__'
+        // snapshot into history so the user's in-progress work is not lost.
+        try {
+            const CURRENT_ID = '__current__'
+            // Work with the passed snapshots array (it's sourced from storage)
+            const snaps = snapshots || getSnapshotsForCurrentConfig()
+            const curIdx = snaps.findIndex(x => x && x.id === CURRENT_ID)
+            // Only copy if there is a current snapshot and we're not restoring it
+            if (curIdx !== -1 && curIdx !== index) {
+                const currentSnap = snaps[curIdx]
+                // Shallow-copy files (file contents are strings) to avoid shared refs
+                const copyFiles = {}
+                for (const k of Object.keys(currentSnap.files || {})) copyFiles[k] = currentSnap.files[k]
+                const copySnap = {
+                    ts: Date.now(),
+                    config: currentSnap.config,
+                    files: copyFiles
+                }
+                // Remove the special-current marker and append the copied snapshot into history
+                snaps.splice(curIdx, 1)
+                snaps.push(copySnap)
+                try { saveSnapshotsForCurrentConfig(snaps) } catch (_e) { /* non-fatal */ }
+            }
+        } catch (e) {
+            console.error('Failed to persist current-as-history copy before restore:', e)
+        }
 
         const snap = s
 
@@ -370,6 +396,18 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
             }
         } catch (e) {
             console.error('Tab management failed:', e)
+        }
+        // Persist the restored snapshot as the special '__current__' snapshot so
+        // subsequent autosave/restore semantics see this as the current working copy.
+        try {
+            const CURRENT_ID = '__current__'
+            const snapsAll = getSnapshotsForCurrentConfig()
+            // Remove any existing current slot
+            const filtered = snapsAll.filter(s => s && s.id !== CURRENT_ID)
+            filtered.push({ id: CURRENT_ID, ts: Date.now(), config: snap.config, files: snap.files })
+            saveSnapshotsForCurrentConfig(filtered)
+        } catch (e) {
+            console.error('Failed to persist restored snapshot as __current__:', e)
         }
     } catch (e) {
         console.error('restoreSnapshot failed:', e)
