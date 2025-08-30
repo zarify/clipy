@@ -151,8 +151,7 @@
       </div>
       <div style="margin-bottom:8px">
         <strong>Available configs on server</strong>
-        <div id="config-server-list"
-          style="max-height:200px;overflow:auto;border:1px solid #eee;padding:8px;margin-top:6px">(loading...)</div>
+        <div id="config-server-list" class="config-server-list">(loading...)</div>
       </div>
 
       <div style="margin-bottom:8px">
@@ -169,6 +168,10 @@
           JSON file here or <button id="config-file-picker" class="btn">Choose file</button></div>
         <input id="config-file-input" type="file" accept="application/json" style="display:none" />
       </div>
+
+      <!-- Inline error area for configuration loading failures (404, CORS, parse errors) -->
+      <div id="config-error" role="alert" aria-live="assertive"
+        style="color:var(--text-error,#b00020);font-size:0.95em;margin-top:6px;display:none"></div>
 
       <div class="modal-actions">
         <button id="config-close">Close</button>

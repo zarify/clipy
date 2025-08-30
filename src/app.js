@@ -74,7 +74,35 @@ async function main() {
         try { if (typeof window !== 'undefined') window.__ssg_suppress_terminal_autoswitch = true } catch (_e) { }
 
         // 1. Load configuration
-        const cfg = await loadConfig()
+        // Support loading a configuration via the URL query parameter `?config=`
+        // (value may be a full http(s) URL or a filename to load from /config/).
+        let cfg = null
+        try {
+            if (typeof window !== 'undefined') {
+                try {
+                    const params = new URLSearchParams(window.location.search)
+                    const cfgParam = params.get('config')
+                    if (cfgParam) {
+                        try {
+                            // Users may provide an encoded URL; attempt decodeURIComponent safely
+                            let toLoad = cfgParam
+                            try { toLoad = decodeURIComponent(cfgParam) } catch (_e) { }
+                            cfg = await loadConfigFromStringOrUrl(toLoad)
+                            dbg('dbg: loaded config from ?config= parameter')
+                        } catch (e) {
+                            console.warn('Failed to load config from ?config= parameter:', e)
+                            // Surface the error to the user by opening the config modal
+                            try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                            // fall back to normal load below
+                        }
+                    }
+                } catch (_e) { }
+            }
+        } catch (_e) { }
+
+        if (!cfg) {
+            cfg = await loadConfig()
+        }
         initializeInstructions(cfg)
 
         // Expose current config globally for tests
@@ -477,6 +505,24 @@ async function main() {
             }
         }
 
+        // Helper to surface config errors in the config modal (inline) and terminal
+        function showConfigError(message, openModalEl) {
+            try {
+                // Set inline error element if present
+                const errEl = document.getElementById('config-error')
+                if (errEl) {
+                    errEl.textContent = message
+                    errEl.style.display = 'block'
+                }
+                // Also write to terminal for visibility in logs
+                try { appendTerminal(message, 'runtime') } catch (_e) { }
+                // If we have a modal element, ensure it's visible so the user can act
+                if (openModalEl) {
+                    try { openModal(openModalEl) } catch (_e) { }
+                }
+            } catch (_e) { }
+        }
+
         // Wire config modal UI (open on header click, server list population, URL load, file upload/drop)
         try {
             const configInfoEl = document.querySelector('.config-info') || document.querySelector('.config-title-line')
@@ -550,8 +596,11 @@ async function main() {
                                             } catch (e) {
                                                 // keep modal open and show inline error (use enhanced error message from config.js)
                                                 try {
-                                                    if (errorEl) errorEl.textContent = 'Failed to load config: ' + (e && e.message ? e.message : e)
+                                                    const msg = 'Failed to load config: ' + (e && e.message ? e.message : e)
+                                                    if (errorEl) errorEl.textContent = msg
                                                     console.error('Failed to load config', e)
+                                                    // Also set the global inline config error so it's visible when modal is opened next
+                                                    try { showConfigError(msg, configModal) } catch (_e) { }
                                                 } catch (_err) { }
                                             }
                                         })
@@ -581,7 +630,7 @@ async function main() {
                         await applyConfigToWorkspace(normalized)
                         if (configModal) closeModal(configModal)
                     } catch (e) {
-                        try { appendTerminal('Failed to load config from URL: ' + e, 'runtime') } catch (_e) { }
+                        try { showConfigError('Failed to load config from URL: ' + (e && e.message ? e.message : e), configModal) } catch (_e) { }
                     }
                 })
             }
@@ -600,7 +649,7 @@ async function main() {
                         await applyConfigToWorkspace(normalized)
                         if (configModal) closeModal(configModal)
                     } catch (e) {
-                        try { appendTerminal('Failed to load config file: ' + e, 'runtime') } catch (_e) { }
+                        try { showConfigError('Failed to load config file: ' + (e && e.message ? e.message : e), configModal) } catch (_e) { }
                     }
                 })
             }
@@ -616,7 +665,7 @@ async function main() {
                         await applyConfigToWorkspace(normalized)
                         if (configModal) closeModal(configModal)
                     } catch (err) {
-                        try { appendTerminal('Failed to load dropped config: ' + err, 'runtime') } catch (_e) { }
+                        try { showConfigError('Failed to load dropped config: ' + (err && err.message ? err.message : err), configModal) } catch (_e) { }
                     }
                 })
             }

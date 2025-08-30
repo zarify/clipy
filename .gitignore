@@ -3,3 +3,4 @@ test/__pycache__/
 .pytest_cache/
 test-results/*
 test-results/.last-run.json
+.DS_Store

@@ -593,7 +593,10 @@ pre#terminal-output {
     padding: 12px;
     border-radius: 6px;
     max-width: 720px;
-    width: 90%
+    width: 90%;
+    /* Ensure modal content doesn't overflow the viewport; allow internal scrolling when tall */
+    max-height: 80vh;
+    overflow: auto;
 }
 
 /* Snapshot list container: limit height and allow scrolling when many snapshots exist */
@@ -603,6 +606,17 @@ pre#terminal-output {
     overflow: auto;
     border: 1px solid #eee;
     padding: 6px;
+    border-radius: 6px;
+    background: #fff;
+}
+
+/* Config server list: when many configs exist make this area scrollable */
+.config-server-list {
+    max-height: 40vh;
+    overflow: auto;
+    border: 1px solid #eee;
+    padding: 8px;
+    margin-top: 6px;
     border-radius: 6px;
     background: #fff;
 }
