@@ -6,7 +6,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "node test/test_feedback.js && node test/test_feedback_unit.js && npx playwright test --reporter=line",
+    "test": "node test/test_feedback.js && node test/test_feedback_unit.js && node test/test_runner_multiline_stdin.js && npx playwright test --reporter=line",
     "test:unit-iframe": "node test/test_runner_iframe_unit.js",
     "test:playwright-iframe": "npx playwright test tests/playwright_runner_iframe.spec.js --reporter=line",
     "test:playwright": "npx playwright test --project=firefox",

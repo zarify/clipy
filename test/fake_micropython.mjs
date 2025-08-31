@@ -35,12 +35,24 @@ export async function loadMicroPython(opts = {}) {
             }
         }
 
-        const prompts = countPrompts(codeToAnalyze)
+        // Extract literal prompts from input("prompt") calls so the fake
+        // loader can forward the prompt text to the host inputHandler.
+        const promptMatches = []
+        try {
+            const re = /input\(\s*(['"])([\s\S]*?)\1\s*\)/g
+            let m
+            while ((m = re.exec(codeToAnalyze)) !== null) {
+                promptMatches.push(m[2])
+            }
+        } catch (_e) { }
+
+        const prompts = promptMatches.length || countPrompts(codeToAnalyze)
         const answers = []
         for (let i = 0; i < prompts; i++) {
+            const promptText = (promptMatches && promptMatches[i]) ? promptMatches[i] : ''
             if (typeof inputHandler === 'function') {
                 try {
-                    const v = await inputHandler('')
+                    const v = await inputHandler(promptText)
                     answers.push(v == null ? '' : String(v))
                     continue
                 } catch (_e) { }
