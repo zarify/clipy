@@ -929,3 +929,33 @@ pre#terminal-output {
 .author-tab.active {
     display: block;
 }
+
+/* Styling for Markdown-rendered code blocks inside the Instructions panel */
+#instructions-content pre {
+    /* dark base to make highlighted text pop */
+    padding: 12px;
+    border-radius: 6px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    margin: 12px 0;
+    box-shadow: 0 6px 18px rgba(11, 92, 255, 0.04) inset;
+    border: 1px solid rgba(11, 92, 255, 0.12);
+    border-left: 4px solid rgba(11, 92, 255, 0.12);
+}
+
+#instructions-content pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    border-radius: 0;
+}
+
+#instructions-content code {
+    background: #f4f6f8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+    font-size: 0.95em;
+}

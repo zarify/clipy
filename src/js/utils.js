@@ -62,10 +62,27 @@ export function transformWalrusPatterns(code) {
 // and paragraph/line breaks. This intentionally keeps features small to reduce XSS surface.
 export function renderMarkdown(md) {
     if (md == null) return ''
-
     // Prefer marked + DOMPurify when available on window (loaded via CDN in index.html).
     try {
         if (typeof window !== 'undefined' && window.marked && window.DOMPurify) {
+            // If highlight.js is present, configure marked to use it for code blocks.
+            try {
+                if (window.hljs && window.marked && typeof window.marked.setOptions === 'function') {
+                    window.marked.setOptions({
+                        highlight: function (code, lang) {
+                            try {
+                                if (lang && window.hljs.getLanguage(lang)) {
+                                    return window.hljs.highlight(code, { language: lang }).value
+                                }
+                                return window.hljs.highlightAuto(code).value
+                            } catch (_e) {
+                                return code
+                            }
+                        }
+                    })
+                }
+            } catch (_e) { /* ignore highlight configuration errors */ }
+
             // Use marked to compile markdown -> HTML, then sanitize via DOMPurify.
             const raw = String(md)
             const html = window.marked.parse(raw)

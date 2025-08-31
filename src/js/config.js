@@ -196,6 +196,33 @@ export function initializeInstructions(cfg) {
         const raw = cfg?.instructions || 'No instructions provided.'
         try {
             instructionsContent.innerHTML = renderMarkdown(raw)
+            // If highlight.js is available, highlight all code blocks inside the instructions.
+            try {
+                if (typeof window !== 'undefined' && window.hljs && typeof window.hljs.highlightElement === 'function') {
+                    const nodes = instructionsContent.querySelectorAll('pre code')
+                    nodes.forEach(n => {
+                        try { window.hljs.highlightElement(n) } catch (_e) { }
+                    })
+                }
+                else if (typeof window !== 'undefined' && !window.hljs) {
+                    // Try to dynamically load highlight.js if it's not already present.
+                    try {
+                        const script = document.createElement('script')
+                        script.src = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js'
+                        script.async = true
+                        script.onload = () => {
+                            try {
+                                const nodes = instructionsContent.querySelectorAll('pre code')
+                                nodes.forEach(n => {
+                                    try { window.hljs.highlightElement(n) } catch (_e) { }
+                                })
+                            } catch (_e) { }
+                        }
+                        script.onerror = () => { /* ignore load errors */ }
+                        document.head.appendChild(script)
+                    } catch (_e) { }
+                }
+            } catch (_e) { }
         } catch (_e) {
             // Fallback to plain text if rendering fails for any reason
             instructionsContent.textContent = raw
