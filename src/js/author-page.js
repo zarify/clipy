@@ -2,6 +2,7 @@ import { validateAndNormalizeConfig } from './config.js'
 import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearAuthorConfigInLocalStorage, saveDraft, listDrafts, loadDraft } from './author-storage.js'
 import { initAuthorFeedback } from './author-feedback.js'
 import { initAuthorTests } from './author-tests.js'
+import { showConfirmModal, openModal, closeModal } from './modals.js'
 
 function $(id) { return document.getElementById(id) }
 
@@ -238,60 +239,114 @@ function setupHandlers() {
         debounceSave()
     })
     $('file-upload').addEventListener('change', handleUpload)
-    // Export stub (not yet implemented)
+    // New: clear current authoring configuration and reset UI
+    $('new-config').addEventListener('click', async () => {
+        let ok = false
+        try {
+            ok = await showConfirmModal('New configuration', 'This will clear the current authoring configuration and start a new empty one. Continue?')
+        } catch (e) {
+            try { ok = window.confirm('This will clear the current authoring configuration and start a new empty one. Continue?') } catch (_e) { ok = false }
+        }
+        if (!ok) return
+        // clear localStorage
+        try { clearAuthorConfigInLocalStorage() } catch (_e) { }
+        // reset fields
+        files = { '/main.py': '# starter code\n' }
+        renderFileList()
+        openFile('/main.py')
+        $('meta-title').value = ''
+        $('meta-id').value = ''
+        $('meta-version').value = ''
+        if ($('meta-description')) $('meta-description').value = ''
+        if ($('instructions-editor')) $('instructions-editor').value = ''
+        if ($('feedback-editor')) { $('feedback-editor').value = ''; $('feedback-editor').dispatchEvent(new Event('input', { bubbles: true })) }
+        if ($('tests-editor')) { $('tests-editor').value = ''; $('tests-editor').dispatchEvent(new Event('input', { bubbles: true })) }
+        debounceSave()
+    })
+    // Export: download current config as JSON
     $('export-btn').addEventListener('click', () => {
-        alert('Export not implemented yet — coming soon.')
-    })
-
-    // Import stub (not yet implemented)
-    $('import-btn').addEventListener('click', () => {
-        alert('Import not implemented yet — coming soon.')
-    })
-    $('import-file').addEventListener('change', (ev) => {
-        // Clear the input and show a stub message
-        ev.target.value = ''
-        alert('Import not implemented yet — coming soon.')
-    })
-
-    $('use-in-app').addEventListener('click', () => {
         try {
             const cfg = buildCurrentConfig()
-            // Normalize runtime entry to prefer module loader (.mjs)
+            // ensure feedback/tests parsed into structured arrays when possible
             try {
-                if (!cfg.runtime) cfg.runtime = { type: 'micropython', url: '/vendor/micropython.mjs' }
-                if (cfg.runtime && cfg.runtime.url && typeof cfg.runtime.url === 'string') {
-                    if (cfg.runtime.url.trim().endsWith('.wasm')) {
-                        cfg.runtime.url = cfg.runtime.url.trim().replace(/\.wasm$/i, '.mjs')
-                    }
+                if (typeof cfg.feedback === 'string' && cfg.feedback.trim()) {
+                    const parsed = JSON.parse(cfg.feedback)
+                    if (Array.isArray(parsed)) cfg.feedback = parsed
                 }
             } catch (_e) { }
-            // Ensure tests and feedback that are expressed as JSON strings are
-            // parsed into structured arrays/objects before attempting normalization.
             try {
                 if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
-                    try {
-                        const parsedTests = JSON.parse(cfg.tests)
-                        if (Array.isArray(parsedTests)) cfg.tests = parsedTests
-                    } catch (_e) { /* leave as string if invalid */ }
-                }
-                if (typeof cfg.feedback === 'string' && cfg.feedback.trim()) {
-                    try {
-                        const parsed = JSON.parse(cfg.feedback)
-                        if (Array.isArray(parsed)) cfg.feedback = parsed
-                    } catch (_e) { /* leave as string if invalid */ }
+                    const parsed = JSON.parse(cfg.tests)
+                    if (Array.isArray(parsed)) cfg.tests = parsed
                 }
             } catch (_e) { }
+            const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            // include id and version in filename: "config_id@version.json"
+            const idPart = String(cfg.id || 'config').replace(/[\/\\@\s]+/g, '_')
+            const verPart = String(cfg.version || 'v0').replace(/[\/\\@\s]+/g, '_')
+            a.download = `${idPart}@${verPart}.json`
+            document.body.appendChild(a)
+            a.click()
+            setTimeout(() => { try { URL.revokeObjectURL(url); a.remove() } catch (_e) { } }, 500)
+        } catch (e) { alert('Export failed: ' + (e && e.message ? e.message : e)) }
+    })
 
-            // try to normalize, but if validation fails still write raw so app can inspect
+    // Import flow: open file picker, parse JSON, confirm overwrite, then load and sync
+    $('import-btn').addEventListener('click', () => {
+        $('import-file').click()
+    })
+    $('import-file').addEventListener('change', async (ev) => {
+        const f = ev.target.files && ev.target.files[0]
+        // clear input so same file can be picked later
+        ev.target.value = ''
+        if (!f) return
+        try {
+            const txt = await f.text()
+            let parsed = null
+            try { parsed = JSON.parse(txt) } catch (e) { alert('Invalid JSON file: ' + (e && e.message ? e.message : e)); return }
+            // confirm overwrite using styled modal (fallback to window.confirm)
+            let ok = false
             try {
-                const norm = validateAndNormalizeConfig(cfg)
-                localStorage.setItem('author_config', JSON.stringify(norm))
-            } catch (_err) {
-                localStorage.setItem('author_config', JSON.stringify(cfg))
+                ok = await showConfirmModal('Import configuration', 'This will overwrite the current author configuration in this page and in localStorage. Continue?')
+            } catch (e) {
+                try { ok = window.confirm('This will overwrite the current author configuration in this page and in localStorage. Continue?') } catch (_e) { ok = false }
             }
-            // navigate to app root
-            window.location.href = '/'
-        } catch (e) { alert('Failed to set author_config: ' + e.message) }
+            if (!ok) return
+            // apply the parsed config
+            try { console.debug && console.debug('[author] applying imported config', parsed); applyImportedConfig(parsed) } catch (e) { alert('Failed to apply config: ' + (e && e.message ? e.message : e)); return }
+            // After applying, show a simple modal indicating success and a close-only button.
+            try {
+                const modal = document.createElement('div')
+                modal.className = 'modal'
+                modal.setAttribute('aria-hidden', 'true')
+                const content = document.createElement('div')
+                content.className = 'modal-content'
+                const header = document.createElement('div')
+                header.className = 'modal-header'
+                const h3 = document.createElement('h3')
+                h3.textContent = 'Import complete'
+                header.appendChild(h3)
+                content.appendChild(header)
+                const body = document.createElement('div')
+                body.style.marginTop = '8px'
+                body.textContent = 'Configuration loaded into the author page and saved to localStorage.'
+                content.appendChild(body)
+                const actions = document.createElement('div')
+                actions.className = 'modal-actions'
+                const close = document.createElement('button')
+                close.className = 'btn modal-close-btn'
+                close.textContent = 'Close'
+                actions.appendChild(close)
+                content.appendChild(actions)
+                modal.appendChild(content)
+                document.body.appendChild(modal)
+                try { openModal(modal) } catch (_e) { modal.setAttribute('aria-hidden', 'false'); modal.style.display = 'flex' }
+                close.addEventListener('click', () => { try { closeModal(modal) } catch (_e) { modal.remove() } })
+            } catch (_e) { /* ignore */ }
+        } catch (e) { alert('Failed to read file: ' + (e && e.message ? e.message : e)) }
     })
 
     // Draft buttons are stubs for now; explicit IndexedDB draft functionality will be added later
@@ -313,3 +368,60 @@ window.addEventListener('DOMContentLoaded', () => {
     // Show metadata tab by default so inputs are visible for tests
     try { document.querySelector('.tab-btn[data-tab="metadata"]').click() } catch (_e) { }
 })
+
+// Apply an imported config object to the author UI and persist to localStorage
+function applyImportedConfig(obj) {
+    if (!obj || typeof obj !== 'object') throw new Error('Invalid config object')
+    // Normalize incoming shape: prefer files, fallback to starter
+    try {
+        files = obj.files || (obj.starter ? { '/main.py': obj.starter } : { '/main.py': '# starter code\n' })
+    } catch (_e) { files = { '/main.py': '# starter code\n' } }
+    // Metadata
+    $('meta-title').value = obj.title || obj.name || ''
+    $('meta-id').value = obj.id || ''
+    $('meta-version').value = obj.version || ''
+    if ($('meta-description')) $('meta-description').value = obj.description || ''
+    if ($('instructions-editor')) $('instructions-editor').value = obj.instructions || obj.description || ''
+
+    // Feedback and tests: if structured, stringify for the hidden textarea; else keep raw string
+    if ($('feedback-editor')) {
+        try {
+            if (obj.feedback && typeof obj.feedback !== 'string') $('feedback-editor').value = JSON.stringify(obj.feedback, null, 2)
+            else $('feedback-editor').value = obj.feedback || ''
+        } catch (_e) { $('feedback-editor').value = obj.feedback || '' }
+        // fire input so author-feedback UI updates
+        $('feedback-editor').dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    if ($('tests-editor')) {
+        try {
+            if (obj.tests && typeof obj.tests !== 'string') $('tests-editor').value = JSON.stringify(obj.tests, null, 2)
+            else $('tests-editor').value = obj.tests || ''
+        } catch (_e) { $('tests-editor').value = obj.tests || '' }
+        $('tests-editor').dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    renderFileList()
+    openFile(Object.keys(files)[0] || '/main.py')
+
+    // Persist to localStorage: ensure feedback/tests are structured when possible
+    const cfg = buildCurrentConfig()
+    try {
+        if (typeof cfg.feedback === 'string' && cfg.feedback.trim()) {
+            const p = JSON.parse(cfg.feedback)
+            if (Array.isArray(p)) cfg.feedback = p
+        }
+    } catch (_e) { }
+    try {
+        if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
+            const p = JSON.parse(cfg.tests)
+            if (Array.isArray(p)) cfg.tests = p
+        }
+    } catch (_e) { }
+    try {
+        const norm = validateAndNormalizeConfig(cfg)
+        saveAuthorConfigToLocalStorage(norm)
+    } catch (e) {
+        // fallback: save raw
+        saveAuthorConfigToLocalStorage(cfg)
+    }
+}

@@ -23,7 +23,6 @@
             <input id="import-file" type="file" accept="application/json" style="display:none" />
             <button id="import-btn" class="btn">Import</button>
             <button id="export-btn" class="btn">Export</button>
-            <button id="use-in-app" class="btn btn-primary">Use in app</button>
         </div>
     </header>
 
@@ -101,6 +100,20 @@
     </main>
 
     <script type="module" src="../js/author-page.js"></script>
+
+    <!-- Generic confirmation modal (used by import flow) -->
+    <div id="confirm-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="confirm-modal-title"
+        aria-describedby="confirm-modal-message">
+        <div class="modal-content">
+            <h3 id="confirm-modal-title">Confirm</h3>
+            <div id="confirm-modal-message">Are you sure?</div>
+            <div id="confirm-modal-meta" style="margin-top:8px;color:#666;font-size:0.95rem"></div>
+            <div class="modal-actions">
+                <button id="confirm-yes" class="btn btn-danger">Confirm</button>
+                <button id="confirm-no" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>
