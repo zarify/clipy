@@ -57,3 +57,72 @@ export function transformWalrusPatterns(code) {
 
     return code
 }
+
+// Minimal, safe markdown renderer supporting code fences, inline code, bold, italic, links,
+// and paragraph/line breaks. This intentionally keeps features small to reduce XSS surface.
+export function renderMarkdown(md) {
+    if (md == null) return ''
+
+    // Prefer marked + DOMPurify when available on window (loaded via CDN in index.html).
+    try {
+        if (typeof window !== 'undefined' && window.marked && window.DOMPurify) {
+            // Use marked to compile markdown -> HTML, then sanitize via DOMPurify.
+            const raw = String(md)
+            const html = window.marked.parse(raw)
+            return window.DOMPurify.sanitize(html)
+        }
+    } catch (_e) {
+        // Fall back to internal renderer below
+    }
+
+    // --- Fallback minimal renderer (keeps previous behavior) ---
+    let s = String(md)
+
+    // Escape HTML first
+    const escapeHtml = (str) => String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+
+    // Extract fenced code blocks and replace them with placeholders
+    const codeBlocks = []
+    s = s.replace(/```(?:([a-zA-Z0-9_-]+)\n)?([\s\S]*?)```/g, (m, lang, code) => {
+        const idx = codeBlocks.length
+        codeBlocks.push({ lang: lang || '', code })
+        return `\u0000CODE_BLOCK_${idx}\u0000`
+    })
+
+    // Escape remaining content
+    s = escapeHtml(s)
+
+    // Links: [text](url)
+    s = s.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => {
+        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${text}</a>`
+    })
+
+    // Bold **text**
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+
+    // Italic *text*
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+    // Inline code `code`
+    s = s.replace(/`([^`]+?)`/g, (m, code) => `<code>${escapeHtml(code)}</code>`)
+
+    // Convert paragraphs: two or more newlines -> paragraph break
+    const paras = s.split(/\n{2,}/g).map(p => p.replace(/\n/g, '<br>'))
+    s = paras.map(p => `<p>${p}</p>`).join('\n')
+
+    // Re-insert code blocks (they were not escaped earlier; escape now and preserve formatting)
+    s = s.replace(/\u0000CODE_BLOCK_(\d+)\u0000/g, (m, idx) => {
+        const cb = codeBlocks[Number(idx)]
+        if (!cb) return ''
+        const escaped = escapeHtml(cb.code)
+        const langClass = cb.lang ? ` class="language-${escapeHtml(cb.lang)}"` : ''
+        return `<pre><code${langClass}>${escaped}</code></pre>`
+    })
+
+    return s
+}

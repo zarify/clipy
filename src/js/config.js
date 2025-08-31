@@ -1,5 +1,5 @@
 // Configuration loading and management
-import { $ } from './utils.js'
+import { $, renderMarkdown } from './utils.js'
 
 // Use root-based path so servers serving `/src` as document root resolve correctly
 export const configUrl = '/config/sample.json'
@@ -193,7 +193,13 @@ function getDefaultConfig() {
 export function initializeInstructions(cfg) {
     const instructionsContent = $('instructions-content')
     if (instructionsContent) {
-        instructionsContent.textContent = cfg?.instructions || 'No instructions provided.'
+        const raw = cfg?.instructions || 'No instructions provided.'
+        try {
+            instructionsContent.innerHTML = renderMarkdown(raw)
+        } catch (_e) {
+            // Fallback to plain text if rendering fails for any reason
+            instructionsContent.textContent = raw
+        }
     }
 
     // Update configuration display in header
