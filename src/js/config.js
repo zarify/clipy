@@ -131,7 +131,9 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         links: Array.isArray(rawConfig.links) ? rawConfig.links : [],
         runtime: {
             type: rawConfig.runtime?.type || 'micropython',
-            url: rawConfig.runtime?.url || '/vendor/micropython.wasm'
+            // Prefer the module loader (.mjs) as the canonical runtime URL for imports.
+            // The module will locate and load the .wasm binary itself.
+            url: rawConfig.runtime?.url || '/vendor/micropython.mjs'
         },
         execution: {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),

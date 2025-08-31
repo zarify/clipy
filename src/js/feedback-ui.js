@@ -146,6 +146,15 @@ function renderList() {
             const title = entry.title || id
             const matched = matchMap.get(id)
 
+            // Respect visibleByDefault: if the entry is not matched and the
+            // author explicitly set visibleByDefault to false, do not render
+            // the entry at all. If visibleByDefault is absent, treat it as
+            // true for backward compatibility (legacy configs).
+            const isVisibleByDefault = (typeof entry.visibleByDefault === 'boolean') ? entry.visibleByDefault : true
+            if (!matched && !isVisibleByDefault) {
+                continue
+            }
+
             const wrapper = document.createElement('div')
             wrapper.className = 'feedback-entry'
             wrapper.setAttribute('data-id', id)
@@ -227,7 +236,36 @@ function renderList() {
 }
 
 export function setFeedbackConfig(cfg) {
-    _config = cfg || { feedback: [] }
+    // Defensive normalization for tests: the authoring UI or saved
+    // author_config may contain `tests` as a JSON string or include
+    // explicit nulls for optional fields. Normalize here so the
+    // feedback UI reliably detects configured tests.
+    let normalizedCfg = cfg || { feedback: [] }
+    try {
+        if (normalizedCfg && typeof normalizedCfg.tests === 'string' && normalizedCfg.tests.trim()) {
+            try {
+                const parsed = JSON.parse(normalizedCfg.tests)
+                if (Array.isArray(parsed)) normalizedCfg.tests = parsed
+            } catch (_e) { /* leave as-is if parse fails */ }
+        }
+    } catch (_e) { }
+
+    try {
+        if (normalizedCfg && Array.isArray(normalizedCfg.tests)) {
+            normalizedCfg.tests = normalizedCfg.tests.map(t => {
+                if (!t || typeof t !== 'object') return t
+                const clean = Object.assign({}, t)
+                if (clean.expected_stdout === null) delete clean.expected_stdout
+                if (clean.expected_stderr === null) delete clean.expected_stderr
+                if (clean.setup === null) delete clean.setup
+                if (clean.stdin === null) delete clean.stdin
+                if (!clean.id) clean.id = ('t-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7))
+                return clean
+            })
+        }
+    } catch (_e) { }
+
+    _config = normalizedCfg
     renderList()
 }
 

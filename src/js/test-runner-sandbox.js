@@ -14,8 +14,19 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
                 try { if (ev.source !== iframe.contentWindow) return } catch (e) { return }
                 const m = ev.data || {}
                 if (m.type === 'loaded') {
-                    // send init with runtime url and snapshot files
-                    iframe.contentWindow.postMessage({ type: 'init', runtimeUrl, files: filesSnapshot }, '*')
+                    // Normalize runtimeUrl: authors may supply the raw .wasm URL
+                    // in their config. The iframe runner must import a JS module
+                    // (e.g. micropython.mjs) so the module can locate/instantiate
+                    // the wasm. Convert *.wasm -> *.mjs when present.
+                    let runtimeUrlToSend = runtimeUrl
+                    try {
+                        if (runtimeUrlToSend && typeof runtimeUrlToSend === 'string' && /\.wasm(\?|$)/i.test(runtimeUrlToSend)) {
+                            runtimeUrlToSend = runtimeUrlToSend.replace(/\.wasm(\?|$)/i, '.mjs$1')
+                        }
+                    } catch (_e) { }
+
+                    // send init with normalized runtime url and snapshot files
+                    iframe.contentWindow.postMessage({ type: 'init', runtimeUrl: runtimeUrlToSend, files: filesSnapshot }, '*')
                 } else if (m.type === 'ready') {
                     // start the test
                     // remember current test id for streaming messages

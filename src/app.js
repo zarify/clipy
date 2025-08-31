@@ -501,8 +501,21 @@ async function main() {
                 try { initializeInstructions(newCfg) } catch (_e) { }
                 // Update Feedback subsystem and UI so feedback/tests from the
                 // newly-applied config fully replace any previous state.
-                try { if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg) } catch (_e) { }
-                try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(newCfg) } catch (_e) { }
+                try {
+                    // Apply the full config to the feedback UI first so tests and
+                    // other non-feedback fields are available. resetFeedback may
+                    // emit a 'reset' event with a feedback-only payload which
+                    // would otherwise overwrite the full UI config; call it
+                    // after resetting and then re-apply to ensure the UI keeps
+                    // the author-provided tests array intact.
+                    if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg)
+                } catch (_e) { }
+                try {
+                    if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') await window.Feedback.resetFeedback(newCfg)
+                    // Re-apply the full config to the feedback UI after resetFeedback
+                    // completes so tests (and other fields) remain present in the UI.
+                    try { if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg) } catch (_e) { }
+                } catch (_e) { }
                 try { appendTerminal('Workspace configured: ' + (newCfg && newCfg.title ? newCfg.title : 'loaded'), 'runtime') } catch (_e) { }
             } catch (e) {
                 try { appendTerminal('Failed to apply configuration: ' + e, 'runtime') } catch (_e) { }
@@ -620,6 +633,36 @@ async function main() {
                                 if (rawJson) {
                                     try {
                                         const raw = JSON.parse(rawJson || 'null')
+
+                                        // If tests were saved as a JSON string by an older authoring
+                                        // session, attempt to parse them so the validator receives
+                                        // the structured array and preserves tests when loading.
+                                        try {
+                                            if (raw && typeof raw.tests === 'string' && raw.tests.trim()) {
+                                                const parsedTests = JSON.parse(raw.tests)
+                                                if (Array.isArray(parsedTests)) raw.tests = parsedTests
+                                            }
+                                        } catch (_e) { /* leave raw.tests as-is if parsing fails */ }
+
+                                        // Sanitize test entries: the authoring UI may include
+                                        // explicit nulls for optional fields. Convert those
+                                        // to absent properties so downstream consumers
+                                        // (and validation) treat them as optional.
+                                        try {
+                                            if (raw && Array.isArray(raw.tests)) {
+                                                raw.tests = raw.tests.map(t => {
+                                                    if (!t || typeof t !== 'object') return t
+                                                    const clean = Object.assign({}, t)
+                                                    if (clean.expected_stdout === null) delete clean.expected_stdout
+                                                    if (clean.expected_stderr === null) delete clean.expected_stderr
+                                                    if (clean.setup === null) delete clean.setup
+                                                    if (clean.stdin === null) delete clean.stdin
+                                                    if (!clean.id) clean.id = ('t-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7))
+                                                    return clean
+                                                })
+                                            }
+                                        } catch (_e) { }
+
                                         const normalized = validateAndNormalizeConfig(raw)
                                         if (normalized) {
                                             // Remove any prior author section to avoid duplicates when

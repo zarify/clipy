@@ -672,7 +672,8 @@ export async function loadMicroPythonRuntime(cfg) {
     }
 
     // If no local vendor adapter, try external runtime
-    // Get runtime URL from config
+    // Get runtime URL from config; prefer a JS module (.mjs) so dynamic import
+    // resolves to a JS module that will internally locate the .wasm file.
     const runtimeUrl = cfg?.runtime?.url || './vendor/micropython.mjs'
 
     if (!runtimeUrl || typeof runtimeUrl !== 'string') {

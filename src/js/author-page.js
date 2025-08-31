@@ -1,6 +1,7 @@
 import { validateAndNormalizeConfig } from './config.js'
 import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearAuthorConfigInLocalStorage, saveDraft, listDrafts, loadDraft } from './author-storage.js'
 import { initAuthorFeedback } from './author-feedback.js'
+import { initAuthorTests } from './author-tests.js'
 
 function $(id) { return document.getElementById(id) }
 
@@ -78,6 +79,14 @@ function saveToLocalStorage() {
                 const parsed = JSON.parse(cfg.feedback)
                 if (Array.isArray(parsed)) cfg.feedback = parsed
             }
+            // Likewise, parse tests if the textarea contains a JSON array so
+            // the saved author_config carries the tests as a structured array
+            // (the main app expects cfg.tests to be an array when running
+            // author-defined tests).
+            if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
+                const parsedTests = JSON.parse(cfg.tests)
+                if (Array.isArray(parsedTests)) cfg.tests = parsedTests
+            }
         } catch (_e) { /* keep raw string if invalid JSON */ }
         // try to validate/normalize but don't block autosave on failure
         try {
@@ -132,7 +141,15 @@ function restoreFromLocalStorage() {
                 }
             } catch (_e) { $('feedback-editor').value = raw.feedback || '' }
         }
-        if ($('tests-editor')) $('tests-editor').value = raw.tests || ''
+        if ($('tests-editor')) {
+            try {
+                if (raw.tests && typeof raw.tests !== 'string') {
+                    $('tests-editor').value = JSON.stringify(raw.tests, null, 2)
+                } else {
+                    $('tests-editor').value = raw.tests || ''
+                }
+            } catch (_e) { $('tests-editor').value = raw.tests || '' }
+        }
     } catch (e) { files = { '/main.py': '# starter code\n' } }
     renderFileList()
     openFile(Object.keys(files)[0] || '/main.py')
@@ -230,6 +247,23 @@ function setupHandlers() {
     $('use-in-app').addEventListener('click', () => {
         try {
             const cfg = buildCurrentConfig()
+            // Ensure tests and feedback that are expressed as JSON strings are
+            // parsed into structured arrays/objects before attempting normalization.
+            try {
+                if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
+                    try {
+                        const parsedTests = JSON.parse(cfg.tests)
+                        if (Array.isArray(parsedTests)) cfg.tests = parsedTests
+                    } catch (_e) { /* leave as string if invalid */ }
+                }
+                if (typeof cfg.feedback === 'string' && cfg.feedback.trim()) {
+                    try {
+                        const parsed = JSON.parse(cfg.feedback)
+                        if (Array.isArray(parsed)) cfg.feedback = parsed
+                    } catch (_e) { /* leave as string if invalid */ }
+                }
+            } catch (_e) { }
+
             // try to normalize, but if validation fails still write raw so app can inspect
             try {
                 const norm = validateAndNormalizeConfig(cfg)
@@ -257,6 +291,7 @@ window.addEventListener('DOMContentLoaded', () => {
     restoreFromLocalStorage()
     setupHandlers()
     try { initAuthorFeedback() } catch (_e) { }
+    try { initAuthorTests() } catch (_e) { }
     // Show metadata tab by default so inputs are visible for tests
     try { document.querySelector('.tab-btn[data-tab="metadata"]').click() } catch (_e) { }
 })
