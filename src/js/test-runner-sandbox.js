@@ -45,8 +45,20 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
                     // If the runner provided a prompt string, surface it to the host UI
                     try {
                         const tid = iframe.__ssg_current_test_id || (test && test.id)
-                        if (m.prompt && typeof window.__ssg_show_stdin_prompt === 'function') {
-                            try { window.__ssg_show_stdin_prompt({ id: tid, prompt: m.prompt }) } catch (e) { }
+                        if (m.prompt) {
+                            // Surface prompt to any UI helpers
+                            if (typeof window.__ssg_show_stdin_prompt === 'function') {
+                                try { window.__ssg_show_stdin_prompt({ id: tid, prompt: m.prompt }) } catch (e) { }
+                            }
+                            // Also emit the prompt as a stdout stream so host
+                            // matchers that expect prompt+input can match against
+                            // the combined output (prompt forwarded, input echoed
+                            // by the iframe runner).
+                            try {
+                                if (typeof window.__ssg_append_test_output === 'function') {
+                                    window.__ssg_append_test_output({ id: tid, type: 'stdout', text: m.prompt })
+                                }
+                            } catch (e) { }
                         }
                     } catch (e) { }
 

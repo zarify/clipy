@@ -45,6 +45,16 @@ try {
                     return new Promise((resolve) => {
                         // Use the same pendingStdinResolve mechanism so parent can reply via postMessage
                         pendingStdinResolve = resolve
+                        try {
+                            // Mirror the prompt into stdoutBuf so the runtime's own
+                            // output includes the prompt string. Do not append a
+                            // newline — keep the prompt as the runtime would emit it.
+                            const ptxt = promptText == null ? '' : String(promptText)
+                            if (ptxt !== '') {
+                                stdoutBuf.push(ptxt)
+                                post({ type: 'stdout', text: ptxt })
+                            }
+                        } catch (_e) { }
                         post({ type: 'stdinRequest', prompt: promptText || '' })
                         // safety timeout: resolve empty after 20s
                         setTimeout(() => {
@@ -297,6 +307,18 @@ try {
             } else if (msg.type === 'stdinResponse') {
                 if (pendingStdinResolve) {
                     try { pendingStdinResolve(msg.value || '') } catch (e) { }
+                    // Echo the input back into stdoutBuf so the host can match
+                    // prompt+input sequences (for author tests that expect the
+                    // user's typed response to be visible). Mirror what a
+                    // terminal would show when a user types and presses Enter.
+                    try {
+                        const v = msg.value == null ? '' : String(msg.value)
+                        if (v !== '') {
+                            const echo = v + '\n'
+                            stdoutBuf.push(echo)
+                            post({ type: 'stdout', text: echo })
+                        }
+                    } catch (_e) { }
                     pendingStdinResolve = null
                 }
             } else if (msg.type === 'terminate') {

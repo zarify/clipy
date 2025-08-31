@@ -69,7 +69,21 @@ export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfi
                         try {
                             if (window.__ssg_pending_input && typeof window.__ssg_pending_input.resolve === 'function') {
                                 const next = stdinQueue.length ? stdinQueue.shift() : ''
-                                try { window.__ssg_pending_input.resolve(next) } catch (_e) { }
+                                try {
+                                    window.__ssg_pending_input.resolve(next)
+                                } catch (_e) { }
+                                // Echo the supplied input into the terminal output so
+                                // expectations that include the user's typed response
+                                // (e.g. prompt + input) can be asserted against stdout.
+                                try {
+                                    if (next && typeof next === 'string') {
+                                        const outEl = document.getElementById('terminal-output')
+                                        if (outEl) {
+                                            // Mirror what a user would type and press Enter
+                                            outEl.textContent = (outEl.textContent || '') + next + '\n'
+                                        }
+                                    }
+                                } catch (_e) { }
                             }
                         } catch (_e) { }
                         if (Date.now() - start > timeout) break
