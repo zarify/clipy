@@ -25,6 +25,13 @@ header {
     display: flex;
     justify-content: space-between;
 
+    /* Make the top-level config header show as clickable (hand cursor) since
+       it behaves like a button that opens the config modal. Avoid the text
+       cursor on hover which is confusing to users. */
+    .config-info {
+        cursor: pointer;
+    }
+
     .author-tab .CodeMirror {
         width: 100%;
         background: #fff;

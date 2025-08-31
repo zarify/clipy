@@ -70,6 +70,15 @@ function openFile(path) {
 function saveToLocalStorage() {
     try {
         const cfg = buildCurrentConfig()
+        // If the feedback field is a JSON string representing an array,
+        // prefer storing it as structured JSON so the app receives the
+        // normalized shape. If parsing fails, keep the raw string.
+        try {
+            if (typeof cfg.feedback === 'string' && cfg.feedback.trim()) {
+                const parsed = JSON.parse(cfg.feedback)
+                if (Array.isArray(parsed)) cfg.feedback = parsed
+            }
+        } catch (_e) { /* keep raw string if invalid JSON */ }
         // try to validate/normalize but don't block autosave on failure
         try {
             const norm = validateAndNormalizeConfig(cfg)
@@ -113,7 +122,16 @@ function restoreFromLocalStorage() {
         $('meta-version').value = raw.version || ''
         if ($('meta-description')) $('meta-description').value = raw.description || ''
         if ($('instructions-editor')) $('instructions-editor').value = raw.instructions || ''
-        if ($('feedback-editor')) $('feedback-editor').value = raw.feedback || ''
+        if ($('feedback-editor')) {
+            try {
+                // If feedback was stored as an array/object, stringify it for the textarea
+                if (raw.feedback && typeof raw.feedback !== 'string') {
+                    $('feedback-editor').value = JSON.stringify(raw.feedback, null, 2)
+                } else {
+                    $('feedback-editor').value = raw.feedback || ''
+                }
+            } catch (_e) { $('feedback-editor').value = raw.feedback || '' }
+        }
         if ($('tests-editor')) $('tests-editor').value = raw.tests || ''
     } catch (e) { files = { '/main.py': '# starter code\n' } }
     renderFileList()

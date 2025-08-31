@@ -499,6 +499,10 @@ async function main() {
                 // Update global config reference and UI
                 try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
                 try { initializeInstructions(newCfg) } catch (_e) { }
+                // Update Feedback subsystem and UI so feedback/tests from the
+                // newly-applied config fully replace any previous state.
+                try { if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg) } catch (_e) { }
+                try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(newCfg) } catch (_e) { }
                 try { appendTerminal('Workspace configured: ' + (newCfg && newCfg.title ? newCfg.title : 'loaded'), 'runtime') } catch (_e) { }
             } catch (e) {
                 try { appendTerminal('Failed to apply configuration: ' + e, 'runtime') } catch (_e) { }
@@ -618,7 +622,15 @@ async function main() {
                                         const raw = JSON.parse(rawJson || 'null')
                                         const normalized = validateAndNormalizeConfig(raw)
                                         if (normalized) {
+                                            // Remove any prior author section to avoid duplicates when
+                                            // opening the modal multiple times during a session.
+                                            try {
+                                                const existing = listContainer.parentNode.querySelector('.config-author-section')
+                                                if (existing && existing.parentNode) existing.parentNode.removeChild(existing)
+                                            } catch (_e) { }
+
                                             const authorSection = document.createElement('div')
+                                            authorSection.className = 'config-author-section'
                                             authorSection.style.marginTop = '8px'
 
                                             const header = document.createElement('div')
