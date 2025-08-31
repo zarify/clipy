@@ -71,6 +71,15 @@ function openFile(path) {
 function saveToLocalStorage() {
     try {
         const cfg = buildCurrentConfig()
+        // Ensure runtime entry exists and prefers the .mjs module loader
+        try {
+            if (!cfg.runtime) cfg.runtime = { type: 'micropython', url: '/vendor/micropython.mjs' }
+            if (cfg.runtime && cfg.runtime.url && typeof cfg.runtime.url === 'string') {
+                if (cfg.runtime.url.trim().endsWith('.wasm')) {
+                    cfg.runtime.url = cfg.runtime.url.trim().replace(/\.wasm$/i, '.mjs')
+                }
+            }
+        } catch (_e) { }
         // If the feedback field is a JSON string representing an array,
         // prefer storing it as structured JSON so the app receives the
         // normalized shape. If parsing fails, keep the raw string.
@@ -247,6 +256,15 @@ function setupHandlers() {
     $('use-in-app').addEventListener('click', () => {
         try {
             const cfg = buildCurrentConfig()
+            // Normalize runtime entry to prefer module loader (.mjs)
+            try {
+                if (!cfg.runtime) cfg.runtime = { type: 'micropython', url: '/vendor/micropython.mjs' }
+                if (cfg.runtime && cfg.runtime.url && typeof cfg.runtime.url === 'string') {
+                    if (cfg.runtime.url.trim().endsWith('.wasm')) {
+                        cfg.runtime.url = cfg.runtime.url.trim().replace(/\.wasm$/i, '.mjs')
+                    }
+                }
+            } catch (_e) { }
             // Ensure tests and feedback that are expressed as JSON strings are
             // parsed into structured arrays/objects before attempting normalization.
             try {
