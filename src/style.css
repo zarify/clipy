@@ -27,9 +27,20 @@ header {
 
     .author-tab .CodeMirror {
         width: 100%;
-    }
-
-    .author-tab .CodeMirror-gutters {
+        background: #fff;
+        color: #111;
+        border: 1px solid #eee;
+        padding: 8px;
+        border-radius: 6px;
+        box-shadow: 0 6px 18px rgba(11, 92, 255, 0.08);
+        white-space: normal;
+        /* allow wrapping */
+        /* Size tooltips proportionally to modal width: prefer ~50-60% of modal.
+                 Modal is typically min(90vw, 720px) so 50% ~= min(360px,45vw) and
+                 60% ~= min(432px,54vw). Use viewport-based fallbacks so tooltips
+                 remain proportional across viewports. */
+        min-width: min(360px, 45vw);
+        max-width: min(432px, 54vw);
         background: #f4f6fb;
         border-right: 1px solid #e6e6e9;
     }
@@ -47,6 +58,56 @@ header {
 
     .author-tab .CodeMirror {
         position: relative;
+    }
+
+    /* Feedback modal styles (small, reused modal pattern) */
+    .modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        align-items: center;
+        justify-content: center;
+        z-index: 60;
+    }
+
+    .modal[aria-hidden="false"] {
+        display: flex;
+    }
+
+    .modal-content {
+        background: var(--panel);
+        padding: 12px;
+        border-radius: 6px;
+        max-width: 720px;
+        width: 90%;
+        max-height: 80vh;
+        overflow: auto;
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        z-index: 2;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .modal-header-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .drag-over {
+        outline: 2px dashed rgba(11, 92, 255, 0.3);
+    }
+
+    .dragging {
+        opacity: 0.6
     }
 }
 
@@ -548,6 +609,55 @@ pre#terminal-output {
     align-items: center;
     gap: 8px;
 }
+
+/* Tiny info icon with hover tooltip used in authoring modal labels */
+.info-icon {
+    position: relative;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(11, 92, 255, 0.06);
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+    cursor: help;
+}
+
+.info-icon:focus {
+    outline: 2px solid rgba(11, 92, 255, 0.18);
+}
+
+.info-icon .info-tooltip {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translate(8px, -50%);
+    background: #fff;
+    color: #111;
+    border: 1px solid #eee;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(11, 92, 255, 0.08);
+    white-space: normal;
+    /* allow wrapping */
+    max-width: 40vw;
+    min-width: 30vw;
+    /* sensible max so it doesn't run off-screen */
+    word-wrap: break-word;
+    z-index: 80;
+    font-size: 0.85rem;
+}
+
+.info-icon:hover .info-tooltip,
+.info-icon:focus .info-tooltip,
+.info-icon:active .info-tooltip {
+    display: block;
+}
+
 
 .feedback-icon {
     display: inline-flex;

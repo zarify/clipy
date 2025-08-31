@@ -1,5 +1,6 @@
 import { validateAndNormalizeConfig } from './config.js'
 import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearAuthorConfigInLocalStorage, saveDraft, listDrafts, loadDraft } from './author-storage.js'
+import { initAuthorFeedback } from './author-feedback.js'
 
 function $(id) { return document.getElementById(id) }
 
@@ -237,6 +238,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadEditor()
     restoreFromLocalStorage()
     setupHandlers()
+    try { initAuthorFeedback() } catch (_e) { }
     // Show metadata tab by default so inputs are visible for tests
     try { document.querySelector('.tab-btn[data-tab="metadata"]').click() } catch (_e) { }
 })
