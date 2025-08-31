@@ -640,9 +640,9 @@ pre#terminal-output {
 .info-icon .info-tooltip {
     display: none;
     position: absolute;
-    left: 100%;
-    top: 50%;
-    transform: translate(8px, -50%);
+    left: 50%;
+    top: calc(100% + 8px);
+    transform: translateX(-50%);
     background: #fff;
     color: #111;
     border: 1px solid #eee;
@@ -652,15 +652,15 @@ pre#terminal-output {
     white-space: normal;
     /* allow wrapping */
     max-width: 40vw;
-    min-width: 30vw;
-    /* sensible max so it doesn't run off-screen */
+    min-width: 10vw;
     word-wrap: break-word;
     z-index: 80;
     font-size: 0.85rem;
 }
 
+/* Show tooltip on hover and when user explicitly focuses via keyboard (focus-visible) */
 .info-icon:hover .info-tooltip,
-.info-icon:focus .info-tooltip,
+.info-icon:focus-visible .info-tooltip,
 .info-icon:active .info-tooltip {
     display: block;
 }

@@ -102,11 +102,6 @@
               <span class="icon" aria-hidden="true">🕘</span>
               <span>History</span>
             </button>
-            <!-- Global clear storage button kept for test compatibility and quick access -->
-            <button id="clear-storage" class="btn btn-danger" title="Clear storage">
-              <span class="icon" aria-hidden="true">🧺</span>
-              <span>Clear storage</span>
-            </button>
           </div>
         </div>
 
@@ -122,8 +117,23 @@
   <div id="snapshot-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="snapshot-modal-title"
     aria-describedby="snapshot-modal-list">
     <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="snapshot-modal-title">Snapshots</h3>
+      <div class="modal-header" style="display:flex;align-items:center;gap:12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 id="snapshot-modal-title">Snapshots</h3>
+          (<div id="snapshot-storage-summary-header" style="font-size:0.95rem;color:#444">(calculating...)</div>)
+          <span class="info-icon" role="img" aria-label="Info about storage counts" tabindex="0"
+            style="margin-left:2px">
+            i
+            <div class="info-tooltip">(storage across all configurations)</div>
+          </span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+          <!-- Keep id clear-storage for existing tests; style as a normal button and place to the right -->
+          <button id="clear-storage" class="btn btn-danger" title="Clear storage" style="margin-left:6px">
+            <span class="icon" aria-hidden="true">🧺</span>
+            <span>Clear storage</span>
+          </button>
+        </div>
       </div>
       <div id="snapshot-list">(loading)</div>
       <div id="snapshot-modal-footer" style="margin-top:8px;font-size:0.9em;color:#444">
@@ -143,9 +153,10 @@
     <div class="modal-content">
       <h3 id="confirm-modal-title">Confirm</h3>
       <div id="confirm-modal-message">Are you sure?</div>
+      <div id="confirm-modal-meta" style="margin-top:8px;color:#666;font-size:0.95rem"></div>
       <div class="modal-actions">
-        <button id="confirm-yes">Confirm</button>
-        <button id="confirm-no">Cancel</button>
+        <button id="confirm-yes" class="btn btn-danger">Confirm</button>
+        <button id="confirm-no" class="btn">Cancel</button>
       </div>
     </div>
   </div>

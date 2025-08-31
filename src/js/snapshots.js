@@ -290,6 +290,40 @@ function renderSnapshots() {
             footer.textContent = `${snaps.length} snapshot(s), ${totalFiles} file(s), ${totalText} total`
         }
     } catch (_e) { }
+
+    // Also update header summary if present
+    try {
+        const hdr = document.getElementById('snapshot-storage-summary-header')
+        if (hdr) {
+            // Compute totals across all snapshot keys in localStorage
+            let allGrand = 0
+            let allSnapCount = 0
+            let allFileCount = 0
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    try {
+                        const key = localStorage.key(i)
+                        if (!key || !key.startsWith('snapshots_')) continue
+                        const arr = JSON.parse(localStorage.getItem(key) || '[]')
+                        if (!Array.isArray(arr) || !arr.length) continue
+                        allSnapCount += arr.length
+                        for (const s of arr) {
+                            try {
+                                const files = s.files || {}
+                                allFileCount += Object.keys(files).length
+                                for (const k of Object.keys(files)) {
+                                    try { allGrand += new TextEncoder().encode(String(files[k] || '')).length } catch (_e) { }
+                                }
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
+                }
+            } catch (_e) { }
+
+            const totalText = allGrand < 1024 ? `${allGrand}B` : (allGrand < 1024 * 1024 ? `${Math.round(allGrand / 1024)}KB` : `${(allGrand / (1024 * 1024)).toFixed(2)}MB`)
+            hdr.textContent = `${allSnapCount} snaps • ${allFileCount} files • ${totalText}`
+        }
+    } catch (_e) { }
 }
 
 async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
@@ -512,6 +546,13 @@ function openSnapshotModal() {
         closeBtn.addEventListener('click', closeSnapshotModal)
     }
 
+    // Ensure focus lands on a sensible control (close button) so tooltip/info icon isn't focused by default
+    try {
+        if (closeBtn && typeof closeBtn.focus === 'function') {
+            closeBtn.focus()
+        }
+    } catch (_e) { }
+
     // Wire the Clear storage button inside the modal
     try {
         // Attach click handler to the global #clear-storage button while modal is open.
@@ -551,6 +592,32 @@ function closeSnapshotModal() {
 
 async function clearStorage() {
     const configIdentity = getConfigIdentity()
+
+    // Compute summary across all snapshot keys in localStorage to show the user
+    // how many snapshots and how many distinct configurations will be affected.
+    let totalSnapshots = 0
+    const configs = new Set()
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            try {
+                const key = localStorage.key(i)
+                if (!key || !key.startsWith('snapshots_')) continue
+                const arr = JSON.parse(localStorage.getItem(key) || '[]')
+                if (Array.isArray(arr) && arr.length) {
+                    totalSnapshots += arr.length
+                    configs.add(key.replace(/^snapshots_/, ''))
+                }
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+
+    // Populate confirm modal meta area with a friendly summary
+    try {
+        const meta = document.getElementById('confirm-modal-meta')
+        if (meta) {
+            meta.textContent = `This will delete ${totalSnapshots} snapshot(s) across ${configs.size} configuration(s).`
+        }
+    } catch (_e) { }
 
     const ok = await showConfirmModal(
         'Clear snapshots',
