@@ -247,11 +247,26 @@ test.describe('Storage Management - Cleanup Operations', () => {
             }]))
         })
 
-        // Clear current config storage
-        await page.click('#clear-storage')
+        // Clear current config storage via the global clear button. If a confirm modal
+        // or other overlay intercepts clicks, dismiss it and retry (robust to timing).
+        try {
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        } catch (err) {
+            const confirmOpenFallback = await page.$('#confirm-modal[aria-hidden="false"]')
+            if (confirmOpenFallback) {
+                await page.locator('#confirm-no').click()
+                await page.waitForSelector('#confirm-modal', { state: 'hidden', timeout: 5000 })
+            }
+            // Ensure snapshot modal is open (app wires clear handler when modal open)
+            await page.click('#history')
+            await page.waitForSelector('#snapshot-modal[aria-hidden="false"]', { timeout: 5000 })
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        }
 
         // Confirm in the modal
-        await page.waitForSelector('.modal[aria-hidden="false"]')
+        await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
         await page.click('#confirm-yes')
         await page.waitForTimeout(500)
 

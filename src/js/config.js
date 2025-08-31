@@ -115,6 +115,16 @@ export function getConfigKey() {
     return `snapshots_${identity}`
 }
 
+// Allow other modules to explicitly set the current in-memory config so
+// module-scoped helpers (getConfigIdentity / getConfigKey) reflect the
+// active configuration. This is used when the app applies a config that
+// wasn't loaded via the normal loadConfig* helpers (for example when an
+// authoring config is pushed into localStorage and applied at runtime).
+export function setCurrentConfig(newCfg) {
+    config = newCfg
+    try { if (typeof window !== 'undefined') window.Config = window.Config || {}; window.Config.current = config } catch (_e) { }
+}
+
 export function validateAndNormalizeConfig(rawConfig) {
     return validateAndNormalizeConfigInternal(rawConfig)
 }
@@ -151,6 +161,10 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         ,
         // Include author-provided tests array if present
         tests: Array.isArray(rawConfig.tests) ? rawConfig.tests : []
+        ,
+        // Preserve any files object provided by the authoring config so callers
+        // (like applyConfigToWorkspace) can write them into the FileManager.
+        files: (rawConfig && typeof rawConfig.files === 'object') ? rawConfig.files : undefined
     }
 
     // Validate runtime URL is not empty

@@ -2,7 +2,7 @@
 // This replaces the monolithic main.js with organized, maintainable modules
 
 // Core utilities and configuration
-import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile } from './js/config.js'
+import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile, setCurrentConfig } from './js/config.js'
 import { $ } from './js/utils.js'
 
 import { openModal, closeModal } from './js/modals.js'
@@ -497,7 +497,7 @@ async function main() {
                 try { if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') window.TabManager.refreshOpenTabContents() } catch (_e) { }
 
                 // Update global config reference and UI
-                try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
+                try { setCurrentConfig(newCfg) } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
                 try { initializeInstructions(newCfg) } catch (_e) { }
                 // Update Feedback subsystem and UI so feedback/tests from the
                 // newly-applied config fully replace any previous state.

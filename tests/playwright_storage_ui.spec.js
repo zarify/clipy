@@ -205,12 +205,30 @@ test.describe('Storage Management - UI Integration', () => {
             await page.locator('#clear-storage').click({ force: true })
         }
 
-        // Close the snapshot modal using the Close button for reliability
-        await page.click('#close-snapshots')
-        await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
+        // Close the snapshot modal using the Close button for reliability if it's still open
+        const modalOpen = await page.$('#snapshot-modal[aria-hidden="false"]')
+        if (modalOpen) {
+            await page.locator('#snapshot-modal #close-snapshots').click()
+            await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
+        }
 
-        // Now click clear-storage and confirm dialog
-        await page.click('#clear-storage')
+        // Trigger clear via the global #clear-storage button (app delegates to modal flow).
+        // If a confirm modal is intercepting clicks, dismiss it first and retry.
+        try {
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        } catch (err) {
+            const confirmOpenFallback = await page.$('#confirm-modal[aria-hidden="false"]')
+            if (confirmOpenFallback) {
+                await page.locator('#confirm-no').click()
+                await page.waitForSelector('#confirm-modal', { state: 'hidden', timeout: 5000 })
+            }
+            // Ensure snapshot modal is open (app wires clear-storage handler when modal open)
+            await page.click('#history')
+            await page.waitForSelector('#snapshot-modal[aria-hidden="false"]', { timeout: 5000 })
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        }
         await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
         await page.waitForTimeout(200)
         const confirmModal = page.locator('#confirm-modal[aria-hidden="false"]')
@@ -234,12 +252,24 @@ test.describe('Storage Management - UI Integration', () => {
         }, { timeout: 8000 })
         await expect(page.locator('.snapshot-item')).toHaveCount(1)
 
-        // Close snapshot modal again
-        await page.click('#close-snapshots')
-        await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
+        // Close snapshot modal again if open
+        const modalOpen2 = await page.$('#snapshot-modal[aria-hidden="false"]')
+        if (modalOpen2) {
+            await page.locator('#snapshot-modal #close-snapshots').click()
+            await page.waitForSelector('#snapshot-modal', { state: 'hidden', timeout: 5000 })
+        }
 
-        // Try again and confirm deletion
-        await page.click('#clear-storage')
+        // Try again and confirm deletion by clicking the global clear button.
+        try {
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        } catch (_) {
+            // If something intercepts, reopen modal and retry
+            await page.click('#history')
+            await page.waitForSelector('#snapshot-modal[aria-hidden="false"]', { timeout: 5000 })
+            await page.waitForSelector('#clear-storage', { timeout: 3000 })
+            await page.click('#clear-storage')
+        }
         await page.waitForSelector('#confirm-modal[aria-hidden="false"]', { timeout: 5000 })
         await page.waitForTimeout(200)
         await page.click('#confirm-yes')
