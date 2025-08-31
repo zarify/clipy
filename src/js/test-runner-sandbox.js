@@ -10,6 +10,20 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
             iframe.src = iframeSrc
             document.body.appendChild(iframe)
 
+            // Prepare a per-run stdin queue so multi-line string stdin ("a\nb")
+            // is fed one line per prompt instead of re-sending the whole
+            // string for each stdinRequest. If the author supplied an array,
+            // copy it so we don't mutate their object.
+            let stdinQueue = null
+            if (Array.isArray(test && test.stdin)) {
+                stdinQueue = (test.stdin || []).slice()
+            } else if (test && typeof test.stdin === 'string') {
+                // split on LF; preserve empty strings for trailing/newline cases
+                stdinQueue = String(test.stdin).split('\n')
+            } else {
+                stdinQueue = []
+            }
+
             const msgListener = (ev) => {
                 try { if (ev.source !== iframe.contentWindow) return } catch (e) { return }
                 const m = ev.data || {}
@@ -62,10 +76,18 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
                         }
                     } catch (e) { }
 
-                    // reply immediately with queued stdin (string or array)
+                    // reply with the next queued stdin item (if any). This
+                    // ensures multi-line string stdin is consumed one line at
+                    // a time per prompt. If the queue is empty, reply with
+                    // an empty string.
                     let v = ''
-                    if (typeof test.stdin === 'string') v = test.stdin
-                    else if (Array.isArray(test.stdin)) v = test.stdin.shift() || ''
+                    try {
+                        if (stdinQueue && stdinQueue.length) {
+                            v = stdinQueue.shift() || ''
+                        } else {
+                            v = ''
+                        }
+                    } catch (e) { v = '' }
                     iframe.contentWindow.postMessage({ type: 'stdinResponse', value: String(v) }, '*')
                 } else if (m.type === 'testResult') {
                     try { console.debug && console.debug('[sandbox] testResult', m) } catch (e) { }

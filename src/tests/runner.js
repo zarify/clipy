@@ -8,7 +8,11 @@ try {
     let runtimeAdapter = null
     let stdoutBuf = []
     let stderrBuf = []
-    let pendingStdinResolve = null
+    // Support multiple pending stdin waiters while ensuring only a single
+    // stdinRequest is posted to the parent. pendingStdinResolves holds all
+    // resolver callbacks; stdinRequested prevents duplicate requests.
+    let pendingStdinResolves = []
+    let stdinRequested = false
 
     function post(o) {
         try { console.log('[runner post]', o) } catch (_) { }
@@ -43,24 +47,29 @@ try {
                 // Define inputHandler first so stdin can delegate to it when available.
                 const inputHandler = async function (promptText = '') {
                     return new Promise((resolve) => {
-                        // Use the same pendingStdinResolve mechanism so parent can reply via postMessage
-                        pendingStdinResolve = resolve
+                        // Queue this resolver so multiple callers (some runtimes
+                        // call both stdin() and inputHandler) all receive the
+                        // same stdin response without causing duplicate requests.
+                        pendingStdinResolves.push(resolve)
                         try {
-                            // Mirror the prompt into stdoutBuf so the runtime's own
-                            // output includes the prompt string. Do not append a
-                            // newline — keep the prompt as the runtime would emit it.
                             const ptxt = promptText == null ? '' : String(promptText)
                             if (ptxt !== '') {
                                 stdoutBuf.push(ptxt)
                                 post({ type: 'stdout', text: ptxt })
                             }
                         } catch (_e) { }
-                        post({ type: 'stdinRequest', prompt: promptText || '' })
-                        // safety timeout: resolve empty after 20s
+                        // Only post a single stdinRequest for this round.
+                        if (!stdinRequested) {
+                            stdinRequested = true
+                            post({ type: 'stdinRequest', prompt: promptText || '' })
+                        }
+
+                        // safety timeout: resolve all queued resolvers empty after 20s
                         setTimeout(() => {
-                            if (pendingStdinResolve) {
-                                try { pendingStdinResolve('') } catch (e) { }
-                                pendingStdinResolve = null
+                            if (pendingStdinResolves && pendingStdinResolves.length) {
+                                try { pendingStdinResolves.forEach(r => { try { r('') } catch (_) { } }) } catch (_) { }
+                                pendingStdinResolves = []
+                                stdinRequested = false
                                 post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
@@ -69,23 +78,29 @@ try {
 
                 // Custom stdin: delegate to inputHandler when present to avoid dual-calls
                 const stdin = () => {
+                    // Use the shared inputHandler mechanism so callers benefit
+                    // from the single-request semantics.
                     if (typeof inputHandler === 'function') {
                         try {
-                            // Delegate to inputHandler and return its resolved value
                             return Promise.resolve(inputHandler('')).then(v => (v == null ? '' : String(v)))
                         } catch (e) {
                             post({ type: 'debug', text: 'stdin delegation failed: ' + String(e) })
-                            // fall through to legacy behavior
                         }
                     }
 
                     return new Promise((resolve) => {
-                        pendingStdinResolve = resolve
-                        post({ type: 'stdinRequest' })
+                        // Legacy fallback: queue resolver and post a request if
+                        // none is outstanding.
+                        pendingStdinResolves.push(resolve)
+                        if (!stdinRequested) {
+                            stdinRequested = true
+                            post({ type: 'stdinRequest', prompt: '' })
+                        }
                         setTimeout(() => {
-                            if (pendingStdinResolve) {
-                                try { pendingStdinResolve('') } catch (e) { }
-                                pendingStdinResolve = null
+                            if (pendingStdinResolves && pendingStdinResolves.length) {
+                                try { pendingStdinResolves.forEach(r => { try { r('') } catch (_) { } }) } catch (_) { }
+                                pendingStdinResolves = []
+                                stdinRequested = false
                                 post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
@@ -156,7 +171,8 @@ try {
     async function handleRunTest(test) {
         stdoutBuf = []
         stderrBuf = []
-        pendingStdinResolve = null
+        pendingStdinResolves = []
+        stdinRequested = false
         const start = Date.now()
         try {
             if (test.setup && typeof test.setup === 'object') {
@@ -249,22 +265,49 @@ try {
                 }
             } catch (e) { /* best-effort, don't fail the test harness */ }
 
-            // Assemble streamed chunks: if any chunk contains a newline already,
-            // assume the runtime included line breaks and join as-is. Otherwise
-            // insert a single '\n' between chunks so multi-chunk prints like
-            // print('a\nb') become 'a\nb' instead of 'ab'.
+            // Assemble streamed chunks robustly: insert a single '\n' between
+            // adjacent chunks when neither side already contains a newline at
+            // the boundary. This preserves runtime-provided newlines while
+            // avoiding accidental concatenation like 'Hello Rob' + '42!'.
             const assemble = (buf) => {
                 if (!buf || !buf.length) return ''
-                const hasNewline = buf.some(s => typeof s === 'string' && s.indexOf('\n') !== -1)
-                return hasNewline ? buf.join('') : buf.join('\n')
+                let out = ''
+                for (let i = 0; i < buf.length; i++) {
+                    const cur = String(buf[i] || '')
+                    if (i === 0) {
+                        out += cur
+                        continue
+                    }
+                    const prev = out.length ? out[out.length - 1] : ''
+                    const nextFirst = cur.length ? cur[0] : ''
+                    // If previous ends with any whitespace (space/newline/tab)
+                    // or next starts with whitespace, don't insert an extra
+                    // newline. This keeps prompts that end with a space
+                    // directly adjacent to the user's echoed input.
+                    const prevEndsWhitespace = prev && (/\s/.test(prev))
+                    const nextStartsWhitespace = nextFirst && (/\s/.test(nextFirst))
+                    if (!prevEndsWhitespace && !nextStartsWhitespace) out += '\n'
+                    out += cur
+                }
+                return out
             }
             return { id: test.id, passed: true, stdout: assemble(stdoutBuf), stderr: assemble(stderrBuf), durationMs: duration }
         } catch (err) {
             const duration = Date.now() - start
             const assemble = (buf) => {
                 if (!buf || !buf.length) return ''
-                const hasNewline = buf.some(s => typeof s === 'string' && s.indexOf('\n') !== -1)
-                return hasNewline ? buf.join('') : buf.join('\n')
+                let out = ''
+                for (let i = 0; i < buf.length; i++) {
+                    const cur = String(buf[i] || '')
+                    if (i === 0) { out += cur; continue }
+                    const prev = out.length ? out[out.length - 1] : ''
+                    const nextFirst = cur.length ? cur[0] : ''
+                    const prevEndsWhitespace = prev && (/\s/.test(prev))
+                    const nextStartsWhitespace = nextFirst && (/\s/.test(nextFirst))
+                    if (!prevEndsWhitespace && !nextStartsWhitespace) out += '\n'
+                    out += cur
+                }
+                return out
             }
             const stderrJoined = assemble(stderrBuf)
             return { id: test.id, passed: false, stdout: assemble(stdoutBuf), stderr: (stderrJoined ? (stderrJoined + '\n' + String(err)) : String(err)), durationMs: duration, reason: String(err) }
@@ -305,21 +348,23 @@ try {
                     post({ type: 'testResult', ...result })
                 }
             } else if (msg.type === 'stdinResponse') {
-                if (pendingStdinResolve) {
-                    try { pendingStdinResolve(msg.value || '') } catch (e) { }
-                    // Echo the input back into stdoutBuf so the host can match
-                    // prompt+input sequences (for author tests that expect the
-                    // user's typed response to be visible). Mirror what a
-                    // terminal would show when a user types and presses Enter.
+                if (pendingStdinResolves && pendingStdinResolves.length) {
                     try {
                         const v = msg.value == null ? '' : String(msg.value)
-                        if (v !== '') {
-                            const echo = v + '\n'
-                            stdoutBuf.push(echo)
-                            post({ type: 'stdout', text: echo })
-                        }
+                        // resolve all queued resolvers with the same value
+                        pendingStdinResolves.forEach(r => { try { r(v) } catch (_) { } })
+                        pendingStdinResolves = []
+                        stdinRequested = false
+                        // Echo the input back into stdoutBuf once so the host
+                        // can match prompt+input sequences. Mirror terminal: add newline.
+                        try {
+                            if (v !== '') {
+                                const echo = v + '\n'
+                                stdoutBuf.push(echo)
+                                post({ type: 'stdout', text: echo })
+                            }
+                        } catch (_e) { }
                     } catch (_e) { }
-                    pendingStdinResolve = null
                 }
             } else if (msg.type === 'terminate') {
                 try { post({ type: 'debug', text: 'terminate received' }) } catch (e) { }
