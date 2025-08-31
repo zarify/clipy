@@ -93,14 +93,36 @@ function evaluateFeedbackOnEdit(code, path) {
         const p = entry.pattern
         if (p.type === 'regex') {
             if (p.target === 'code') {
+                // Determine which file's content to check. If a fileTarget is
+                // provided on the pattern use that, otherwise fall back to the
+                // current path or the protected main file '/main.py'. Use the
+                // global FileManager (if available) to read other files.
+                const targetFile = (p.fileTarget && String(p.fileTarget).trim()) || (path || '/main.py')
+                let contentToCheck = String(code || '')
+                try {
+                    // If the requested targetFile differs from the currently
+                    // provided path, attempt to read it from FileManager/mem.
+                    const normalizedTarget = targetFile.startsWith('/') ? targetFile : ('/' + targetFile)
+                    const currentPathNorm = path && (path.startsWith('/') ? path : ('/' + path))
+                    if (normalizedTarget !== currentPathNorm) {
+                        if (typeof window !== 'undefined' && window.FileManager && typeof window.FileManager.read === 'function') {
+                            const readVal = window.FileManager.read(normalizedTarget)
+                            if (readVal != null) contentToCheck = String(readVal)
+                        } else {
+                            // No FileManager available; if mem is present try window.__ssg_mem
+                            try { if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, normalizedTarget)) contentToCheck = String(window.__ssg_mem[normalizedTarget]) } catch (_e) { }
+                        }
+                    }
+                } catch (_e) { }
+
                 const re = _applyRegex(p.expression, p.flags)
                 if (!re) continue
-                const lines = String(code || '').split(/\r?\n/)
+                const lines = contentToCheck.split(/\r?\n/)
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i]
                     const m = line.match(re)
                     if (m) {
-                        matches.push({ file: path, line: i + 1, message: _formatMessage(entry.message, m), id: entry.id })
+                        matches.push({ file: (targetFile.startsWith('/') ? targetFile : ('/' + targetFile)), line: i + 1, message: _formatMessage(entry.message, m), id: entry.id })
                     }
                 }
             } else if (p.target === 'filename') {

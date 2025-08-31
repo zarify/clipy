@@ -108,12 +108,21 @@ function buildEditorForm(existing) {
     // helper: create a labeled row. Optional helpText will render a small
     // info icon with a hover tooltip next to the label to avoid taking extra
     // screen space.
-    function labeled(labelText, el, helpText) {
+    // helper: create a labeled row. Optional helpText will render a small
+    // info icon with a hover tooltip next to the label to avoid taking extra
+    // screen space. Pass inline=true to lay the input element on the same
+    // horizontal line as the label (useful for compact checkboxes).
+    function labeled(labelText, el, helpText, inline = false) {
         const wr = document.createElement('div')
         wr.style.marginBottom = '8px'
+        if (inline) {
+            wr.style.display = 'flex'
+            wr.style.alignItems = 'center'
+            wr.style.gap = '12px'
+        }
         const l = document.createElement('div')
         l.style.fontSize = '0.9em'
-        l.style.marginBottom = '4px'
+        l.style.marginBottom = inline ? '0' : '4px'
         l.style.display = 'flex'
         l.style.alignItems = 'center'
         l.style.gap = '8px'
@@ -170,6 +179,12 @@ function buildEditorForm(existing) {
     VALID_TARGETS.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; targetSel.appendChild(o) })
     targetSel.value = (existing.pattern && existing.pattern.target) || 'code'
 
+    const fileTargetIn = document.createElement('input')
+    fileTargetIn.type = 'text'
+    fileTargetIn.style.width = '180px'
+    // keep legacy values without leading slash but UI shows simple filename
+    fileTargetIn.value = (existing.pattern && existing.pattern.fileTarget) || 'main.py'
+
     const expr = document.createElement('input')
     expr.type = 'text'
     expr.style.width = '100%'
@@ -195,15 +210,30 @@ function buildEditorForm(existing) {
     visible.checked = typeof existing.visibleByDefault === 'boolean' ? existing.visibleByDefault : true
 
     root.appendChild(labeled('Title', title, 'Short title shown in the feedback list.'))
-    root.appendChild(labeled('ID (optional)', idIn, 'Optional stable id. Generated automatically if left empty.'))
-    root.appendChild(labeled('When', whenWrap, 'Choose when this feedback applies: edit (while editing) or run (at runtime).'))
+    root.appendChild(labeled('ID [optional]', idIn, 'Optional stable id. Generated automatically if left empty.'))
+    // place the 'When' checkboxes and the visible toggle inline on one row
+    const whenRow = document.createElement('div')
+    whenRow.style.display = 'inline-flex'
+    whenRow.style.alignItems = 'center'
+    whenRow.style.gap = '12px'
+    whenRow.appendChild(whenWrap)
+    // create an inline label for the visible checkbox so it sits next to When
+    const visibleLabel = document.createElement('label')
+    visibleLabel.style.display = 'inline-flex'
+    visibleLabel.style.alignItems = 'center'
+    visibleLabel.style.gap = '6px'
+    visibleLabel.style.fontSize = '0.95em'
+    visibleLabel.appendChild(visible)
+    visibleLabel.appendChild(document.createTextNode('Visible by default'))
+    whenRow.appendChild(visibleLabel)
+    root.appendChild(labeled('When', whenRow, 'Choose when this feedback applies: edit (while editing) or run (at runtime).', true))
     root.appendChild(labeled('Pattern type', patternType, 'Type of pattern matcher. "regex" matches text; "ast" uses the parsed code structure (advanced).'))
     root.appendChild(labeled('Pattern target', targetSel, 'Which program area to match: source code, filename, stdout/stderr, or stdin.'))
+    root.appendChild(labeled('File target', fileTargetIn, 'Filename to apply code/AST checks against (e.g. main.py). Defaults to main.py.'))
     root.appendChild(labeled('Expression', expr, 'The match expression. For regex, enter the pattern without delimiters.'))
-    root.appendChild(labeled('Flags', flags, 'Optional regex flags (e.g. "i" for case-insensitive).'))
+    root.appendChild(labeled('Flags [optional]', flags, 'Optional regex flags (e.g. "i" for case-insensitive).'))
     root.appendChild(labeled('Message', message, 'Message shown to the author when the feedback triggers. Use plain text or simple markdown.'))
-    root.appendChild(labeled('Severity', severity, 'How serious the feedback is: info, warning, or error.'))
-    root.appendChild(labeled('Visible by default', visible, 'If true the feedback is visible in the UI by default; otherwise it is hidden until triggered.'))
+    root.appendChild(labeled('Style', severity, 'The visual style for the feedback: info, warning, or error.'))
 
     return {
         root,
@@ -214,7 +244,7 @@ function buildEditorForm(existing) {
                 id: idIn.value || undefined,
                 title: title.value || '',
                 when: when.length ? when : ['edit'],
-                pattern: { type: patternType.value || 'regex', target: targetSel.value || 'code', expression: expr.value || '', flags: flags.value || '' },
+                pattern: { type: patternType.value || 'regex', target: targetSel.value || 'code', fileTarget: fileTargetIn.value || 'main.py', expression: expr.value || '', flags: flags.value || '' },
                 message: message.value || '',
                 severity: severity.value || 'info',
                 visibleByDefault: !!visible.checked
