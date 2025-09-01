@@ -105,10 +105,15 @@ function renderList() {
                 tr.appendChild(titleRow)
 
                 // Show actual vs expected for failing tests when the author-provided
-                // expected_stdout exists (either a plain string or an object describing
-                // a regex). This helps authors quickly see mismatches. Passing tests remain compact.
+                // expected_stdout exists and is a plain string (not regex). This helps 
+                // authors quickly see mismatches. Passing tests remain compact.
+                // We avoid showing actual/expected for regex tests as it's confusing.
+                // IMPORTANT: Only show actual/expected if there's no stderr - if the program
+                // crashed we should show the traceback instead of output comparison.
                 const hasExpected = authorEntry && (authorEntry.expected_stdout != null)
-                if (!r.passed && hasExpected) {
+                const isRegexExpected = hasExpected && (typeof authorEntry.expected_stdout === 'object' && authorEntry.expected_stdout.type === 'regex')
+                const hasStderr = r.stderr && r.stderr.trim().length > 0
+                if (!r.passed && hasExpected && !isRegexExpected && !hasStderr) {
                     const detailsWrap = document.createElement('div')
                     detailsWrap.className = 'test-compare'
                     detailsWrap.style.marginTop = '8px'
@@ -124,6 +129,7 @@ function renderList() {
                     const codeA = document.createElement('code')
                     // render as plain text (no syntax highlighting by default)
                     codeA.className = 'test-code'
+                    codeA.setAttribute('data-nohighlight', 'true')
                     codeA.textContent = (r.stdout != null) ? String(r.stdout) : ''
                     preA.appendChild(codeA)
                     detailsWrap.appendChild(preA)
@@ -139,6 +145,7 @@ function renderList() {
                     preE.style.fontFamily = 'monospace'
                     const codeE = document.createElement('code')
                     codeE.className = 'test-code'
+                    codeE.setAttribute('data-nohighlight', 'true')
                     // If regex-shaped object, show as /expr/flags, otherwise string.
                     try {
                         const exp = authorEntry.expected_stdout
@@ -149,28 +156,19 @@ function renderList() {
                     preE.appendChild(codeE)
                     detailsWrap.appendChild(preE)
 
-                    // Highlight if hljs available
-                    try {
-                        if (window.hljs && typeof window.hljs.highlightElement === 'function') {
-                            // Only run highlightElement when the code element explicitly
-                            // declares a language class (e.g. language-python). For our
-                            // test compare blocks we want plain text, so we skip auto-highlighting.
-                            if (codeA.className && /language-/.test(codeA.className)) window.hljs.highlightElement(codeA)
-                            if (codeE.className && /language-/.test(codeE.className)) window.hljs.highlightElement(codeE)
-                        }
-                    } catch (_e) { }
+                    // Don't highlight actual/expected blocks - they should be plain text output
+                    // not syntax-highlighted code. Remove hljs call entirely for test output.
 
                     tr.appendChild(detailsWrap)
                 }
 
-                // Only surface failure details when the author explicitly requests it.
-                // The config can opt-in with `show_stderr: true` (or legacy `show_traceback`).
-                // By policy we never show stdout to the user in feedback UI; stderr is
-                // shown only if the author enabled it. If no author entry exists, default
-                // to not showing any details.
+                // Show stderr/traceback for failing tests. Always show if there's stderr
+                // (runtime errors should always be visible), or if author explicitly
+                // requested it via show_stderr/show_traceback config.
                 const shouldShowDetails = authorEntry ? !!(authorEntry.show_stderr || authorEntry.show_traceback) : false
+                const hasStderrToShow = r.stderr && r.stderr.trim().length > 0
 
-                if (shouldShowDetails && (!r.passed && (r.stderr || r.reason))) {
+                if (!r.passed && (hasStderrToShow || (shouldShowDetails && (r.stderr || r.reason)))) {
                     const detailsWrap = document.createElement('div')
                     detailsWrap.className = 'feedback-msg'
                     // Reason (short label) if present
@@ -582,7 +580,7 @@ function showTestResultsModal(results) {
                 if (typeof cfgEntry.expected_stdout !== 'undefined' && cfgEntry.expected_stdout !== null) expected = cfgEntry.expected_stdout
             }
 
-            if (!r.passed && expected != null) {
+            if (!r.passed && expected != null && !(typeof expected === 'object' && expected.type === 'regex') && !(r.stderr && r.stderr.trim().length > 0)) {
                 const compareWrap = document.createElement('div')
                 compareWrap.className = 'test-compare'
                 compareWrap.style.marginTop = '8px'
@@ -597,7 +595,8 @@ function showTestResultsModal(results) {
                 preA.style.whiteSpace = 'pre-wrap'
                 preA.style.fontFamily = 'monospace'
                 const codeA = document.createElement('code')
-                codeA.className = 'language-python'
+                codeA.className = 'test-code'
+                codeA.setAttribute('data-nohighlight', 'true')
                 codeA.textContent = (r.stdout != null) ? String(r.stdout) : ''
                 preA.appendChild(codeA)
                 compareWrap.appendChild(preA)
@@ -612,7 +611,8 @@ function showTestResultsModal(results) {
                 preE.style.whiteSpace = 'pre-wrap'
                 preE.style.fontFamily = 'monospace'
                 const codeE = document.createElement('code')
-                codeE.className = 'language-python'
+                codeE.className = 'test-code'
+                codeE.setAttribute('data-nohighlight', 'true')
                 try {
                     if (typeof expected === 'string') codeE.textContent = expected
                     else if (typeof expected === 'object' && expected.type === 'regex') codeE.textContent = `/${expected.expression}/${expected.flags || ''}`
@@ -645,8 +645,7 @@ function showTestResultsModal(results) {
                     }
                 } catch (_e) { }
 
-                // Highlight if hljs available
-                try { if (window.hljs && typeof window.hljs.highlightElement === 'function') { window.hljs.highlightElement(codeA); window.hljs.highlightElement(codeE) } } catch (_e) { }
+                // Don't highlight actual/expected blocks - they should be plain text output
 
                 fb.appendChild(compareWrap)
             }
@@ -666,10 +665,11 @@ function showTestResultsModal(results) {
             fb.appendChild(ff)
         }
 
-        // Show stderr/reason only when author explicitly requests it. Do not
-        // expose stdout to the end user from author tests by default.
+        // Show stderr/reason when there's a runtime error (always) or when author 
+        // explicitly requests it. Always show stderr for runtime errors.
         const showDetails = meta && (meta.show_stderr || meta.show_traceback)
-        if (r.reason || (showDetails && r.stderr)) {
+        const hasStderr = r.stderr && r.stderr.trim().length > 0
+        if (r.reason || hasStderr || (showDetails && r.stderr)) {
             const detWrap = document.createElement('div')
             detWrap.className = 'test-io'
             detWrap.style.marginTop = '8px'
@@ -680,12 +680,12 @@ function showTestResultsModal(results) {
 
             if (r.reason) {
                 const reasonEl = document.createElement('div')
-                reasonEl.textContent = 'Reason: ' + r.reason
+                reasonEl.textContent = r.reason
                 reasonEl.style.marginBottom = '6px'
                 detWrap.appendChild(reasonEl)
             }
 
-            if (showDetails && r.stderr) {
+            if (hasStderr || (showDetails && r.stderr)) {
                 const stderrEl = document.createElement('div')
                 stderrEl.className = 'test-stderr'
                 stderrEl.style.whiteSpace = 'pre-wrap'

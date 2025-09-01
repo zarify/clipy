@@ -38,6 +38,72 @@ function matchExpectation(actual, expected) {
     return { matched: false }
 }
 
+// Produce a human-readable mismatch reason for simple string expectations.
+function computeMismatchReason(actual, expected) {
+    try {
+        const a = String(actual == null ? '' : actual)
+        const e = String(expected == null ? '' : expected)
+
+        // Helper functions to normalize text
+        const norm = (s) => s.replace(/[\s\r\n]+/g, ' ').trim()
+        const stripPunct = (s) => {
+            try {
+                return s.replace(/[\p{P}\p{S}]/gu, '') // remove punctuation & symbols
+            } catch (_e) {
+                return s.replace(/[.,;:!?'"()\[\]{}\-]/g, '') // fallback for older browsers
+            }
+        }
+
+        // Check what types of fixes would make them match
+        const differences = []
+
+        // Would fixing case make them match?
+        if (a.toLowerCase() === e.toLowerCase()) {
+            differences.push('case')
+        }
+
+        // Would fixing spacing make them match? 
+        if (norm(a) === norm(e)) {
+            differences.push('spacing/line breaks')
+        }
+
+        // Would fixing punctuation make them match?
+        if (stripPunct(a).trim() === stripPunct(e).trim()) {
+            differences.push('punctuation')
+        }
+
+        // Would fixing case + spacing make them match?
+        if (norm(a.toLowerCase()) === norm(e.toLowerCase()) && !differences.includes('case') && !differences.includes('spacing/line breaks')) {
+            differences.push('case', 'spacing/line breaks')
+        }
+
+        // Would fixing case + punctuation make them match?
+        if (stripPunct(a).toLowerCase().trim() === stripPunct(e).toLowerCase().trim() && !differences.includes('case') && !differences.includes('punctuation')) {
+            differences.push('case', 'punctuation')
+        }
+
+        // Would fixing spacing + punctuation make them match?
+        if (norm(stripPunct(a)) === norm(stripPunct(e)) && !differences.includes('spacing/line breaks') && !differences.includes('punctuation')) {
+            differences.push('spacing/line breaks', 'punctuation')
+        }
+
+        // Would fixing all three make them match?
+        if (norm(stripPunct(a).toLowerCase()) === norm(stripPunct(e).toLowerCase()) && differences.length === 0) {
+            differences.push('case', 'spacing/line breaks', 'punctuation')
+        }
+
+        if (differences.length > 0) {
+            // Remove duplicates and format nicely
+            const uniqueDiffs = [...new Set(differences)]
+            return `Your program's output differences: ${uniqueDiffs.join(', ')}`
+        }
+
+        return 'Your program\'s output does not match the expected output'
+    } catch (_e) {
+        return 'Your program\'s output does not match the expected output'
+    }
+}
+
 /**
  * Run an array of tests.
  * Each test shape (minimal):
@@ -90,24 +156,58 @@ async function runTests(tests, options = {}) {
             // Check expected_stdout and expected_stderr (both optional)
             let ok = true
             let details = {}
-            if (t.expected_stdout != null) {
+
+            // If the program produced stderr but we expected stdout, this is a failure
+            if (res.stderr && t.expected_stdout != null) {
+                ok = false
+                res.reason = 'Your program produced an error instead of the expected output'
+            }
+
+            if (t.expected_stdout != null && !res.stderr) {
                 const m = matchExpectation(res.stdout, t.expected_stdout)
                 if (!m.matched) ok = false
-                details.stdout = m.detail || null
+                // For regex-shaped expectations we do not include actual-vs-expected
+                // details to avoid confusing the author; only keep match detail
+                if (typeof t.expected_stdout === 'object' && t.expected_stdout.type === 'regex') {
+                    details.stdout = m.detail || null
+                } else {
+                    details.stdout = m.detail || null
+                }
+                // Provide a more informative reason for plain-string mismatches
+                if (!m.matched && (!res.reason || res.reason === 'mismatch')) {
+                    if (typeof t.expected_stdout === 'string') {
+                        res.reason = computeMismatchReason(res.stdout, t.expected_stdout)
+                    } else {
+                        res.reason = 'Your program\'s output does not match the expected output'
+                    }
+                }
             }
             if (t.expected_stderr != null) {
                 const m = matchExpectation(res.stderr, t.expected_stderr)
                 if (!m.matched) ok = false
-                details.stderr = m.detail || null
+                if (typeof t.expected_stderr === 'object' && t.expected_stderr.type === 'regex') {
+                    details.stderr = m.detail || null
+                } else {
+                    details.stderr = m.detail || null
+                }
+                if (!m.matched && (!res.reason || res.reason === 'mismatch')) {
+                    if (typeof t.expected_stderr === 'string') {
+                        res.reason = computeMismatchReason(res.stderr, t.expected_stderr)
+                    } else {
+                        res.reason = 'Your program\'s output does not match the expected output'
+                    }
+                }
             }
 
             res.passed = ok
-            if (!ok && !res.reason) res.reason = 'mismatch'
+            if (!ok && !res.reason) res.reason = 'Your program\'s output does not match the expected output'
             if (Object.keys(details).length) res.details = details
         } catch (e) {
             res.passed = false
             res.reason = 'error'
             res.error = (e && e.message) ? e.message : String(e)
+            // If an exception occurred outside runFn result, capture as stderr-like text
+            try { res.stderr = res.stderr || String(e && e.stack ? e.stack : res.error) } catch (_e) { res.stderr = res.stderr || res.error }
         }
         results.push(res)
     }
