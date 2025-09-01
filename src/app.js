@@ -50,6 +50,11 @@ try {
     window.showStorageInfo = showStorageInfo
     // Expose config debug helper
     window.debugCurrentConfig = debugCurrentConfig
+    // Expose snapshot storage debug helper
+    try {
+        const { debugSnapshotStorage } = await import('./js/snapshots.js')
+        window.debugSnapshotStorage = debugSnapshotStorage
+    } catch (_e) { }
     // Expose highlight helpers for tests/debugging
     try { window.highlightMappedTracebackInEditor = highlightMappedTracebackInEditor } catch (_e) { }
     try { window.highlightFeedbackLine = highlightFeedbackLine } catch (_e) { }

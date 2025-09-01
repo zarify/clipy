@@ -1,5 +1,5 @@
 // Exported for use in autosave.js
-export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig }
+export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig, debugSnapshotStorage }
 
 // Restore from the special 'current' snapshot if it exists
 export async function restoreCurrentSnapshotIfExists() {
@@ -58,20 +58,32 @@ export function setupSnapshotSystem() {
     try {
         const globalClear = $('clear-storage')
         if (globalClear) {
-            try { globalClear.removeEventListener('click', clearStorage) } catch (_e) { }
-            globalClear.addEventListener('click', async (ev) => {
-                // If snapshot modal is open, prefer the modal flow which will close it
-                // and present the confirm dialog consistently. Otherwise directly call clearStorage.
-                const modal = $('snapshot-modal')
-                if (modal && modal.getAttribute('aria-hidden') === 'false') {
-                    try {
-                        // Delegate to the modal-specific handler which ensures modal closes first
-                        await onSnapshotClearClicked(ev)
-                        return
-                    } catch (_e) { }
+            // Remove any existing listeners to prevent duplicates
+            const newHandler = async (ev) => {
+                // Prevent multiple calls if button is clicked rapidly
+                if (globalClear.disabled) return
+                globalClear.disabled = true
+
+                try {
+                    // If snapshot modal is open, close it first
+                    const modal = $('snapshot-modal')
+                    if (modal && modal.getAttribute('aria-hidden') === 'false') {
+                        closeModal(modal)
+                    }
+                    await clearStorage()
+                } catch (e) {
+                    console.error('Clear storage error:', e)
+                } finally {
+                    // Re-enable the button after a short delay
+                    setTimeout(() => {
+                        globalClear.disabled = false
+                    }, 1000)
                 }
-                await clearStorage()
-            })
+            }
+
+            // Store the handler reference so we can remove it properly
+            globalClear._clearStorageHandler = newHandler
+            globalClear.addEventListener('click', newHandler)
         }
     } catch (_e) { }
 
@@ -285,48 +297,53 @@ function renderSnapshots() {
     })
 
     // Update footer summary with grand total and number of snapshots
-    try {
-        const footer = document.getElementById('snapshot-storage-summary')
-        if (footer) {
+    const footer = document.getElementById('snapshot-storage-summary')
+    if (footer) {
+        try {
             const totalFiles = snaps.reduce((acc, s) => acc + Object.keys(s.files || {}).length, 0)
             const totalText = grandTotal < 1024 ? `${grandTotal}B` : (grandTotal < 1024 * 1024 ? `${Math.round(grandTotal / 1024)}KB` : `${(grandTotal / (1024 * 1024)).toFixed(2)}MB`)
             footer.textContent = `${snaps.length} snapshot(s), ${totalFiles} file(s), ${totalText} total`
+        } catch (e) {
+            // Fallback for when calculations fail
+            footer.textContent = `0 snapshot(s), 0 file(s), 0B total`
         }
-    } catch (_e) { }
+    }
 
     // Also update header summary if present
-    try {
-        const hdr = document.getElementById('snapshot-storage-summary-header')
-        if (hdr) {
+    const hdr = document.getElementById('snapshot-storage-summary-header')
+    if (hdr) {
+        try {
             // Compute totals across all snapshot keys in localStorage
             let allGrand = 0
             let allSnapCount = 0
             let allFileCount = 0
-            try {
-                for (let i = 0; i < localStorage.length; i++) {
-                    try {
-                        const key = localStorage.key(i)
-                        if (!key || !key.startsWith('snapshots_')) continue
-                        const arr = JSON.parse(localStorage.getItem(key) || '[]')
-                        if (!Array.isArray(arr) || !arr.length) continue
-                        allSnapCount += arr.length
-                        for (const s of arr) {
-                            try {
-                                const files = s.files || {}
-                                allFileCount += Object.keys(files).length
-                                for (const k of Object.keys(files)) {
-                                    try { allGrand += new TextEncoder().encode(String(files[k] || '')).length } catch (_e) { }
-                                }
-                            } catch (_e) { }
-                        }
-                    } catch (_e) { }
-                }
-            } catch (_e) { }
+
+            for (let i = 0; i < localStorage.length; i++) {
+                try {
+                    const key = localStorage.key(i)
+                    if (!key || !key.startsWith('snapshots_')) continue
+                    const arr = JSON.parse(localStorage.getItem(key) || '[]')
+                    if (!Array.isArray(arr) || !arr.length) continue
+                    allSnapCount += arr.length
+                    for (const s of arr) {
+                        try {
+                            const files = s.files || {}
+                            allFileCount += Object.keys(files).length
+                            for (const k of Object.keys(files)) {
+                                try { allGrand += new TextEncoder().encode(String(files[k] || '')).length } catch (_e) { }
+                            }
+                        } catch (_e) { }
+                    }
+                } catch (_e) { }
+            }
 
             const totalText = allGrand < 1024 ? `${allGrand}B` : (allGrand < 1024 * 1024 ? `${Math.round(allGrand / 1024)}KB` : `${(allGrand / (1024 * 1024)).toFixed(2)}MB`)
             hdr.textContent = `${allSnapCount} snaps • ${allFileCount} files • ${totalText}`
+        } catch (e) {
+            // Fallback for when calculations fail
+            hdr.textContent = `0 snaps • 0 files • 0B`
         }
-    } catch (_e) { }
+    }
 }
 
 async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
@@ -562,28 +579,40 @@ function openSnapshotModal() {
         // We avoid moving the DOM node to prevent layout/visibility glitches.
         const clearBtn = $('clear-storage')
         if (clearBtn) {
-            try { clearBtn.removeEventListener('click', onSnapshotClearClicked) } catch (_e) { }
-            clearBtn.addEventListener('click', onSnapshotClearClicked)
+            // Use the same handler that's already attached to prevent duplicates
+            // The global handler already handles modal closing
         }
     } catch (_e) { }
-}
-
-async function onSnapshotClearClicked(ev) {
-    try {
-        // Close the snapshot modal first so the confirm modal can be shown cleanly
-        const modal = $('snapshot-modal')
-        try { closeModal(modal) } catch (_e) { }
-
-        // Reuse existing clearStorage flow which shows a confirm modal
-        await clearStorage()
-    } catch (e) {
-        console.error('Failed handling snapshot clear click:', e)
-    }
 }
 
 function showStorageInfoInTerminal() {
     showStorageInfo()
     try { activateSideTab('terminal') } catch (_e) { }
+}
+
+// Debug function to inspect localStorage snapshot keys
+function debugSnapshotStorage() {
+    console.log('=== Snapshot Storage Debug ===')
+    try {
+        const allKeys = []
+        const snapshotKeys = []
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i)
+            if (key) {
+                allKeys.push(key)
+                if (key.startsWith('snapshots_')) {
+                    snapshotKeys.push(key)
+                    const value = localStorage.getItem(key)
+                    console.log(`${key}: ${value ? JSON.parse(value).length : 0} snapshots`)
+                }
+            }
+        }
+        console.log('All localStorage keys:', allKeys)
+        console.log('Snapshot keys:', snapshotKeys)
+    } catch (e) {
+        console.error('Debug error:', e)
+    }
+    console.log('=== End Debug ===')
 }
 
 function closeSnapshotModal() {
@@ -594,17 +623,17 @@ function closeSnapshotModal() {
 // Note: bulk-delete / checkbox UI removed in favor of per-item delete buttons.
 
 async function clearStorage() {
-    const configIdentity = getConfigIdentity()
-
     // Compute summary across all snapshot keys in localStorage to show the user
     // how many snapshots and how many distinct configurations will be affected.
     let totalSnapshots = 0
     const configs = new Set()
+    const keysToDelete = []
     try {
         for (let i = 0; i < localStorage.length; i++) {
             try {
                 const key = localStorage.key(i)
                 if (!key || !key.startsWith('snapshots_')) continue
+                keysToDelete.push(key)
                 const arr = JSON.parse(localStorage.getItem(key) || '[]')
                 if (Array.isArray(arr) && arr.length) {
                     totalSnapshots += arr.length
@@ -623,23 +652,46 @@ async function clearStorage() {
     } catch (_e) { }
 
     const ok = await showConfirmModal(
-        'Clear snapshots',
-        `Clear all saved snapshots for ${configIdentity}? This cannot be undone.`
+        'Clear all snapshots',
+        `Clear all saved snapshots for all configurations? This cannot be undone.`
     )
     if (!ok) {
         appendTerminal('Clear snapshots cancelled', 'runtime')
         return
     }
 
+    // Store counts before clearing for accurate reporting
+    const clearedSnapshots = totalSnapshots
+    const clearedConfigs = configs.size
+
     try {
-        const storageKey = getSnapshotStorageKey()
-        localStorage.removeItem(storageKey)
-        appendTerminal(`Cleared all snapshots for ${configIdentity}`, 'runtime')
+        // Remove all snapshot keys from localStorage
+        let actuallyDeleted = 0
+        for (const key of keysToDelete) {
+            try {
+                if (localStorage.getItem(key)) {
+                    localStorage.removeItem(key)
+                    actuallyDeleted++
+                }
+            } catch (_e) { }
+        }
+
+        // Report what was actually cleared (only one message)
+        if (actuallyDeleted > 0) {
+            appendTerminal(`Cleared ${clearedSnapshots} snapshot(s) across ${clearedConfigs} configuration(s)`, 'runtime')
+        } else {
+            appendTerminal('No snapshots to clear', 'runtime')
+        }
+
         try { activateSideTab('terminal') } catch (_e) { }
 
-        // Update the modal if it's open
+        // Update the modal if it's open - force a complete refresh
         try {
             renderSnapshots()
+            // Force update of storage calculations by triggering a fresh calculation
+            setTimeout(() => {
+                try { renderSnapshots() } catch (_e) { }
+            }, 100)
         } catch (_e) { }
     } catch (e) {
         appendTerminal('Clear snapshots failed: ' + e, 'runtime')
