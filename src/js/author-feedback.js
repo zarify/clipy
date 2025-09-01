@@ -418,6 +418,62 @@ export function initAuthorFeedback() {
         cancel.addEventListener('click', () => { try { closeModalHelper(m) } catch (_e) { closeModal() } })
     }
 
+    function openModalEditNew(newItem) {
+        const editor = buildEditorForm(newItem)
+        const err = document.createElement('div')
+        err.style.color = '#b00020'
+        err.style.marginTop = '6px'
+        editor.root.appendChild(err)
+        const actions = document.createElement('div')
+        actions.style.marginTop = '8px'
+        const save = document.createElement('button')
+        save.className = 'btn btn-primary'
+        save.textContent = 'Save'
+        const cancel = document.createElement('button')
+        cancel.className = 'btn'
+        cancel.textContent = 'Cancel'
+        actions.appendChild(save)
+        actions.appendChild(cancel)
+        editor.root.appendChild(actions)
+
+        const m = ensureModal()
+        const body = m.querySelector('#author-feedback-modal-body')
+        body.innerHTML = ''
+        body.appendChild(editor.root)
+        // inject Save/Cancel into modal header actions so they're always visible
+        const actionHolder = m.querySelector('.modal-header-actions')
+        actionHolder.innerHTML = ''
+        actionHolder.appendChild(save)
+        actionHolder.appendChild(cancel)
+
+        // show modal (use shared helper so Escape closes it and focus is trapped)
+        try { openModalHelper(m) } catch (_e) {
+            m.setAttribute('aria-hidden', 'false')
+            m.style.display = 'flex'
+        }
+
+        function validateAndSave() {
+            const val = editor.get()
+            if (val.pattern && val.pattern.type === 'regex') {
+                try {
+                    new RegExp(val.pattern.expression || '', val.pattern.flags || '')
+                    err.textContent = ''
+                } catch (e) {
+                    err.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
+                    return
+                }
+            }
+            if (!val.id) val.id = genId()
+            // Only add to items array when save is clicked
+            items.push(val)
+            persist()
+            try { closeModalHelper(m) } catch (_e) { closeModal() }
+        }
+        save.addEventListener('click', validateAndSave)
+        // Cancel just closes modal without adding item
+        cancel.addEventListener('click', () => { try { closeModalHelper(m) } catch (_e) { closeModal() } })
+    }
+
     function closeModal() {
         if (!modal) return
         try { closeModalHelper(modal) } catch (_e) {
@@ -441,9 +497,8 @@ export function initAuthorFeedback() {
 
     addBtn.addEventListener('click', () => {
         const newItem = { id: genId(), title: 'New feedback', when: ['edit'], pattern: { type: 'regex', target: 'code', expression: '' }, message: '', severity: 'info', visibleByDefault: true }
-        items.push(newItem)
-        // open editor for the new item
-        openModalEdit(items.length - 1)
+        // open editor for the new item without adding it to the array yet
+        openModalEditNew(newItem)
     })
 
     // keep in sync if textarea changes programmatically

@@ -461,6 +461,47 @@ export function initAuthorTests() {
         cancel.addEventListener('click', () => { try { closeModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'true'); m.style.display = 'none' } })
     }
 
+    function openModalEditNew(newItem) {
+        const editor = buildEditorForm(newItem)
+        const err = document.createElement('div')
+        err.style.color = '#b00020'
+        err.style.marginTop = '6px'
+        editor.root.appendChild(err)
+        const actions = document.createElement('div')
+        actions.style.marginTop = '8px'
+        const save = document.createElement('button')
+        save.className = 'btn btn-primary'
+        save.textContent = 'Save'
+        const cancel = document.createElement('button')
+        cancel.className = 'btn'
+        cancel.textContent = 'Cancel'
+        actions.appendChild(save)
+        actions.appendChild(cancel)
+        editor.root.appendChild(actions)
+
+        const m = ensureModal()
+        const body = m.querySelector('#author-tests-modal-body')
+        body.innerHTML = ''
+        body.appendChild(editor.root)
+        const actionHolder = m.querySelector('.modal-header-actions')
+        actionHolder.innerHTML = ''
+        actionHolder.appendChild(save)
+        actionHolder.appendChild(cancel)
+        try { openModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'false'); m.style.display = 'flex' }
+
+        function validateAndSave() {
+            const val = editor.get()
+            if (!val.id) val.id = genId()
+            // Only add to items array when save is clicked
+            items.push(val)
+            persist()
+            try { closeModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'true'); m.style.display = 'none' }
+        }
+        save.addEventListener('click', validateAndSave)
+        // Cancel just closes modal without adding item
+        cancel.addEventListener('click', () => { try { closeModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'true'); m.style.display = 'none' } })
+    }
+
     function closeModal() { if (!modal) return; try { closeModalHelper(modal) } catch (_e) { modal.setAttribute('aria-hidden', 'true'); modal.style.display = 'none' } }
 
     function moveUp(idx) { if (idx <= 0) return; const a = items.slice();[a[idx - 1], a[idx]] = [a[idx], a[idx - 1]]; items = a; persist() }
@@ -469,8 +510,8 @@ export function initAuthorTests() {
 
     addBtn.addEventListener('click', () => {
         const newItem = { id: genId(), description: 'New test', stdin: '', expected_stdout: '', expected_stderr: '', timeoutMs: undefined, hide_actual_expected: false }
-        items.push(newItem)
-        openModalEdit(items.length - 1)
+        // open editor for the new item without adding it to the array yet
+        openModalEditNew(newItem)
     })
 
     ta.addEventListener('input', () => { items = parseTestsFromTextarea(ta); try { jsonView.textContent = JSON.stringify(items, null, 2) } catch (_e) { jsonView.textContent = '' }; render() })
