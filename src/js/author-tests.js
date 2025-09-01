@@ -51,7 +51,16 @@ function createCard(item, idx, onEdit, onMoveUp, onMoveDown, onDelete) {
 
     const body = document.createElement('div')
     body.className = 'feedback-msg'
-    body.textContent = 'stdin: ' + (item.stdin || '') + '  •  expected_stdout: ' + (item.expected_stdout || '')
+    // Render expected_stdout/stderr safely: if it's an object (regex), show /expr/flags
+    function renderExpected(v) {
+        if (v == null) return ''
+        if (typeof v === 'string') return v
+        try {
+            if (typeof v === 'object' && v.type === 'regex') return `/${v.expression}/${v.flags || ''}`
+        } catch (_e) { }
+        try { return JSON.stringify(v) } catch (_e) { return String(v) }
+    }
+    body.textContent = 'stdin: ' + (item.stdin || '') + '  •  expected_stdout: ' + renderExpected(item.expected_stdout)
 
     const actions = document.createElement('div')
     actions.style.display = 'flex'
@@ -120,16 +129,46 @@ function buildEditorForm(existing) {
     stdin.rows = 3
     stdin.value = existing.stdin || ''
 
-    const expectedOut = document.createElement('textarea')
-    expectedOut.style.width = '100%'
-    expectedOut.rows = 3
-    expectedOut.value = existing.expected_stdout || ''
+    // Expected stdout editor: allow String or Regex modes
+    const expectedOutMode = document.createElement('select')
+    const optS = document.createElement('option'); optS.value = 'string'; optS.textContent = 'String'
+    const optR = document.createElement('option'); optR.value = 'regex'; optR.textContent = 'Regex'
+    expectedOutMode.appendChild(optS); expectedOutMode.appendChild(optR)
 
-    const expectedErr = document.createElement('textarea')
-    expectedErr.style.width = '100%'
-    expectedErr.rows = 3
-    expectedErr.value = existing.expected_stderr || ''
+    const expectedOutText = document.createElement('textarea')
+    expectedOutText.style.width = '100%'
+    expectedOutText.rows = 3
 
+    const expectedOutExpr = document.createElement('input')
+    expectedOutExpr.type = 'text'
+    expectedOutExpr.style.width = '100%'
+    expectedOutExpr.placeholder = 'regex expression (no slashes)'
+
+    const expectedOutFlags = document.createElement('input')
+    expectedOutFlags.type = 'text'
+    expectedOutFlags.style.width = '100%'
+    expectedOutFlags.placeholder = 'flags (e.g. i)'
+
+    // Expected stderr editor
+    const expectedErrMode = document.createElement('select')
+    const eOptS = document.createElement('option'); eOptS.value = 'string'; eOptS.textContent = 'String'
+    const eOptR = document.createElement('option'); eOptR.value = 'regex'; eOptR.textContent = 'Regex'
+    expectedErrMode.appendChild(eOptS); expectedErrMode.appendChild(eOptR)
+
+    const expectedErrText = document.createElement('textarea')
+    expectedErrText.style.width = '100%'
+    expectedErrText.rows = 3
+
+    const expectedErrExpr = document.createElement('input')
+    expectedErrExpr.type = 'text'
+    expectedErrExpr.style.width = '100%'
+    expectedErrExpr.placeholder = 'regex expression (no slashes)'
+
+    const expectedErrFlags = document.createElement('input')
+    expectedErrFlags.type = 'text'
+    expectedErrFlags.style.width = '100%'
+    expectedErrFlags.placeholder = 'flags (e.g. i)'
+    // timeout input
     const timeout = document.createElement('input')
     timeout.type = 'number'
     timeout.style.width = '120px'
@@ -143,8 +182,83 @@ function buildEditorForm(existing) {
     root.appendChild(labeled('ID [optional]', idIn))
     root.appendChild(labeled('Description', desc))
     root.appendChild(labeled('Stdin', stdin))
-    root.appendChild(labeled('Expected stdout', expectedOut))
-    root.appendChild(labeled('Expected stderr', expectedErr))
+    // Expected stdout inputs
+    const outWrap = document.createElement('div')
+    outWrap.appendChild(expectedOutMode)
+    outWrap.appendChild(expectedOutText)
+    outWrap.appendChild(expectedOutExpr)
+    outWrap.appendChild(expectedOutFlags)
+    root.appendChild(labeled('Expected stdout', outWrap))
+    // Expected stderr inputs
+    const errWrap = document.createElement('div')
+    errWrap.appendChild(expectedErrMode)
+    errWrap.appendChild(expectedErrText)
+    errWrap.appendChild(expectedErrExpr)
+    errWrap.appendChild(expectedErrFlags)
+    root.appendChild(labeled('Expected stderr', errWrap))
+    // initialize modes/values based on existing data shape
+    try {
+        if (existing.expected_stdout && typeof existing.expected_stdout === 'object' && existing.expected_stdout.type === 'regex') {
+            expectedOutMode.value = 'regex'
+            expectedOutExpr.value = existing.expected_stdout.expression || ''
+            expectedOutFlags.value = existing.expected_stdout.flags || ''
+            expectedOutText.style.display = 'none'
+        } else {
+            expectedOutMode.value = 'string'
+            expectedOutText.value = existing.expected_stdout || ''
+            expectedOutExpr.style.display = 'none'
+            expectedOutFlags.style.display = 'none'
+        }
+    } catch (_e) {
+        expectedOutMode.value = 'string'
+        expectedOutText.value = existing.expected_stdout || ''
+        expectedOutExpr.style.display = 'none'
+        expectedOutFlags.style.display = 'none'
+    }
+
+    try {
+        if (existing.expected_stderr && typeof existing.expected_stderr === 'object' && existing.expected_stderr.type === 'regex') {
+            expectedErrMode.value = 'regex'
+            expectedErrExpr.value = existing.expected_stderr.expression || ''
+            expectedErrFlags.value = existing.expected_stderr.flags || ''
+            expectedErrText.style.display = 'none'
+        } else {
+            expectedErrMode.value = 'string'
+            expectedErrText.value = existing.expected_stderr || ''
+            expectedErrExpr.style.display = 'none'
+            expectedErrFlags.style.display = 'none'
+        }
+    } catch (_e) {
+        expectedErrMode.value = 'string'
+        expectedErrText.value = existing.expected_stderr || ''
+        expectedErrExpr.style.display = 'none'
+        expectedErrFlags.style.display = 'none'
+    }
+
+    // Toggle visibility when mode changes
+    expectedOutMode.addEventListener('change', () => {
+        if (expectedOutMode.value === 'regex') {
+            expectedOutText.style.display = 'none'
+            expectedOutExpr.style.display = ''
+            expectedOutFlags.style.display = ''
+        } else {
+            expectedOutText.style.display = ''
+            expectedOutExpr.style.display = 'none'
+            expectedOutFlags.style.display = 'none'
+        }
+    })
+    expectedErrMode.addEventListener('change', () => {
+        if (expectedErrMode.value === 'regex') {
+            expectedErrText.style.display = 'none'
+            expectedErrExpr.style.display = ''
+            expectedErrFlags.style.display = ''
+        } else {
+            expectedErrText.style.display = ''
+            expectedErrExpr.style.display = 'none'
+            expectedErrFlags.style.display = 'none'
+        }
+    })
+
     root.appendChild(labeled('Timeout (ms) [optional]', timeout))
     root.appendChild(labeled('Setup (JSON) [optional]', setup))
 
@@ -153,22 +267,27 @@ function buildEditorForm(existing) {
         get() {
             let setupVal = null
             try { setupVal = setup.value ? JSON.parse(setup.value) : null } catch (_e) { setupVal = setup.value || null }
-            const outRaw = (expectedOut.value || '').trim()
-            let expectedOutVal = outRaw === '' ? undefined : outRaw
-            // If user entered a regex-like /expr/flags convert to the object shape
-            try {
-                const m = outRaw.match(/^\/(.*)\/([a-z]*)$/i)
-                if (m) {
-                    expectedOutVal = { type: 'regex', expression: m[1], flags: m[2] || '' }
-                }
-            } catch (_e) { }
+            // expected stdout: respect selected mode (string or regex)
+            let expectedOutVal = undefined
+            if (typeof expectedOutMode !== 'undefined' && expectedOutMode.value === 'regex') {
+                const expr = (expectedOutExpr.value || '').trim()
+                const flagsV = (expectedOutFlags.value || '').trim()
+                if (expr !== '') expectedOutVal = { type: 'regex', expression: expr, flags: flagsV || '' }
+            } else {
+                const v = (expectedOutText.value || '').trim()
+                expectedOutVal = v === '' ? undefined : v
+            }
 
-            const errRaw = (expectedErr.value || '').trim()
-            let expectedErrVal = errRaw === '' ? undefined : errRaw
-            try {
-                const me = errRaw.match(/^\/(.*)\/([a-z]*)$/i)
-                if (me) expectedErrVal = { type: 'regex', expression: me[1], flags: me[2] || '' }
-            } catch (_e) { }
+            // expected stderr: respect selected mode
+            let expectedErrVal = undefined
+            if (typeof expectedErrMode !== 'undefined' && expectedErrMode.value === 'regex') {
+                const expr = (expectedErrExpr.value || '').trim()
+                const flagsV = (expectedErrFlags.value || '').trim()
+                if (expr !== '') expectedErrVal = { type: 'regex', expression: expr, flags: flagsV || '' }
+            } else {
+                const v = (expectedErrText.value || '').trim()
+                expectedErrVal = v === '' ? undefined : v
+            }
 
             const out = {
                 // only include fields that have meaningful values so the saved

@@ -961,3 +961,36 @@ pre#terminal-output {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
     font-size: 0.95em;
 }
+
+/* Ensure test compare blocks share the same code block styling as the instructions preview
+   but render as plain text (no language class) so they won't be syntax-highlighted. */
+.test-compare pre {
+    padding: 12px;
+    border-radius: 6px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    margin: 12px 0;
+    box-shadow: 0 6px 18px rgba(11, 92, 255, 0.04) inset;
+    border: 1px solid rgba(11, 92, 255, 0.12);
+    border-left: 4px solid rgba(11, 92, 255, 0.12);
+    background: #fff;
+}
+
+.test-compare pre code,
+.test-compare code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    border-radius: 0;
+    white-space: pre-wrap;
+}
+
+.test-compare code {
+    background: #f4f6f8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+    font-size: 0.95em;
+}

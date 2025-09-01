@@ -91,6 +91,11 @@ export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', f
                     iframe.contentWindow.postMessage({ type: 'stdinResponse', value: String(v) }, '*')
                 } else if (m.type === 'testResult') {
                     try { console.debug && console.debug('[sandbox] testResult', m) } catch (e) { }
+                    // Attach expected values from the original `test` object if present
+                    try {
+                        if (test && typeof test.expected_stdout !== 'undefined' && typeof m.expected_stdout === 'undefined') m.expected_stdout = test.expected_stdout
+                        if (test && typeof test.expected_stderr !== 'undefined' && typeof m.expected_stderr === 'undefined') m.expected_stderr = test.expected_stderr
+                    } catch (_e) { }
                     cleanup()
                     resolve(m)
                 } else if (m.type === 'error') {

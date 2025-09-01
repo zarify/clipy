@@ -92,11 +92,76 @@ function renderList() {
 
                 // Prefer author-provided description/title from config.tests when available
                 let authorEntry = null
-                try { authorEntry = cfgTests.find(t => String(t.id) === String(r.id)) } catch (e) { authorEntry = null }
+                try {
+                    authorEntry = cfgTests.find(t => String(t.id) === String(r.id))
+                    // fallback: match by description if id didn't match (some imports may lose ids)
+                    if (!authorEntry && r.description) {
+                        authorEntry = cfgTests.find(t => t && t.description && String(t.description) === String(r.description)) || null
+                    }
+                } catch (e) { authorEntry = null }
                 const displayTitle = (authorEntry && (authorEntry.description || authorEntry.title)) ? (authorEntry.description || authorEntry.title) : ((r.description) ? r.description : (r.id || ''))
                 titleEl.textContent = displayTitle
                 titleRow.appendChild(titleEl)
                 tr.appendChild(titleRow)
+
+                // Show actual vs expected for failing tests when the author-provided
+                // expected_stdout exists (either a plain string or an object describing
+                // a regex). This helps authors quickly see mismatches. Passing tests remain compact.
+                const hasExpected = authorEntry && (authorEntry.expected_stdout != null)
+                if (!r.passed && hasExpected) {
+                    const detailsWrap = document.createElement('div')
+                    detailsWrap.className = 'test-compare'
+                    detailsWrap.style.marginTop = '8px'
+                    // Actual
+                    const actualLabel = document.createElement('div')
+                    actualLabel.textContent = 'Actual:'
+                    actualLabel.style.fontSize = '0.9em'
+                    actualLabel.style.marginBottom = '4px'
+                    detailsWrap.appendChild(actualLabel)
+                    const preA = document.createElement('pre')
+                    preA.style.whiteSpace = 'pre-wrap'
+                    preA.style.fontFamily = 'monospace'
+                    const codeA = document.createElement('code')
+                    // render as plain text (no syntax highlighting by default)
+                    codeA.className = 'test-code'
+                    codeA.textContent = (r.stdout != null) ? String(r.stdout) : ''
+                    preA.appendChild(codeA)
+                    detailsWrap.appendChild(preA)
+
+                    // Expected
+                    const expectedLabel = document.createElement('div')
+                    expectedLabel.textContent = 'Expected:'
+                    expectedLabel.style.fontSize = '0.9em'
+                    expectedLabel.style.margin = '8px 0 4px'
+                    detailsWrap.appendChild(expectedLabel)
+                    const preE = document.createElement('pre')
+                    preE.style.whiteSpace = 'pre-wrap'
+                    preE.style.fontFamily = 'monospace'
+                    const codeE = document.createElement('code')
+                    codeE.className = 'test-code'
+                    // If regex-shaped object, show as /expr/flags, otherwise string.
+                    try {
+                        const exp = authorEntry.expected_stdout
+                        if (typeof exp === 'string') codeE.textContent = exp
+                        else if (typeof exp === 'object' && exp.type === 'regex') codeE.textContent = `/${exp.expression}/${exp.flags || ''}`
+                        else codeE.textContent = JSON.stringify(exp)
+                    } catch (_e) { codeE.textContent = String(authorEntry.expected_stdout) }
+                    preE.appendChild(codeE)
+                    detailsWrap.appendChild(preE)
+
+                    // Highlight if hljs available
+                    try {
+                        if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+                            // Only run highlightElement when the code element explicitly
+                            // declares a language class (e.g. language-python). For our
+                            // test compare blocks we want plain text, so we skip auto-highlighting.
+                            if (codeA.className && /language-/.test(codeA.className)) window.hljs.highlightElement(codeA)
+                            if (codeE.className && /language-/.test(codeE.className)) window.hljs.highlightElement(codeE)
+                        }
+                    } catch (_e) { }
+
+                    tr.appendChild(detailsWrap)
+                }
 
                 // Only surface failure details when the author explicitly requests it.
                 // The config can opt-in with `show_stderr: true` (or legacy `show_traceback`).
@@ -276,7 +341,18 @@ export function setFeedbackMatches(matches) {
 
 export function setTestResults(results) {
     _testResults = Array.isArray(results) ? results : []
-    try { console.debug && console.debug('[feedback-ui] setTestResults', _testResults.length) } catch (e) { }
+    try {
+        // Attach metadata from current config.tests to each result for easier rendering
+        const cfgTests = Array.isArray((_config && _config.tests) ? _config.tests : []) ? _config.tests : []
+        _testResults.forEach(r => {
+            try {
+                let meta = cfgTests.find(t => String(t.id) === String(r.id)) || null
+                if (!meta && r.description) meta = cfgTests.find(t => t && t.description && String(t.description) === String(r.description)) || null
+                r.meta = meta
+            } catch (_e) { r.meta = null }
+        })
+        console.debug && console.debug('[feedback-ui] setTestResults', _testResults.length)
+    } catch (e) { }
     renderList()
 }
 
@@ -493,6 +569,88 @@ function showTestResultsModal(results) {
         const fb = document.createElement('div')
         fb.style.marginTop = '8px'
         fb.style.whiteSpace = 'pre-wrap'
+
+        // Show actual vs expected for failing tests when we have an expected_stdout
+        // Prefer the explicit expected on the result (res.expected_stdout) then
+        // fall back to metadata from the config (meta) or cfgMap.
+        try {
+            let expected = null
+            if (typeof r.expected_stdout !== 'undefined' && r.expected_stdout !== null) expected = r.expected_stdout
+            else if (meta && typeof meta.expected_stdout !== 'undefined' && meta.expected_stdout !== null) expected = meta.expected_stdout
+            else {
+                const cfgEntry = cfgMap.get(String(r.id)) || {}
+                if (typeof cfgEntry.expected_stdout !== 'undefined' && cfgEntry.expected_stdout !== null) expected = cfgEntry.expected_stdout
+            }
+
+            if (!r.passed && expected != null) {
+                const compareWrap = document.createElement('div')
+                compareWrap.className = 'test-compare'
+                compareWrap.style.marginTop = '8px'
+
+                const actualLabel = document.createElement('div')
+                actualLabel.textContent = 'Actual:'
+                actualLabel.style.fontSize = '0.9em'
+                actualLabel.style.marginBottom = '4px'
+                compareWrap.appendChild(actualLabel)
+
+                const preA = document.createElement('pre')
+                preA.style.whiteSpace = 'pre-wrap'
+                preA.style.fontFamily = 'monospace'
+                const codeA = document.createElement('code')
+                codeA.className = 'language-python'
+                codeA.textContent = (r.stdout != null) ? String(r.stdout) : ''
+                preA.appendChild(codeA)
+                compareWrap.appendChild(preA)
+
+                const expectedLabel = document.createElement('div')
+                expectedLabel.textContent = 'Expected:'
+                expectedLabel.style.fontSize = '0.9em'
+                expectedLabel.style.margin = '8px 0 4px'
+                compareWrap.appendChild(expectedLabel)
+
+                const preE = document.createElement('pre')
+                preE.style.whiteSpace = 'pre-wrap'
+                preE.style.fontFamily = 'monospace'
+                const codeE = document.createElement('code')
+                codeE.className = 'language-python'
+                try {
+                    if (typeof expected === 'string') codeE.textContent = expected
+                    else if (typeof expected === 'object' && expected.type === 'regex') codeE.textContent = `/${expected.expression}/${expected.flags || ''}`
+                    else codeE.textContent = JSON.stringify(expected)
+                } catch (_e) { codeE.textContent = String(expected) }
+                preE.appendChild(codeE)
+                compareWrap.appendChild(preE)
+
+                // If the runner provided match details (captured groups), show them
+                try {
+                    if (r.details && r.details.stdout) {
+                        const detailWrap = document.createElement('div')
+                        detailWrap.style.marginTop = '6px'
+                        const dg = r.details.stdout
+                        // If details is an array (match groups), render them
+                        if (Array.isArray(dg)) {
+                            const caps = document.createElement('div')
+                            caps.textContent = 'Captured groups: ' + JSON.stringify(dg.slice(1))
+                            caps.style.fontFamily = 'monospace'
+                            caps.style.marginTop = '6px'
+                            detailWrap.appendChild(caps)
+                        } else if (typeof dg === 'object') {
+                            const caps = document.createElement('div')
+                            caps.textContent = 'Match details: ' + JSON.stringify(dg)
+                            caps.style.fontFamily = 'monospace'
+                            caps.style.marginTop = '6px'
+                            detailWrap.appendChild(caps)
+                        }
+                        compareWrap.appendChild(detailWrap)
+                    }
+                } catch (_e) { }
+
+                // Highlight if hljs available
+                try { if (window.hljs && typeof window.hljs.highlightElement === 'function') { window.hljs.highlightElement(codeA); window.hljs.highlightElement(codeE) } } catch (_e) { }
+
+                fb.appendChild(compareWrap)
+            }
+        } catch (_e) { }
 
         if (r.passed && meta && meta.pass_feedback) {
             const pf = document.createElement('div')

@@ -68,6 +68,17 @@ async function runTests(tests, options = {}) {
             res.stderr = runResult.stderr || ''
             res.filename = runResult.filename || null
 
+            // Include the author-provided expected values in the result for
+            // easier debugging/diagnostics by the UI or logs.
+            try {
+                res.expected_stdout = (t && typeof t.expected_stdout !== 'undefined') ? t.expected_stdout : null
+                res.expected_stderr = (t && typeof t.expected_stderr !== 'undefined') ? t.expected_stderr : null
+            } catch (_e) { res.expected_stdout = null; res.expected_stderr = null }
+
+            // Debug trace: show what we're about to match so UI logs can be used
+            // to diagnose surprising pass/fail outcomes.
+            try { console.debug && console.debug('[runTests] test', String(t.id || ''), 'stdout(actual):', String(res.stdout).slice(0, 200), 'expected_stdout:', res.expected_stdout) } catch (_e) { }
+
             // Timeout handling
             if (typeof t.timeoutMs === 'number' && duration > t.timeoutMs) {
                 res.passed = false
