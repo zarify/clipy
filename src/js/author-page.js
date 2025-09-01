@@ -47,12 +47,53 @@ function renderFileList() {
     const tabs = $('file-tabs')
     tabs.innerHTML = ''
     for (const p of Object.keys(files)) {
-        const t = document.createElement('button')
-        t.className = 'btn'
-        t.style.padding = '6px'
-        t.textContent = p
-        t.addEventListener('click', () => openFile(p))
-        tabs.appendChild(t)
+        const tab = document.createElement('div')
+        tab.className = 'tab' + (p === currentFile ? ' active' : '')
+        tab.style.display = 'inline-flex'
+        tab.style.alignItems = 'center'
+        tab.style.gap = '4px'
+        tab.style.padding = '6px 8px'
+        tab.style.border = '1px solid #ddd'
+        tab.style.borderRadius = '4px'
+        tab.style.background = p === currentFile ? '#f0f8ff' : '#fff'
+        tab.style.cursor = 'pointer'
+        tab.style.marginRight = '4px'
+        tab.style.marginBottom = '4px'
+
+        const label = document.createElement('span')
+        label.textContent = p
+        label.style.fontSize = '0.9em'
+        tab.appendChild(label)
+
+        // Add close button (except for /main.py)
+        if (p !== '/main.py') {
+            const close = document.createElement('button')
+            close.className = 'close'
+            close.innerHTML = '×'
+            close.title = 'Delete file'
+            close.style.border = 'none'
+            close.style.background = 'none'
+            close.style.cursor = 'pointer'
+            close.style.fontSize = '16px'
+            close.style.lineHeight = '1'
+            close.style.padding = '0 2px'
+            close.style.marginLeft = '4px'
+            close.style.color = '#666'
+            close.addEventListener('click', (ev) => {
+                ev.stopPropagation()
+                deleteFile(p)
+            })
+            close.addEventListener('mouseenter', () => {
+                close.style.color = '#d32f2f'
+            })
+            close.addEventListener('mouseleave', () => {
+                close.style.color = '#666'
+            })
+            tab.appendChild(close)
+        }
+
+        tab.addEventListener('click', () => openFile(p))
+        tabs.appendChild(tab)
     }
 }
 
@@ -73,6 +114,41 @@ function openFile(path, force = false) {
         if (editor) editor.setValue(text)
         else $('file-editor').value = text
     }
+}
+
+function deleteFile(path) {
+    // Don't allow deleting main.py
+    if (path === '/main.py') {
+        alert('Cannot delete the main.py file')
+        return
+    }
+
+    if (!confirm(`Delete file "${path}"?`)) {
+        return
+    }
+
+    // Remove from files object
+    delete files[path]
+
+    // If the deleted file was currently open, switch to main.py or first available file
+    if (currentFile === path) {
+        if (files['/main.py']) {
+            openFile('/main.py', true)
+        } else {
+            const firstFile = Object.keys(files)[0]
+            if (firstFile) {
+                openFile(firstFile, true)
+            } else {
+                // No files left, create a new main.py
+                files['/main.py'] = '# starter code\n'
+                openFile('/main.py', true)
+            }
+        }
+    }
+
+    // Re-render the file list and save
+    renderFileList()
+    debounceSave()
 }
 
 function saveToLocalStorage() {
@@ -198,6 +274,33 @@ function updateInstructionsPreview() {
     }
 }
 
+function isTextFile(file) {
+    // Check MIME type first
+    if (file.type.startsWith('text/')) return true
+    if (file.type === 'application/json') return true
+    if (file.type === 'application/javascript') return true
+    if (file.type === 'application/xml') return true
+
+    // Check file extension for common text files
+    const name = file.name.toLowerCase()
+    const textExtensions = [
+        '.txt', '.py', '.js', '.json', '.xml', '.html', '.htm', '.css', '.scss', '.sass',
+        '.md', '.markdown', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf',
+        '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+        '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
+        '.java', '.kt', '.go', '.rs', '.swift', '.php', '.rb', '.pl', '.lua',
+        '.r', '.sql', '.csv', '.tsv', '.log', '.dockerfile', '.gitignore',
+        '.env', '.example', '.sample', '.template'
+    ]
+
+    if (textExtensions.some(ext => name.endsWith(ext))) return true
+
+    // If no extension and MIME type is empty (common for text files on some systems)
+    if (file.type === '' && !name.includes('.')) return true
+
+    return false
+}
+
 async function handleUpload(ev) {
     const f = ev.target.files && ev.target.files[0]
     if (!f) return
@@ -205,15 +308,21 @@ async function handleUpload(ev) {
         alert('Binary too large (>200KB). Please host externally or reduce size.')
         return
     }
-    const isText = f.type.startsWith('text') || f.name.endsWith('.py') || f.name.endsWith('.txt') || f.type === ''
-    if (isText) {
-        const txt = await f.text()
-        files['/' + f.name] = txt
-        renderFileList()
-        openFile('/' + f.name)
-        debounceSave()
-        return
+
+    if (isTextFile(f)) {
+        try {
+            const txt = await f.text()
+            files['/' + f.name] = txt
+            renderFileList()
+            openFile('/' + f.name)
+            debounceSave()
+            return
+        } catch (e) {
+            console.warn('Failed to read as text file, treating as binary:', e)
+            // Fall through to binary handling
+        }
     }
+
     // binary
     const ab = await f.arrayBuffer()
     const b64 = arrayBufferToBase64(ab)
