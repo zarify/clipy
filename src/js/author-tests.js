@@ -61,6 +61,9 @@ function createCard(item, idx, onEdit, onMoveUp, onMoveDown, onDelete) {
         try { return JSON.stringify(v) } catch (_e) { return String(v) }
     }
     body.textContent = 'stdin: ' + (item.stdin || '') + '  •  expected_stdout: ' + renderExpected(item.expected_stdout)
+    if (item.hide_actual_expected) {
+        body.textContent += '  •  [hide actual/expected]'
+    }
 
     const actions = document.createElement('div')
     actions.style.display = 'flex'
@@ -179,6 +182,19 @@ function buildEditorForm(existing) {
     setup.rows = 3
     setup.value = existing.setup ? JSON.stringify(existing.setup, null, 2) : ''
 
+    // Hide actual/expected checkbox
+    const hideActualExpected = document.createElement('input')
+    hideActualExpected.type = 'checkbox'
+    hideActualExpected.checked = !!existing.hide_actual_expected
+    const hideActualExpectedWrap = document.createElement('div')
+    hideActualExpectedWrap.style.display = 'flex'
+    hideActualExpectedWrap.style.alignItems = 'center'
+    hideActualExpectedWrap.style.gap = '8px'
+    hideActualExpectedWrap.appendChild(hideActualExpected)
+    const hideActualExpectedLabel = document.createElement('span')
+    hideActualExpectedLabel.textContent = 'Hide actual vs expected output (show only pass/fail status)'
+    hideActualExpectedWrap.appendChild(hideActualExpectedLabel)
+
     root.appendChild(labeled('ID [optional]', idIn))
     root.appendChild(labeled('Description', desc))
     root.appendChild(labeled('Stdin', stdin))
@@ -261,6 +277,7 @@ function buildEditorForm(existing) {
 
     root.appendChild(labeled('Timeout (ms) [optional]', timeout))
     root.appendChild(labeled('Setup (JSON) [optional]', setup))
+    root.appendChild(labeled('Display options', hideActualExpectedWrap))
 
     return {
         root,
@@ -300,6 +317,7 @@ function buildEditorForm(existing) {
             if (expectedErrVal !== undefined) out.expected_stderr = expectedErrVal
             if (timeout.value) out.timeoutMs = Number(timeout.value)
             if (setupVal !== null && setupVal !== undefined && setupVal !== '') out.setup = setupVal
+            if (hideActualExpected.checked) out.hide_actual_expected = true
             return out
         }
     }
@@ -450,7 +468,7 @@ export function initAuthorTests() {
     function deleteItem(idx) { if (!confirm('Delete test "' + (items[idx] && (items[idx].description || items[idx].id)) + '"?')) return; items.splice(idx, 1); persist() }
 
     addBtn.addEventListener('click', () => {
-        const newItem = { id: genId(), description: 'New test', stdin: '', expected_stdout: '', expected_stderr: '', timeoutMs: undefined }
+        const newItem = { id: genId(), description: 'New test', stdin: '', expected_stdout: '', expected_stderr: '', timeoutMs: undefined, hide_actual_expected: false }
         items.push(newItem)
         openModalEdit(items.length - 1)
     })

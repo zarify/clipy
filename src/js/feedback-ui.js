@@ -110,10 +110,12 @@ function renderList() {
                 // We avoid showing actual/expected for regex tests as it's confusing.
                 // IMPORTANT: Only show actual/expected if there's no stderr - if the program
                 // crashed we should show the traceback instead of output comparison.
+                // ALSO: Respect per-test hide_actual_expected setting to allow authors to disable this per test.
                 const hasExpected = authorEntry && (authorEntry.expected_stdout != null)
                 const isRegexExpected = hasExpected && (typeof authorEntry.expected_stdout === 'object' && authorEntry.expected_stdout.type === 'regex')
                 const hasStderr = r.stderr && r.stderr.trim().length > 0
-                if (!r.passed && hasExpected && !isRegexExpected && !hasStderr) {
+                const hideActualExpected = authorEntry && authorEntry.hide_actual_expected
+                if (!r.passed && hasExpected && !isRegexExpected && !hasStderr && !hideActualExpected) {
                     const detailsWrap = document.createElement('div')
                     detailsWrap.className = 'test-compare'
                     detailsWrap.style.marginTop = '8px'
@@ -571,6 +573,7 @@ function showTestResultsModal(results) {
         // Show actual vs expected for failing tests when we have an expected_stdout
         // Prefer the explicit expected on the result (res.expected_stdout) then
         // fall back to metadata from the config (meta) or cfgMap.
+        // Also respect hide_actual_expected setting per test.
         try {
             let expected = null
             if (typeof r.expected_stdout !== 'undefined' && r.expected_stdout !== null) expected = r.expected_stdout
@@ -580,7 +583,8 @@ function showTestResultsModal(results) {
                 if (typeof cfgEntry.expected_stdout !== 'undefined' && cfgEntry.expected_stdout !== null) expected = cfgEntry.expected_stdout
             }
 
-            if (!r.passed && expected != null && !(typeof expected === 'object' && expected.type === 'regex') && !(r.stderr && r.stderr.trim().length > 0)) {
+            const hideActualExpected = meta && meta.hide_actual_expected
+            if (!r.passed && expected != null && !(typeof expected === 'object' && expected.type === 'regex') && !(r.stderr && r.stderr.trim().length > 0) && !hideActualExpected) {
                 const compareWrap = document.createElement('div')
                 compareWrap.className = 'test-compare'
                 compareWrap.style.marginTop = '8px'
