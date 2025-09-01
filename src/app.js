@@ -492,9 +492,10 @@ async function main() {
                     } catch (_e) { }
                 }
 
-                // Refresh tabs/editor
+                // Refresh tabs/editor and ensure MAIN_FILE remains selected
                 try { if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') await window.TabManager.syncWithFileManager() } catch (_e) { }
                 try { if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') window.TabManager.refreshOpenTabContents() } catch (_e) { }
+                try { if (window.TabManager && typeof window.TabManager.selectTab === 'function') window.TabManager.selectTab(MAIN_FILE) } catch (_e) { }
 
                 // Update global config reference and UI
                 try { setCurrentConfig(newCfg) } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }

@@ -10,6 +10,7 @@ function $(id) { return document.getElementById(id) }
 let editor = null
 let files = {} // map path -> content or { content, binary, mime }
 let currentFile = '/main.py'
+let suppressOpenFileFocus = false
 let autosaveTimer = null
 const AUTOSAVE_DELAY = 500
 const BINARY_LIMIT = 204800 // 200KB
@@ -55,7 +56,11 @@ function renderFileList() {
     }
 }
 
-function openFile(path) {
+function openFile(path, force = false) {
+    // When suppressed, ignore non-forced open requests so imports or file
+    // creation flows don't steal focus; callers can pass force=true to
+    // explicitly open.
+    if (suppressOpenFileFocus && !force) return
     currentFile = path
     $('editor-current-file').textContent = path
     const content = files[path]
@@ -162,8 +167,17 @@ function restoreFromLocalStorage() {
             } catch (_e) { $('tests-editor').value = raw.tests || '' }
         }
     } catch (e) { files = { '/main.py': '# starter code\n' } }
-    renderFileList()
-    openFile(Object.keys(files)[0] || '/main.py')
+    // Prevent any file-creation flows triggered during render from stealing focus
+    suppressOpenFileFocus = true
+    try {
+        renderFileList()
+        // After rendering, explicitly open /main.py if present, otherwise open first
+        if (files['/main.py']) openFile('/main.py', true)
+        else openFile(Object.keys(files)[0] || '/main.py', true)
+    } finally {
+        // Allow normal openFile behavior again
+        suppressOpenFileFocus = false
+    }
     // render preview
     try { updateInstructionsPreview() } catch (_e) { }
 }
@@ -421,8 +435,15 @@ function applyImportedConfig(obj) {
         $('tests-editor').dispatchEvent(new Event('input', { bubbles: true }))
     }
 
-    renderFileList()
-    openFile(Object.keys(files)[0] || '/main.py')
+    // Prevent any file-creation flows triggered during render from stealing focus
+    suppressOpenFileFocus = true
+    try {
+        renderFileList()
+        if (files['/main.py']) openFile('/main.py', true)
+        else openFile(Object.keys(files)[0] || '/main.py', true)
+    } finally {
+        suppressOpenFileFocus = false
+    }
 
     // Persist to localStorage: ensure feedback/tests are structured when possible
     const cfg = buildCurrentConfig()
