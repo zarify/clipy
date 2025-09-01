@@ -23,7 +23,7 @@ import { $ } from './utils.js'
 import { getFileManager, MAIN_FILE, getBackendRef, getMem } from './vfs-client.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
 import { appendTerminal, activateSideTab } from './terminal.js'
-import { getConfigKey, getConfigIdentity } from './config.js'
+import { getConfigKey, getConfigIdentity, getConfig } from './config.js'
 import { safeSetItem, checkStorageHealth, showStorageInfo } from './storage-manager.js'
 
 export function setupSnapshotSystem() {
@@ -133,6 +133,9 @@ async function saveSnapshot() {
         const snap = {
             ts: Date.now(),
             config: configIdentity,
+            metadata: {
+                configVersion: getConfig()?.version || '1.0'
+            },
             files: {}
         }
 

@@ -2,7 +2,7 @@
 // This replaces the monolithic main.js with organized, maintainable modules
 
 // Core utilities and configuration
-import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile, setCurrentConfig } from './js/config.js'
+import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile, setCurrentConfig, saveCurrentConfig, loadCurrentConfig, clearCurrentConfig, isConfigCompatibleWithSnapshot, debugCurrentConfig } from './js/config.js'
 import { $ } from './js/utils.js'
 
 import { openModal, closeModal } from './js/modals.js'
@@ -48,6 +48,8 @@ try {
     }
     // Expose storage info for debugging
     window.showStorageInfo = showStorageInfo
+    // Expose config debug helper
+    window.debugCurrentConfig = debugCurrentConfig
     // Expose highlight helpers for tests/debugging
     try { window.highlightMappedTracebackInEditor = highlightMappedTracebackInEditor } catch (_e) { }
     try { window.highlightFeedbackLine = highlightFeedbackLine } catch (_e) { }
@@ -74,8 +76,10 @@ async function main() {
         try { if (typeof window !== 'undefined') window.__ssg_suppress_terminal_autoswitch = true } catch (_e) { }
 
         // 1. Load configuration
-        // Support loading a configuration via the URL query parameter `?config=`
-        // (value may be a full http(s) URL or a filename to load from /config/).
+        // Priority order:
+        // 1. URL ?config= parameter (overrides everything)
+        // 2. Saved current_config from localStorage
+        // 3. Default sample config
         let cfg = null
         try {
             if (typeof window !== 'undefined') {
@@ -100,9 +104,43 @@ async function main() {
             }
         } catch (_e) { }
 
+        // If no URL config, try loading saved current config
         if (!cfg) {
-            cfg = await loadConfig()
+            try {
+                console.log('main: attempting to load current config from localStorage')
+                const savedConfig = loadCurrentConfig()
+                if (savedConfig) {
+                    cfg = savedConfig
+                    // Set this as the current config so helpers reflect the right identity
+                    setCurrentConfig(cfg)
+                    console.log('main: loaded config from current_config localStorage:', cfg.id, cfg.version)
+                } else {
+                    console.log('main: no current config found in localStorage')
+                }
+            } catch (e) {
+                console.warn('Failed to load current config:', e)
+            }
         }
+
+        // Fall back to default sample config
+        if (!cfg) {
+            console.log('main: no saved config, loading default sample config')
+            cfg = await loadConfig()
+            console.log('main: loaded default config:', cfg.id, cfg.version)
+        }
+
+        // Save the loaded config as current (whether from URL, localStorage, or default)
+        try {
+            setCurrentConfig(cfg)
+            saveCurrentConfig(cfg)
+            // Debug what was actually saved
+            console.log('=== Config Loading Debug ===')
+            console.log('Final loaded config:', cfg.id, cfg.version)
+            debugCurrentConfig()
+        } catch (e) {
+            console.warn('Failed to save current config:', e)
+        }
+
         initializeInstructions(cfg)
 
         // Expose current config globally for tests
@@ -500,13 +538,49 @@ async function main() {
                     } catch (_e) { }
                 }
 
+                // Save this config as the current config for future sessions
+                try {
+                    saveCurrentConfig(newCfg)
+                } catch (_e) { }
+
+                // Update global config reference BEFORE checking for snapshots
+                // This ensures getSnapshotsForCurrentConfig() uses the new config's identity
+                try { setCurrentConfig(newCfg) } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
+
+                // Try to restore the latest snapshot for this NEW config (if compatible)
+                try {
+                    const { getSnapshotsForCurrentConfig } = await import('./js/snapshots.js')
+                    const snapshots = getSnapshotsForCurrentConfig()
+                    if (snapshots && snapshots.length > 0) {
+                        // Get the most recent snapshot
+                        const latestSnapshot = snapshots[snapshots.length - 1]
+                        const snapshotConfigVersion = latestSnapshot.metadata?.configVersion
+                        const currentConfigVersion = newCfg?.version
+
+                        if (isConfigCompatibleWithSnapshot(currentConfigVersion, snapshotConfigVersion)) {
+                            // Restore the snapshot files for this config
+                            if (latestSnapshot.files && FileManager) {
+                                for (const [path, content] of Object.entries(latestSnapshot.files)) {
+                                    try {
+                                        await FileManager.write(path, content)
+                                    } catch (_e) { }
+                                }
+                            }
+                            try { appendTerminal('Restored latest snapshot for ' + (newCfg?.title || newCfg?.id || 'config'), 'runtime') } catch (_e) { }
+                        } else {
+                            try { appendTerminal('Config version changed - using default files instead of snapshot', 'runtime') } catch (_e) { }
+                        }
+                    } else {
+                        try { appendTerminal('No snapshots found for ' + (newCfg?.title || newCfg?.id || 'config') + ' - using default files', 'runtime') } catch (_e) { }
+                    }
+                } catch (_e) { }
+
                 // Refresh tabs/editor and ensure MAIN_FILE remains selected
                 try { if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') await window.TabManager.syncWithFileManager() } catch (_e) { }
                 try { if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') window.TabManager.refreshOpenTabContents() } catch (_e) { }
                 try { if (window.TabManager && typeof window.TabManager.selectTab === 'function') window.TabManager.selectTab(MAIN_FILE) } catch (_e) { }
 
-                // Update global config reference and UI
-                try { setCurrentConfig(newCfg) } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
+                // Update UI components (setCurrentConfig was already called above)
                 try { initializeInstructions(newCfg) } catch (_e) { }
                 // Update Feedback subsystem and UI so feedback/tests from the
                 // newly-applied config fully replace any previous state.

@@ -71,19 +71,27 @@ export async function loadConfigFromFile(file) {
 }
 
 export async function loadConfig() {
-    if (config) return config
+    if (config) {
+        console.log('loadConfig: returning cached config:', config.id, config.version)
+        return config
+    }
 
     try {
+        console.log('loadConfig: fetching from', configUrl)
         const res = await fetch(configUrl)
+        console.log('loadConfig: fetch response status:', res.status)
         const rawConfig = await res.json()
+        console.log('loadConfig: loaded raw config:', rawConfig.id, rawConfig.version)
 
         // Validate and normalize configuration
         config = validateAndNormalizeConfigInternal(rawConfig)
+        console.log('loadConfig: validated config:', config.id, config.version)
 
         return config
     } catch (e) {
-        console.error('Failed to load configuration:', e)
+        console.error('Failed to load configuration from', configUrl, ':', e)
         config = getDefaultConfig()
+        console.log('loadConfig: using fallback config:', config.id, config.version)
         return config
     }
 }
@@ -279,4 +287,96 @@ export function initializeInstructions(cfg) {
     } catch (_e) { }
 }
 
-export default { loadConfig, getConfig, getConfigIdentity, resetToLoadedConfig, validateAndNormalizeConfig }
+// Current config persistence functions
+const CURRENT_CONFIG_KEY = 'current_config'
+
+export function saveCurrentConfig(cfg) {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(CURRENT_CONFIG_KEY, JSON.stringify(cfg))
+        }
+    } catch (e) {
+        console.warn('Failed to save current config to localStorage:', e)
+    }
+}
+
+export function loadCurrentConfig() {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            const stored = localStorage.getItem(CURRENT_CONFIG_KEY)
+            console.log('Raw stored config:', stored ? 'exists' : 'null')
+            if (stored) {
+                let parsed
+                try {
+                    parsed = JSON.parse(stored)
+                    console.log('Parsed current config:', parsed.id || 'unknown', parsed.version || 'unknown')
+                } catch (parseError) {
+                    console.error('JSON parse error for stored config:', parseError)
+                    return null
+                }
+
+                try {
+                    const validated = validateAndNormalizeConfigInternal(parsed)
+                    console.log('Validated current config:', validated.id, validated.version)
+                    return validated
+                } catch (validationError) {
+                    console.error('Validation error for stored config:', validationError)
+                    return null
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load current config from localStorage:', e)
+    }
+    return null
+}
+
+export function clearCurrentConfig() {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(CURRENT_CONFIG_KEY)
+        }
+    } catch (e) {
+        console.warn('Failed to clear current config from localStorage:', e)
+    }
+}
+
+// Debug function to inspect current config state
+export function debugCurrentConfig() {
+    console.log('=== Current Config Debug ===')
+    try {
+        if (typeof localStorage !== 'undefined') {
+            const stored = localStorage.getItem(CURRENT_CONFIG_KEY)
+            console.log('Stored config exists:', !!stored)
+            if (stored) {
+                console.log('Stored config length:', stored.length)
+                console.log('Stored config preview:', stored.substring(0, 200) + '...')
+                try {
+                    const parsed = JSON.parse(stored)
+                    console.log('Parsed config keys:', Object.keys(parsed))
+                    console.log('Config ID:', parsed.id)
+                    console.log('Config version:', parsed.version)
+                } catch (e) {
+                    console.error('Parse error:', e)
+                }
+            }
+        }
+        console.log('In-memory config:', getConfig()?.id, getConfig()?.version)
+    } catch (e) {
+        console.error('Debug error:', e)
+    }
+    console.log('=== End Debug ===')
+}
+
+// Version compatibility check for snapshot restoration
+export function isConfigCompatibleWithSnapshot(configVersion, snapshotConfigVersion) {
+    try {
+        const configMajor = parseInt(configVersion?.split('.')[0] || '1')
+        const snapshotMajor = parseInt(snapshotConfigVersion?.split('.')[0] || '1')
+        return configMajor === snapshotMajor
+    } catch (e) {
+        return false
+    }
+}
+
+export default { loadConfig, getConfig, getConfigIdentity, resetToLoadedConfig, validateAndNormalizeConfig, saveCurrentConfig, loadCurrentConfig, clearCurrentConfig, isConfigCompatibleWithSnapshot, debugCurrentConfig }
