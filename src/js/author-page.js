@@ -3,6 +3,7 @@ import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearA
 import { initAuthorFeedback } from './author-feedback.js'
 import { initAuthorTests } from './author-tests.js'
 import { showConfirmModal, openModal, closeModal } from './modals.js'
+import { renderMarkdown } from './utils.js'
 
 function $(id) { return document.getElementById(id) }
 
@@ -163,6 +164,24 @@ function restoreFromLocalStorage() {
     } catch (e) { files = { '/main.py': '# starter code\n' } }
     renderFileList()
     openFile(Object.keys(files)[0] || '/main.py')
+    // render preview
+    try { updateInstructionsPreview() } catch (_e) { }
+}
+
+function updateInstructionsPreview() {
+    const ta = $('instructions-editor')
+    const preview = $('instructions-preview')
+    if (!preview) return
+    const md = ta ? ta.value || '' : ''
+    try {
+        // prefer local renderer from utils to keep consistent behavior
+        const html = renderMarkdown(md)
+        preview.innerHTML = html
+        // highlight code blocks if highlight.js available
+        try { if (window.hljs && typeof window.hljs.highlightAll === 'function') window.hljs.highlightAll() } catch (_e) { }
+    } catch (e) {
+        preview.textContent = md
+    }
 }
 
 async function handleUpload(ev) {
@@ -227,7 +246,9 @@ function setupHandlers() {
     $('meta-id').addEventListener('input', debounceSave)
     $('meta-version').addEventListener('input', debounceSave)
     if ($('meta-description')) $('meta-description').addEventListener('input', debounceSave)
-    if ($('instructions-editor')) $('instructions-editor').addEventListener('input', debounceSave)
+    if ($('instructions-editor')) {
+        $('instructions-editor').addEventListener('input', () => { debounceSave(); try { updateInstructionsPreview() } catch (_e) { } })
+    }
     if ($('feedback-editor')) $('feedback-editor').addEventListener('input', debounceSave)
     if ($('tests-editor')) $('tests-editor').addEventListener('input', debounceSave)
     $('add-file').addEventListener('click', () => {

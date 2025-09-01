@@ -43,7 +43,7 @@ Key fields explained:
 - `expected_stdout` / `expected_stderr`: optional expectations. Accepts:
   - plain string (assert the captured output includes this substring)
   - an object `{ type: 'regex', expression: '...', flags: '' }` (runner converts to RegExp)
-  - a RegExp when constructing tests programmatically
+  - a RegExp when constructing tests programmatically using `/.../` format for JS.
 - `timeoutMs`: optional per-test timeout; the runner will mark `reason: 'timeout'` if exceeded.
 - `show_stderr`: optional author hint (boolean). When false the UI hides stderr by default; when true the host may render it. (`show_stdout` opt-in is a planned enhancement.)
 

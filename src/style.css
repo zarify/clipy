@@ -930,9 +930,9 @@ pre#terminal-output {
     display: block;
 }
 
-/* Styling for Markdown-rendered code blocks inside the Instructions panel */
-#instructions-content pre {
-    /* dark base to make highlighted text pop */
+/* Styling for Markdown-rendered code blocks inside the Instructions panel and author preview */
+#instructions-content pre,
+#instructions-preview pre {
     padding: 12px;
     border-radius: 6px;
     overflow: auto;
@@ -945,14 +945,16 @@ pre#terminal-output {
     border-left: 4px solid rgba(11, 92, 255, 0.12);
 }
 
-#instructions-content pre code {
+#instructions-content pre code,
+#instructions-preview pre code {
     background: transparent;
     color: inherit;
     padding: 0;
     border-radius: 0;
 }
 
-#instructions-content code {
+#instructions-content code,
+#instructions-preview code {
     background: #f4f6f8;
     padding: 2px 6px;
     border-radius: 4px;
