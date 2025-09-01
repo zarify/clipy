@@ -156,6 +156,15 @@ export async function syncWithFileManager() {
 
     const files = (typeof FileManager.list === 'function') ? FileManager.list() : []
 
+    // Clean up pending tabs queue - remove any files that don't exist
+    if (typeof window !== 'undefined' && window.__ssg_pending_tabs) {
+        try {
+            window.__ssg_pending_tabs = window.__ssg_pending_tabs.filter(path => {
+                return files.includes(path) || path === MAIN_FILE
+            })
+        } catch (_e) { }
+    }
+
     // Ensure MAIN_FILE is always present in the tabs
     try {
         if (!openTabs.includes(MAIN_FILE)) openTab(MAIN_FILE)
@@ -181,6 +190,11 @@ export async function syncWithFileManager() {
                 if (!openTabs.includes(p)) openTab(p)
             } catch (_e) { }
         }
+    } catch (_e) { }
+
+    // Process any remaining pending tabs after cleanup
+    try {
+        flushPendingTabs()
     } catch (_e) { }
 
     // Ensure the active tab's editor content is refreshed
@@ -373,6 +387,26 @@ export function initializeTabManager(codeMirror, textareaElement) {
     // Ensure main file is open in initial tab and selected
     openTab(MAIN_FILE)
 
+    // Close any stale tabs for files that no longer exist in the FileManager
+    // This handles cases where snapshots or previous sessions left tabs open
+    // for files that were removed by config changes or resets.
+    try {
+        const FileManager = getFileManager()
+        if (FileManager && typeof FileManager.list === 'function') {
+            const availableFiles = FileManager.list() || []
+            // Create a copy of openTabs to avoid modification during iteration
+            const currentTabs = [...openTabs]
+            for (const p of currentTabs) {
+                try {
+                    // Don't close MAIN_FILE tab, but close tabs for missing files
+                    if (p !== MAIN_FILE && !availableFiles.includes(p)) {
+                        closeTabSilent(p)
+                    }
+                } catch (_e) { }
+            }
+        }
+    } catch (_e) { }
+
     // Re-open any existing files from the FileManager so tabs persist across
     // page reloads and snapshot restores. Exclude the protected MAIN_FILE
     // because it's already opened above.
@@ -389,12 +423,18 @@ export function initializeTabManager(codeMirror, textareaElement) {
     } catch (_e) { }
 
     // If any tabs were queued while TabManager wasn't available, open them now
+    // but only if they actually exist in the FileManager
     try {
         const pending = (window.__ssg_pending_tabs || [])
         if (pending && pending.length) {
+            const FileManager = getFileManager()
+            const availableFiles = (FileManager && typeof FileManager.list === 'function') ? (FileManager.list() || []) : []
             for (const p of pending) {
                 try {
-                    openTab(p)
+                    // Only open pending tabs that actually exist
+                    if (p === MAIN_FILE || availableFiles.includes(p)) {
+                        openTab(p)
+                    }
                 } catch (_e) { }
             }
             try {
@@ -417,9 +457,14 @@ export function initializeTabManager(codeMirror, textareaElement) {
             try {
                 const pending = (window.__ssg_pending_tabs || [])
                 if (pending && pending.length) {
+                    const FileManager = getFileManager()
+                    const availableFiles = (FileManager && typeof FileManager.list === 'function') ? (FileManager.list() || []) : []
                     for (const p of pending) {
                         try {
-                            openTab(p)
+                            // Only open pending tabs that actually exist
+                            if (p === MAIN_FILE || availableFiles.includes(p)) {
+                                openTab(p)
+                            }
                         } catch (_e) { }
                     }
                     try {

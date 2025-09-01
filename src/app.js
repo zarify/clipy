@@ -167,6 +167,14 @@ async function main() {
             try { dbg('dbg: after import snapshots') } catch (_e) { }
             const _restored = await restoreCurrentSnapshotIfExists()
             try { dbg('dbg: after restoreCurrentSnapshotIfExists', _restored) } catch (_e) { }
+
+            // After snapshot restore, clean up any tabs that were opened for files
+            // that don't exist in the current FileManager (handles config switches)
+            try {
+                if (TabManager && typeof TabManager.syncWithFileManager === 'function') {
+                    await TabManager.syncWithFileManager()
+                }
+            } catch (_e) { }
         } catch (_e) { /* ignore snapshot restore failures at startup */ }
 
         // 5. Initialize autosave
