@@ -716,7 +716,8 @@ pre#terminal-output {
 
 .editor-header-meta {
     min-width: 120px;
-    flex: 0 0 120px;
+    max-width: 250px;
+    flex: 1 0 120px;
     color: #666;
     font-size: 0.95rem
 }
