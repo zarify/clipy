@@ -687,6 +687,10 @@ pre#terminal-output {
     color: #b06b00
 }
 
+.severity-success .feedback-iconf {
+    color: #33aa22;
+}
+
 .matched-hint {
     color: #9a6b00
 }
@@ -697,6 +701,10 @@ pre#terminal-output {
 
 .matched-warning {
     color: #b06b00
+}
+
+.matched-success {
+    color: #33aa22;
 }
 
 /* Editor header layout: reserve space for autosave indicator to avoid layout shift */

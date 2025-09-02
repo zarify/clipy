@@ -8,7 +8,7 @@ import { openModal as openModalHelper, closeModal as closeModalHelper } from './
 const VALID_PATTERN_TYPES = ['regex', 'ast']
 const VALID_TARGETS = ['code', 'filename', 'stdout', 'stderr', 'stdin']
 const VALID_WHEN = ['edit', 'run']
-const VALID_SEVERITIES = ['info', 'warning', 'error']
+const VALID_SEVERITIES = ['success', 'info', 'warning', 'error']
 
 function $(sel, root = document) { return root.querySelector(sel) }
 
@@ -246,7 +246,7 @@ function buildEditorForm(existing) {
                 when: when.length ? when : ['edit'],
                 pattern: { type: patternType.value || 'regex', target: targetSel.value || 'code', fileTarget: fileTargetIn.value || 'main.py', expression: expr.value || '', flags: flags.value || '' },
                 message: message.value || '',
-                severity: severity.value || 'info',
+                severity: severity.value || 'success',
                 visibleByDefault: !!visible.checked
             }
         }

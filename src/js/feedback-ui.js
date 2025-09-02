@@ -224,8 +224,8 @@ function renderList() {
             wrapper.className = 'feedback-entry'
             wrapper.setAttribute('data-id', id)
 
-            // severity (hint | info | warning) - default to info
-            const sev = (entry.severity || 'info').toLowerCase()
+            // severity (success | hint | info | warning) - default to success
+            const sev = (entry.severity || 'success').toLowerCase()
             wrapper.classList.add('severity-' + sev)
 
             // title row with icon
@@ -234,7 +234,17 @@ function renderList() {
 
             const icon = document.createElement('span')
             icon.className = 'feedback-icon'
-            icon.textContent = (sev === 'hint') ? '💡' : (sev === 'warning') ? '⚠️' : 'ℹ️'
+            if (sev === 'hint') {
+                icon.textContent = '💡'
+            } else if (sev === 'warning') {
+                icon.textContent = '⚠️'
+            } else if (sev === 'info') {
+                icon.textContent = 'ℹ️'
+            } else if (sev === 'success') {
+                icon.textContent = '😊'
+            } else {
+                icon.textContent = '•'
+            }
             titleRow.appendChild(icon)
 
             const titleEl = document.createElement('div')
