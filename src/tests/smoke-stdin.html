@@ -33,7 +33,7 @@
 </pre>
 
     <script type="module">
-        import { createSandboxedRunFn } from '/js/test-runner-sandbox.js'
+        import { createSandboxedRunFn } from '../js/test-runner-sandbox.js'
 
         const logEl = (id, s) => {
             const el = document.getElementById(id)
@@ -58,7 +58,7 @@
             ; (async () => {
                 document.getElementById('status').textContent = 'creating runFn...'
                 // Create the sandboxed runFn (uses per-test iframe)
-                const runFn = createSandboxedRunFn({ runtimeUrl: '/vendor/micropython.mjs', iframeSrc: '/tests/runner.html', filesSnapshot: {} })
+                const runFn = createSandboxedRunFn({ runtimeUrl: '../vendor/micropython.mjs', iframeSrc: './runner.html', filesSnapshot: {} })
 
                 const tests = [
                     {

@@ -156,7 +156,7 @@ function saveToLocalStorage() {
         const cfg = buildCurrentConfig()
         // Ensure runtime entry exists and prefers the .mjs module loader
         try {
-            if (!cfg.runtime) cfg.runtime = { type: 'micropython', url: '/vendor/micropython.mjs' }
+            if (!cfg.runtime) cfg.runtime = { type: 'micropython', url: './vendor/micropython.mjs' }
             if (cfg.runtime && cfg.runtime.url && typeof cfg.runtime.url === 'string') {
                 if (cfg.runtime.url.trim().endsWith('.wasm')) {
                     cfg.runtime.url = cfg.runtime.url.trim().replace(/\.wasm$/i, '.mjs')

@@ -1,5 +1,5 @@
 // Parent-side helper to create a sandboxed runFn that uses per-test iframes.
-export function createSandboxedRunFn({ runtimeUrl = '/vendor/micropython.mjs', filesSnapshot = {}, iframeSrc = '/tests/runner.html', timeoutMsDefault = 20000 } = {}) {
+export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', filesSnapshot = {}, iframeSrc = './tests/runner.html', timeoutMsDefault = 20000 } = {}) {
     return function runFn(test) {
         return new Promise((resolve) => {
             const iframe = document.createElement('iframe')

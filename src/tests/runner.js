@@ -111,7 +111,7 @@ try {
                 try {
                     // Ensure Module.inputHandler is populated for runtimes that probe Module
                     try { globalThis.Module = globalThis.Module || {}; globalThis.Module.inputHandler = inputHandler } catch (e) { }
-                    mpInstance = await loaderFn({ url: '/vendor/micropython.wasm', stdout, stderr, stdin, linebuffer: true, inputHandler })
+                    mpInstance = await loaderFn({ url: '../vendor/micropython.wasm', stdout, stderr, stdin, linebuffer: true, inputHandler })
                 } catch (e) {
                     post({ type: 'error', error: String(e) })
                     return false
@@ -319,7 +319,7 @@ try {
         const msg = ev.data || {}
         try {
             if (msg.type === 'init') {
-                const ok = await initRuntime(msg.runtimeUrl || '/vendor/micropython.mjs')
+                const ok = await initRuntime(msg.runtimeUrl || '../vendor/micropython.mjs')
                 if (ok) {
                     // If the parent supplied an initial files snapshot (e.g. /main.py),
                     // write those into the runtime FS so tests without an explicit

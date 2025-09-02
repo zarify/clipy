@@ -318,7 +318,10 @@ async function main() {
                                 const sandbox = await import('./js/test-runner-sandbox.js')
                                 const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
                                 const mainContent = (FileManager ? (FileManager.read(MAIN_FILE) || '') : '')
-                                runFn = sandbox.createSandboxedRunFn({ runtimeUrl: (cfg && cfg.runtime && cfg.runtime.url) || '/vendor/micropython.mjs', filesSnapshot: { [MAIN_FILE]: mainContent } })
+                                const runtimeUrl = (cfg && cfg.runtime && cfg.runtime.url) || './vendor/micropython.mjs'
+                                // Convert runtime URL to be relative to tests/ directory since iframe runs there
+                                const testsRelativeRuntimeUrl = runtimeUrl.startsWith('./') ? '../' + runtimeUrl.slice(2) : runtimeUrl
+                                runFn = sandbox.createSandboxedRunFn({ runtimeUrl: testsRelativeRuntimeUrl, filesSnapshot: { [MAIN_FILE]: mainContent } })
                             } catch (e) {
                                 appendTerminal('Failed to initialize sandboxed runner: ' + e, 'runtime')
                                 // fall through to adapter
@@ -673,7 +676,7 @@ async function main() {
                                         // Try to fetch the config metadata (title/version) for a nicer display.
                                         let meta = null
                                         try {
-                                            const url = /^https?:\/\//i.test(name) ? name : '/config/' + encodeURIComponent(name)
+                                            const url = /^https?:\/\//i.test(name) ? name : './config/' + encodeURIComponent(name)
                                             const r = await fetch(url)
                                             if (r && r.ok) {
                                                 try { meta = await r.json() } catch (_e) { meta = null }

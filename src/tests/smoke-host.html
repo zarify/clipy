@@ -13,7 +13,7 @@
         style="white-space:pre-wrap;background:#111;color:#eee;padding:12px;border-radius:6px;max-height:60vh;overflow:auto">log:
 </pre>
     <script type="module">
-        import { createSandboxedRunFn } from '/js/test-runner-sandbox.js'
+        import { createSandboxedRunFn } from '../js/test-runner-sandbox.js'
 
         const append = (s) => {
             const l = document.getElementById('log')
@@ -44,7 +44,7 @@
                     try { console.log('smoke-host: message listener attached') } catch (e) { }
                     // small delay to let the UI paint and ensure streaming is visible
                     await new Promise((r) => setTimeout(r, 200))
-                    const runFn = createSandboxedRunFn({ runtimeUrl: '/vendor/micropython.mjs', iframeSrc: '/tests/runner.html', filesSnapshot: { '/main.py': 'print("SMOKE")' } })
+                    const runFn = createSandboxedRunFn({ runtimeUrl: '../vendor/micropython.mjs', iframeSrc: './runner.html', filesSnapshot: { '/main.py': 'print("SMOKE")' } })
                     out.textContent = 'running test'
                     append('running test...')
                     const res = await runFn({ id: 'smoke1', main: 'print("SMOKE")', stdin: '', timeoutMs: 20000 })

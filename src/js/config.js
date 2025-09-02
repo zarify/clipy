@@ -1,13 +1,13 @@
 // Configuration loading and management
 import { $, renderMarkdown } from './utils.js'
 
-// Use root-based path so servers serving `/src` as document root resolve correctly
-export const configUrl = '/config/sample.json'
+// Use relative path so the app works from any directory
+export const configUrl = './config/sample.json'
 
 let config = null
 
 // Optional discovery list (a JSON file listing available config filenames)
-export const configIndexUrl = '/config/index.json'
+export const configIndexUrl = './config/index.json'
 
 // Fetch list of available config files from server (index.json expected)
 export async function fetchAvailableServerConfigs() {
@@ -20,7 +20,7 @@ export async function fetchAvailableServerConfigs() {
     } catch (e) {
         // Fallback: attempt to read a hard-coded sample.json only
         try {
-            const res = await fetch('/config/sample.json')
+            const res = await fetch('./config/sample.json')
             if (!res.ok) throw e
             return ['sample.json']
         } catch (_e) { return [] }
@@ -34,9 +34,9 @@ export async function loadConfigFromStringOrUrl(input) {
     const trimmed = String(input).trim()
     let urlToLoad = trimmed
     try {
-        // If it appears to be a plain filename without protocol, load from /config/
+        // If it appears to be a plain filename without protocol, load from ./config/
         if (!/^https?:\/\//i.test(trimmed)) {
-            urlToLoad = '/config/' + encodeURIComponent(trimmed)
+            urlToLoad = './config/' + encodeURIComponent(trimmed)
         }
         const res = await fetch(urlToLoad)
         if (!res.ok) throw new Error('Failed to fetch: ' + res.status + ' ' + res.statusText)
@@ -151,7 +151,7 @@ function validateAndNormalizeConfigInternal(rawConfig) {
             type: rawConfig.runtime?.type || 'micropython',
             // Prefer the module loader (.mjs) as the canonical runtime URL for imports.
             // The module will locate and load the .wasm binary itself.
-            url: rawConfig.runtime?.url || '/vendor/micropython.mjs'
+            url: rawConfig.runtime?.url || './vendor/micropython.mjs'
         },
         execution: {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
@@ -199,7 +199,7 @@ function getDefaultConfig() {
         links: [],
         runtime: {
             type: 'micropython',
-            url: '/vendor/micropython.wasm'
+            url: './vendor/micropython.wasm'
         },
         execution: {
             timeoutSeconds: 30,

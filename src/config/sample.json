@@ -10,7 +10,7 @@
   ],
   "runtime": {
     "type": "micropython",
-    "url": "/vendor/micropython.mjs"
+    "url": "./vendor/micropython.mjs"
   },
   "execution": {
     "timeoutSeconds": 30,
