@@ -32,6 +32,7 @@ import { transformAndWrap, highlightMappedTracebackInEditor, highlightFeedbackLi
 
 // Additional features
 import { setupSnapshotSystem } from './js/snapshots.js'
+import { setupDownloadSystem } from './js/download.js'
 import { showStorageInfo } from './js/storage-manager.js'
 import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
 import { initializeFeedbackUI, setFeedbackMatches, setFeedbackConfig } from './js/feedback-ui.js'
@@ -393,8 +394,9 @@ async function main() {
         // 8. Setup input handling
         setupInputHandling()
 
-        // 9. Setup snapshot system
+        // 9. Setup snapshot and download systems
         setupSnapshotSystem()
+        setupDownloadSystem()
 
         // Wire reset config button if present: restore loaded config from remote and refresh UI
         try {
