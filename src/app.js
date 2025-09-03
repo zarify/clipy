@@ -744,9 +744,9 @@ async function main() {
                                 listContainer.parentNode.insertBefore(errorEl, listContainer.nextSibling)
                             }
                             errorEl.textContent = ''
-                            
+
                             let hasConfigs = false
-                            
+
                             // Add authoring config first if available
                             try {
                                 const AUTHOR_CONFIG_KEY = 'author_config'
@@ -808,7 +808,7 @@ async function main() {
                                     }
                                 }
                             } catch (_e) { }
-                            
+
                             // Add server configs
                             if (!items || !items.length) {
                                 if (!hasConfigs) {
@@ -911,13 +911,13 @@ async function main() {
             // Make entire modal droppable for JSON files
             if (configModal) {
                 let dragCounter = 0
-                
+
                 configModal.addEventListener('dragenter', (e) => {
                     e.preventDefault()
                     dragCounter++
                     configModal.classList.add('drag-over')
                 })
-                
+
                 configModal.addEventListener('dragleave', (e) => {
                     e.preventDefault()
                     dragCounter--
@@ -925,12 +925,12 @@ async function main() {
                         configModal.classList.remove('drag-over')
                     }
                 })
-                
-                configModal.addEventListener('dragover', (e) => { 
+
+                configModal.addEventListener('dragover', (e) => {
                     e.preventDefault()
                     e.dataTransfer.dropEffect = 'copy'
                 })
-                
+
                 configModal.addEventListener('drop', async (e) => {
                     e.preventDefault()
                     dragCounter = 0
