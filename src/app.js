@@ -37,6 +37,42 @@ import { showStorageInfo } from './js/storage-manager.js'
 import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
 import { initializeFeedbackUI, setFeedbackMatches, setFeedbackConfig } from './js/feedback-ui.js'
 
+// Check if authoring mode is enabled via URL parameter
+function isAuthoringEnabled() {
+    try {
+        const params = new URLSearchParams(window.location.search)
+        // Check for various authoring parameter formats
+        const hasAuthorParam = params.has('author') ||
+            params.get('authoring') === 'true' ||
+            params.get('author') === 'true' ||
+            params.has('authoring')
+
+        // Also check if returning from authoring page
+        const returningFromAuthor = sessionStorage.getItem('returningFromAuthor') === 'true'
+
+        return hasAuthorParam || returningFromAuthor
+    } catch (e) {
+        return false
+    }
+}
+
+// Add author flag to URL if not present when authoring is enabled
+function ensureAuthorFlag() {
+    try {
+        if (isAuthoringEnabled()) {
+            const params = new URLSearchParams(window.location.search)
+            if (!params.has('author') && !params.has('authoring')) {
+                // Add author flag to current URL
+                params.set('author', 'true')
+                const newUrl = window.location.pathname + '?' + params.toString()
+                window.history.replaceState({}, '', newUrl)
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to ensure author flag:', e)
+    }
+}
+
 // Expose global functions for tests and debugging
 try {
     window.__ssg_transform = transformAndWrap
@@ -638,11 +674,49 @@ async function main() {
             const configInfoEl = document.querySelector('.config-info') || document.querySelector('.config-title-line')
             const configModal = document.getElementById('config-modal')
             if (configInfoEl && configModal) {
+                // Handle authoring mode setup
+                ensureAuthorFlag()
+                const authoringEnabled = isAuthoringEnabled()
+
+                // Log authoring mode status
+                if (authoringEnabled) {
+                    console.log('✨ Authoring mode enabled - config modal available')
+                } else {
+                    console.log('👤 User mode - config modal disabled')
+                }
+
+                // Update cursor style based on authoring mode
+                if (authoringEnabled) {
+                    configInfoEl.classList.add('authoring-enabled')
+                } else {
+                    configInfoEl.classList.remove('authoring-enabled')
+                }
+
+                // Clear session flag after checking
+                try {
+                    sessionStorage.removeItem('returningFromAuthor')
+                } catch (e) {
+                    console.warn('Failed to clear session flag:', e)
+                }
+
                 // Click and keyboard handler to open modal
                 const openHandler = async (ev) => {
                     try {
+                        // Check if authoring mode is enabled
+                        if (!isAuthoringEnabled()) {
+                            console.debug('[app] config modal disabled - authoring mode not enabled')
+                            return
+                        }
+
                         console.debug('[app] config header activated', ev && ev.type)
                         openModal(configModal)
+
+                        // Show/hide author page button based on authoring mode
+                        const authorPageBtn = document.getElementById('config-author-page')
+                        if (authorPageBtn) {
+                            authorPageBtn.style.display = isAuthoringEnabled() ? 'inline-block' : 'none'
+                        }
+
                         // Verify the modal became visible; if not, force it and log
                         try {
                             const vis = configModal.getAttribute && configModal.getAttribute('aria-hidden')
@@ -867,6 +941,21 @@ async function main() {
             // Close button
             const configClose = document.getElementById('config-close')
             if (configClose && configModal) configClose.addEventListener('click', () => { try { closeModal(configModal) } catch (_e) { } })
+
+            // Author page button
+            const authorPageBtn = document.getElementById('config-author-page')
+            if (authorPageBtn) {
+                authorPageBtn.addEventListener('click', () => {
+                    try {
+                        // Set flag for return detection
+                        sessionStorage.setItem('returningFromAuthor', 'true')
+                        // Navigate to author page
+                        window.location.href = 'author/'
+                    } catch (e) {
+                        console.error('Failed to navigate to author page:', e)
+                    }
+                })
+            }
         } catch (_e) { }
 
         console.log('✅ Clipy application initialized successfully')

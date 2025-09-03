@@ -172,10 +172,8 @@
         <h3 id="config-modal-title">Load Configuration</h3>
       </div>
       <div style="margin-bottom:8px">
-        <strong>Available configs on server</strong>
         <div id="config-server-list" class="config-server-list">(loading...)</div>
       </div>
-
       <div style="margin-bottom:8px">
         <strong>Load from URL or filename</strong>
         <div style="display:flex;gap:8px;margin-top:6px">
@@ -185,7 +183,7 @@
       </div>
 
       <div style="margin-bottom:8px">
-        <strong>Upload a config file</strong>
+        <strong>Load a config file</strong>
         <div id="config-drop-area" style="border:1px dashed #ccc;padding:12px;text-align:center;margin-top:6px">Drop a
           JSON file here or <button id="config-file-picker" class="btn">Choose file</button></div>
         <input id="config-file-input" type="file" accept="application/json" style="display:none" />
@@ -195,7 +193,8 @@
       <div id="config-error" role="alert" aria-live="assertive"
         style="color:var(--text-error,#b00020);font-size:0.95em;margin-top:6px;display:none"></div>
 
-      <div class="modal-actions">
+      <div class="modal-actions" style="display: flex; justify-content: space-between;">
+        <button id="config-author-page" class="btn" style="display:none">Open Author Page</button>
         <button id="config-close" class="btn modal-close-btn">Close</button>
       </div>
     </div>

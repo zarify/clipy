@@ -383,6 +383,21 @@ function setupHandlers() {
         debounceSave()
     })
     $('file-upload').addEventListener('change', handleUpload)
+
+    // Back to app navigation with session flag
+    $('back-to-app').addEventListener('click', () => {
+        try {
+            // Set flag for return detection
+            sessionStorage.setItem('returningFromAuthor', 'true')
+            // Navigate back to main app
+            window.location.href = '../index.html'
+        } catch (e) {
+            console.error('Failed to navigate back to app:', e)
+            // Fallback navigation
+            window.location.href = '../index.html'
+        }
+    })
+
     // New: clear current authoring configuration and reset UI
     $('new-config').addEventListener('click', async () => {
         let ok = false

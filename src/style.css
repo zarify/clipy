@@ -25,10 +25,13 @@ header {
     display: flex;
     justify-content: space-between;
 
-    /* Make the top-level config header show as clickable (hand cursor) since
-       it behaves like a button that opens the config modal. Avoid the text
+    /* Config info is only clickable when authoring is enabled to avoid 
        cursor on hover which is confusing to users. */
     .config-info {
+        cursor: default;
+    }
+
+    .config-info.authoring-enabled {
         cursor: pointer;
     }
 
