@@ -822,6 +822,16 @@ pre#terminal-output {
     border-radius: 6px;
 }
 
+/* Drag and drop styling for config modal */
+.modal.drag-over {
+    background: rgba(0, 123, 255, 0.1);
+    border: 2px dashed #007bff;
+}
+
+.modal.drag-over .modal-content {
+    background: rgba(255, 255, 255, 0.95);
+}
+
 .snapshot-item {
     display: flex;
     align-items: center;
