@@ -3,5 +3,9 @@
 - [ ] Write user documentation
 - [ ] Write author documentation
 - [ ] Make a logo
-- [ ] Implement save and restore drafts
+- [-] Implement save and restore drafts
 - [ ] Is there a way of verifying a student has solved a problem in a zero-knowledge way?
+- [ ] Dark mode
+- [ ] Maybe switch to IndexedDB support only - check browser support
+- [ ] Tests that always run vs tests that only run if previous passes
+- [ ] AST support for feedback and tests
