@@ -4,3 +4,4 @@
 - [ ] Write author documentation
 - [ ] Make a logo
 - [ ] Implement save and restore drafts
+- [ ] Is there a way of verifying a student has solved a problem in a zero-knowledge way?
