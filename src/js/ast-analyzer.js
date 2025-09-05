@@ -71,14 +71,75 @@ export class ASTAnalyzer {
     }
 
     analyzeVariables(ast, variableName) {
+        // If no variableName provided, return an array of reports for each variable
+        if (!variableName) {
+            // collect candidate variable names from Name nodes
+            const names = new Set();
+            // Collect declared variables only: Name targets in assignments, augassign,
+            // annotated assigns, for-loop targets, and function parameters.
+            const collect = (n) => {
+                if (!n || typeof n !== 'object') return;
+                if (Array.isArray(n)) return n.forEach(collect);
+                try {
+                    if (n.nodeType === 'Assign' && Array.isArray(n.targets)) {
+                        n.targets.forEach(t => {
+                            if (t && t.nodeType === 'Name' && t.id) names.add(t.id);
+                        });
+                    }
+                    if (n.nodeType === 'AnnAssign' && n.target && n.target.nodeType === 'Name' && n.target.id) {
+                        names.add(n.target.id);
+                    }
+                    if (n.nodeType === 'AugAssign' && n.target && n.target.nodeType === 'Name' && n.target.id) {
+                        names.add(n.target.id);
+                    }
+                    // Note: do not collect loop targets or function parameters here.
+                } catch (e) {
+                    // ignore
+                }
+                for (const k of Object.keys(n)) {
+                    const c = n[k];
+                    if (c && typeof c === 'object') collect(c);
+                }
+            };
+            if (ast && Array.isArray(ast.body)) ast.body.forEach(collect);
+            const reports = [];
+            for (const name of names) {
+                const r = this.analyzeVariables(ast, name) || { assigned: false, used: false, modified: false, assignments: [], usages: [] };
+                reports.push({ name, report: r });
+            }
+            reports.sort((a, b) => a.name.localeCompare(b.name));
+            return { variables: reports };
+        }
+
         const analysis = { assigned: false, used: false, modified: false, assignments: [], usages: [] };
         const getCtx = (node) => node && node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
 
         const seen = new Set();
-        const traverse = (node, inheritedLineno) => {
+
+        // Helper: check if a subtree contains a Load reference to variableName
+        const containsSelfReference = (root) => {
+            if (!root || typeof root !== 'object') return false;
+            const vseen = new Set();
+            const check = (n) => {
+                if (!n || typeof n !== 'object' || vseen.has(n)) return false;
+                vseen.add(n);
+                if (Array.isArray(n)) return n.some(check);
+                if (n.nodeType === 'Name') {
+                    const ctx = n.ctx && (n.ctx.nodeType || n.ctx._type || n.ctx.type);
+                    if (ctx === 'Load' && (variableName === '*' || n.id === variableName)) return true;
+                }
+                for (const k of Object.keys(n)) {
+                    const c = n[k];
+                    if (c && typeof c === 'object' && check(c)) return true;
+                }
+                return false;
+            };
+            return check(root);
+        };
+        const traverse = (node, inheritedLineno, parentKey) => {
             if (!node || typeof node !== 'object' || seen.has(node)) return;
             seen.add(node);
-            if (Array.isArray(node)) return node.forEach(n => traverse(n, inheritedLineno));
+            if (Array.isArray(node)) return node.forEach(n => traverse(n, inheritedLineno, parentKey));
 
             // Prefer the inherited (containing statement) lineno so nested
             // expression nodes (e.g. Name inside FormattedValue) report the
@@ -89,25 +150,54 @@ export class ASTAnalyzer {
                 node.targets.forEach(t => {
                     if (t && t.nodeType === 'Name' && (variableName === '*' || t.id === variableName)) {
                         analysis.assigned = true;
-                        analysis.assignments.push({ name: t.id, lineno: thisLineno });
+                        analysis.assignments.push({ name: t.id, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                    }
+                    // If assigning to an attribute of the variable (e.g. obj.attr = ...)
+                    if (t && t.nodeType === 'Attribute' && t.value && t.value.nodeType === 'Name' && (variableName === '*' || t.value.id === variableName)) {
+                        // report as assigned to the attribute and mark base var as modified
+                        const attrName = t.attr || t.attrname || '<attr>';
+                        analysis.assignments.push({ name: `${t.value.id}.${attrName}`, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                        analysis.modified = true;
                     }
                 });
+                // If RHS references the variable being assigned (e.g. x = x + ...), mark as modified
+                if (node.value && containsSelfReference(node.value)) {
+                    analysis.modified = true;
+                }
             }
 
             if (node.nodeType === 'AnnAssign' && node.target && node.target.nodeType === 'Name') {
                 const t = node.target;
                 if (variableName === '*' || t.id === variableName) {
                     analysis.assigned = true;
-                    analysis.assignments.push({ name: t.id, lineno: thisLineno });
+                    analysis.assignments.push({ name: t.id, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                }
+                if (node.value && containsSelfReference(node.value)) {
+                    analysis.modified = true;
+                }
+            }
+            // AnnAssign where the target is an Attribute (e.g., obj.attr: int = ...)
+            if (node.nodeType === 'AnnAssign' && node.target && node.target.nodeType === 'Attribute') {
+                const t = node.target;
+                if (t.value && t.value.nodeType === 'Name' && (variableName === '*' || t.value.id === variableName)) {
+                    const attrName = t.attr || t.attrname || '<attr>';
+                    analysis.assignments.push({ name: `${t.value.id}.${attrName}`, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                    analysis.modified = true;
                 }
             }
 
-            if (node.nodeType === 'AugAssign' && node.target && node.target.nodeType === 'Name') {
+            if (node.nodeType === 'AugAssign' && node.target) {
                 const t = node.target;
-                if (variableName === '*' || t.id === variableName) {
+                if (t.nodeType === 'Name' && (variableName === '*' || t.id === variableName)) {
                     analysis.assigned = true;
                     analysis.modified = true;
-                    analysis.assignments.push({ name: t.id, lineno: thisLineno });
+                    analysis.assignments.push({ name: t.id, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                }
+                // AugAssign to attribute (e.g., obj.attr += 1)
+                if (t.nodeType === 'Attribute' && t.value && t.value.nodeType === 'Name' && (variableName === '*' || t.value.id === variableName)) {
+                    const attrName = t.attr || t.attrname || '<attr>';
+                    analysis.assignments.push({ name: `${t.value.id}.${attrName}`, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                    analysis.modified = true;
                 }
             }
 
@@ -115,13 +205,15 @@ export class ASTAnalyzer {
                 const ctx = getCtx(node);
                 // Coerce to the containing statement line when available.
                 const resolvedLineno = thisLineno;
-                if (ctx === 'Load' && (variableName === '*' || node.id === variableName)) {
+                // Do not count Name nodes inside assignment targets as usages.
+                const inTarget = parentKey === 'targets' || parentKey === 'target';
+                if (ctx === 'Load' && !inTarget && (variableName === '*' || node.id === variableName)) {
                     analysis.used = true;
-                    analysis.usages.push({ name: node.id, lineno: resolvedLineno });
+                    analysis.usages.push({ name: node.id, lineno: resolvedLineno, col_offset: (node.col_offset !== undefined ? Number(node.col_offset) : 0) });
                 }
                 if ((ctx === 'Store' || ctx === 'Del') && (variableName === '*' || node.id === variableName)) {
                     analysis.assigned = true;
-                    analysis.assignments.push({ name: node.id, lineno: resolvedLineno });
+                    analysis.assignments.push({ name: node.id, lineno: resolvedLineno, col_offset: (node.col_offset !== undefined ? Number(node.col_offset) : 0) });
                 }
             }
 
@@ -133,12 +225,37 @@ export class ASTAnalyzer {
             for (const k of Object.keys(node)) {
                 const c = node[k];
                 if (!c) continue;
-                if (Array.isArray(c)) c.forEach(item => traverse(item, thisLineno));
-                else if (typeof c === 'object') traverse(c, thisLineno);
+                if (Array.isArray(c)) c.forEach(item => traverse(item, thisLineno, k));
+                else if (typeof c === 'object') traverse(c, thisLineno, k);
             }
         };
 
-        if (ast && Array.isArray(ast.body)) ast.body.forEach(n => traverse(n, n.lineno));
+        if (ast && Array.isArray(ast.body)) ast.body.forEach(n => traverse(n, n.lineno, 'body'));
+
+        // Deduplicate and normalize assignments/usages (unique by name+lineno+col_offset)
+        const normalizeEntries = (arr) => {
+            const seen = new Set();
+            const out = [];
+            for (const e of (arr || [])) {
+                const ln = e && e.lineno ? Number(e.lineno) : 0;
+                const co = e && e.col_offset ? Number(e.col_offset) : 0;
+                const key = `${e.name}::${ln}::${co}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    out.push({ name: e.name, lineno: ln, col_offset: co });
+                }
+            }
+            out.sort((a, b) => a.lineno - b.lineno || a.col_offset - b.col_offset || a.name.localeCompare(b.name));
+            return out;
+        };
+
+        analysis.assignments = normalizeEntries(analysis.assignments);
+        analysis.usages = normalizeEntries(analysis.usages);
+
+        // Remove usages that exactly match an assignment position (same name+lineno+col_offset)
+        const assignKeys = new Set(analysis.assignments.map(a => `${a.name}::${a.lineno}::${a.col_offset}`));
+        analysis.usages = analysis.usages.filter(u => !assignKeys.has(`${u.name}::${u.lineno}::${u.col_offset}`));
+
         return (analysis.assigned || analysis.used) ? analysis : null;
     }
 
