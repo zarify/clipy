@@ -8,6 +8,8 @@ try {
     let runtimeAdapter = null
     let stdoutBuf = []
     let stderrBuf = []
+    // Snapshot of files provided by the parent during init (used for AST analysis fallback)
+    let initialFilesSnapshot = null
     // Support multiple pending stdin waiters while ensuring only a single
     // stdinRequest is posted to the parent. pendingStdinResolves holds all
     // resolver callbacks; stdinRequested prevents duplicate requests.
@@ -321,10 +323,8 @@ try {
             if (msg.type === 'init') {
                 const ok = await initRuntime(msg.runtimeUrl || '../vendor/micropython.mjs')
                 if (ok) {
-                    // If the parent supplied an initial files snapshot (e.g. /main.py),
-                    // write those into the runtime FS so tests without an explicit
-                    // `main` can import/run the user's MAIN_FILE.
-                    try { if (msg.files && typeof msg.files === 'object') writeFilesToFS(msg.files) } catch (e) { log('write init files failed', e) }
+                    // Persist initial snapshot for AST runner fallback and write files
+                    try { if (msg.files && typeof msg.files === 'object') { initialFilesSnapshot = msg.files; writeFilesToFS(msg.files) } } catch (e) { log('write init files failed', e) }
                     post({ type: 'ready' })
                 }
             } else if (msg.type === 'runTest') {
@@ -340,6 +340,65 @@ try {
                     } catch (e) { }
                     post({ type: 'error', error: 'timeout' })
                 }, timeout)
+
+                // Child-runner AST short-circuit: if this looks like an AST test,
+                // evaluate it here so parent doesn't need to rely on its detection.
+                try {
+                    const test = msg.test || {}
+                    let astRuleObj = null
+                    if (test.astRule) astRuleObj = test.astRule
+                    else if (test.pattern && test.pattern.astRule) astRuleObj = test.pattern.astRule
+                    else if (test.pattern && (test.pattern.expression || test.pattern.matcher)) astRuleObj = test.pattern
+                    else if (test.type === 'ast' && test.astRule) astRuleObj = test.astRule
+
+                    if (!astRuleObj && test && test.type === 'ast') {
+                        const candidateExpression = test.expression || (test.pattern && (test.pattern.expression || test.pattern.expr)) || test.ast_expression || null
+                        const candidateMatcher = test.matcher || (test.pattern && test.pattern.matcher) || test.ast_matcher || null
+                        if (candidateExpression || candidateMatcher) astRuleObj = { expression: candidateExpression || '', matcher: candidateMatcher || '' }
+                    }
+
+                    if ((test && test.type === 'ast') || astRuleObj) {
+                        // Determine source code to analyze
+                        let code = ''
+                        if (typeof test.main === 'string' && test.main.trim()) code = test.main
+                        else if (initialFilesSnapshot && typeof initialFilesSnapshot === 'object') {
+                            const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                            for (const k of mainKeys) { if (Object.prototype.hasOwnProperty.call(initialFilesSnapshot, k)) { code = String(initialFilesSnapshot[k] || ''); break } }
+                        }
+
+                        // Try to get analyzeCode: try relative imports then window fallback
+                        let analyzeFn = null
+                        try {
+                            try { const mod = await import('../js/ast-analyzer.js'); if (mod && mod.analyzeCode) analyzeFn = mod.analyzeCode } catch (_) { }
+                            if (!analyzeFn) try { const mod2 = await import('/src/js/ast-analyzer.js'); if (mod2 && mod2.analyzeCode) analyzeFn = mod2.analyzeCode } catch (_) { }
+                        } catch (_) { }
+                        if (!analyzeFn && typeof window.analyzeCode === 'function') analyzeFn = window.analyzeCode
+
+                        let result = null
+                        if (analyzeFn && (astRuleObj && astRuleObj.expression)) {
+                            try { result = await analyzeFn(code, astRuleObj.expression) } catch (e) { result = null }
+                        }
+
+                        let passed = false
+                        if (astRuleObj && astRuleObj.matcher && typeof astRuleObj.matcher === 'string' && astRuleObj.matcher.trim()) {
+                            try {
+                                const evaluateMatch = new Function('result', `try { return ${astRuleObj.matcher.trim()} } catch (e) { console.warn('AST matcher error:', e && e.message); return false }`)
+                                passed = !!evaluateMatch(result)
+                            } catch (err) { passed = false }
+                        } else {
+                            passed = !!result
+                        }
+
+                        const out = { id: test.id, passed: passed, stdout: JSON.stringify(result || null), stderr: '', durationMs: 0, astPassed: passed, astResult: result }
+                        // Post result and skip runtime execution
+                        post({ type: 'testResult', ...out })
+                        clearTimeout(timer)
+                        finished = true
+                        return
+                    }
+                } catch (e) {
+                    // fallthrough to runtime execution on error
+                }
 
                 const result = await handleRunTest(msg.test)
                 if (!finished) {

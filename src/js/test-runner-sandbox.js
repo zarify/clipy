@@ -1,7 +1,92 @@
 // Parent-side helper to create a sandboxed runFn that uses per-test iframes.
 export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', filesSnapshot = {}, iframeSrc = './tests/runner.html', timeoutMsDefault = 20000 } = {}) {
     return function runFn(test) {
-        return new Promise((resolve) => {
+        return new Promise(async (resolve) => {
+            try { console.log('[sandbox] runFn invoked for test', (test && test.id), 'type', (test && test.type), 'keys', Object.keys(test || {}), 'full:', JSON.stringify(test || {})) } catch (_e) { }
+            // Short-circuit AST-only tests in the parent so they don't need
+            // an iframe execution. This mirrors adapter behaviour and keeps
+            // AST evaluation fast and deterministic.
+            try {
+                // Detect AST rule in a few possible shapes authors/configs may use
+                let astRuleObj = null
+                if (test) {
+                    if (test.astRule) astRuleObj = test.astRule
+                    else if (test.pattern && test.pattern.astRule) astRuleObj = test.pattern.astRule
+                    else if (test.pattern && (test.pattern.expression || test.pattern.matcher)) astRuleObj = test.pattern
+                    else if (test.type === 'ast' && test.astRule) astRuleObj = test.astRule
+                }
+
+                // Defensive fallback: some configs may place expression/matcher
+                // at the test root or under different keys. If test.type === 'ast'
+                // but we didn't find a nested rule, try to reconstruct one.
+                if (!astRuleObj && test && test.type === 'ast') {
+                    const candidateExpression = test.expression || (test.pattern && (test.pattern.expression || test.pattern.expr)) || test.ast_expression || null
+                    const candidateMatcher = test.matcher || (test.pattern && test.pattern.matcher) || test.ast_matcher || null
+                    if (candidateExpression || candidateMatcher) {
+                        astRuleObj = { expression: candidateExpression || '', matcher: candidateMatcher || '' }
+                        try { console.log('[sandbox] reconstructed astRuleObj for', test && test.id, astRuleObj) } catch (_e) { }
+                    }
+                }
+
+                // If test.type === 'ast' we should treat this as an AST test
+                // even if a nested astRule object is not present in the shape.
+                if (test && test.type === 'ast') {
+                    if (!astRuleObj) astRuleObj = (test.astRule || test.pattern || {})
+                }
+
+                // Use explicit parentheses to avoid JS operator precedence surprises
+                if ((test && test.type === 'ast') || astRuleObj) {
+                    try { console.log('[sandbox] short-circuiting AST test in parent for', test && test.id, 'astRuleObj keys:', Object.keys(astRuleObj || {})) } catch (_e) { }
+                    // proceed using astRuleObj (may be empty object)
+                    try {
+                        // Determine code to analyze: prefer test.main, then filesSnapshot['/main.py'] or similar
+                        let code = ''
+                        if (typeof test.main === 'string' && test.main.trim()) {
+                            code = test.main
+                        } else {
+                            // Use provided snapshot keys; support both '/main.py' and 'main.py'
+                            const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                            for (const k of mainKeys) {
+                                if (Object.prototype.hasOwnProperty.call(filesSnapshot || {}, k)) { code = String(filesSnapshot[k] || ''); break }
+                            }
+                        }
+                        // Import analyzer and evaluate
+                        const { analyzeCode } = await import('./ast-analyzer.js')
+                        let result = null
+                        try {
+                            console.debug && console.debug('[sandbox] using astRuleObj for test', test && test.id, astRuleObj)
+                            const expr = (astRuleObj && astRuleObj.expression) || ''
+                            if (expr) result = await analyzeCode(code, expr)
+                            else result = null
+                            console.debug && console.debug('[sandbox] astRule analyzed result for', test && test.id, result)
+                        } catch (err) {
+                            console.error && console.error('[sandbox] analyzeCode failed', err)
+                            if (typeof appendTerminal === 'function') try { appendTerminal('AST analysis failed: ' + String(err), 'runtime') } catch (_e) { }
+                            throw err
+                        }
+                        let passed = false
+                        if (astRuleObj && astRuleObj.matcher && typeof astRuleObj.matcher === 'string' && astRuleObj.matcher.trim()) {
+                            try {
+                                const evaluateMatch = new Function('result', `try { return ${astRuleObj.matcher.trim()} } catch (e) { console.warn('AST matcher error:', e && e.message); return false }`)
+                                passed = !!evaluateMatch(result)
+                            } catch (err) { passed = false; console.warn && console.warn('[sandbox] AST matcher evaluation failed', err) }
+                        } else {
+                            // If there's no matcher, consider a truthy result as a pass.
+                            passed = !!result
+                        }
+                        // provide verbose debug info to the host so UI can surface
+                        const out = { stdout: JSON.stringify(result || null), stderr: '', durationMs: 0, astPassed: passed, astResult: result }
+                        console.debug && console.debug('[sandbox] astRule short-circuit result', test && test.id, out)
+                        resolve(out)
+                        return
+                    } catch (e) {
+                        resolve({ stdout: '', stderr: String(e || ''), durationMs: 0, astPassed: false })
+                        return
+                    }
+                }
+            } catch (_e) {
+                // fall through to iframe execution on unexpected errors
+            }
             const iframe = document.createElement('iframe')
             iframe.style.display = 'none'
             // Allow same-origin so the iframe can load module scripts from the same dev server

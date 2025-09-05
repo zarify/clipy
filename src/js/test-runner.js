@@ -154,8 +154,19 @@ async function runTests(tests, options = {}) {
             }
 
             // Check expected_stdout and expected_stderr (both optional)
+            // Support short-circuit AST tests: if runFn returned astPassed, use it
             let ok = true
             let details = {}
+            if (runResult && typeof runResult.astPassed === 'boolean') {
+                try { console.debug && console.debug('[runTests] received astPassed from runFn for', t && t.id, 'value', runResult.astPassed) } catch (_e) { }
+                ok = !!runResult.astPassed
+                // include astResult for debugging details
+                if (runResult.astResult) details.ast = runResult.astResult
+                res.passed = ok
+                res.details = Object.keys(details).length ? details : undefined
+                results.push(res)
+                continue
+            }
 
             // If the program produced stderr but we expected stdout, this is a failure
             if (res.stderr && t.expected_stdout != null) {

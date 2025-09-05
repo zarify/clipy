@@ -7,6 +7,9 @@ const log = (...args) => { try { console.debug('[runner]', ...args) } catch (e) 
 let mpInstance = null
 let runtimeAdapter = null
 let stdoutBuf = []
+let stderrBuf = []
+// Snapshot of files provided by the parent during init (used for AST analysis fallback)
+let initialFilesSnapshot = null
 // Try to import the runtime module and prefer its exported loader function.
 let loaderFn = null
 try {
@@ -216,6 +219,61 @@ if (loaderFn) {
                     post({ type: 'error', error: 'timeout' })
                 }, timeout)
 
+                // Child-runner AST short-circuit: evaluate here if test looks like an AST test
+                try {
+                    const test = msg.test || {}
+                    let astRuleObj = null
+                    if (test.astRule) astRuleObj = test.astRule
+                    else if (test.pattern && test.pattern.astRule) astRuleObj = test.pattern.astRule
+                    else if (test.pattern && (test.pattern.expression || test.pattern.matcher)) astRuleObj = test.pattern
+                    else if (test.type === 'ast' && test.astRule) astRuleObj = test.astRule
+
+                    if (!astRuleObj && test && test.type === 'ast') {
+                        const candidateExpression = test.expression || (test.pattern && (test.pattern.expression || test.pattern.expr)) || test.ast_expression || null
+                        const candidateMatcher = test.matcher || (test.pattern && test.pattern.matcher) || test.ast_matcher || null
+                        if (candidateExpression || candidateMatcher) astRuleObj = { expression: candidateExpression || '', matcher: candidateMatcher || '' }
+                    }
+
+                    if ((test && test.type === 'ast') || astRuleObj) {
+                        let code = ''
+                        if (typeof test.main === 'string' && test.main.trim()) code = test.main
+                        else if (initialFilesSnapshot && typeof initialFilesSnapshot === 'object') {
+                            const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                            for (const k of mainKeys) { if (Object.prototype.hasOwnProperty.call(initialFilesSnapshot, k)) { code = String(initialFilesSnapshot[k] || ''); break } }
+                        }
+
+                        let analyzeFn = null
+                        try {
+                            try { const mod = await import('../js/ast-analyzer.js'); if (mod && mod.analyzeCode) analyzeFn = mod.analyzeCode } catch (_) { }
+                            if (!analyzeFn) try { const mod2 = await import('/src/js/ast-analyzer.js'); if (mod2 && mod2.analyzeCode) analyzeFn = mod2.analyzeCode } catch (_) { }
+                        } catch (_) { }
+                        if (!analyzeFn && typeof window.analyzeCode === 'function') analyzeFn = window.analyzeCode
+
+                        let result = null
+                        if (analyzeFn && (astRuleObj && astRuleObj.expression)) {
+                            try { result = await analyzeFn(code, astRuleObj.expression) } catch (e) { result = null }
+                        }
+
+                        let passed = false
+                        if (astRuleObj && astRuleObj.matcher && typeof astRuleObj.matcher === 'string' && astRuleObj.matcher.trim()) {
+                            try {
+                                const evaluateMatch = new Function('result', `try { return ${astRuleObj.matcher.trim()} } catch (e) { console.warn('AST matcher error:', e && e.message); return false }`)
+                                passed = !!evaluateMatch(result)
+                            } catch (err) { passed = false }
+                        } else {
+                            passed = !!result
+                        }
+
+                        const out = { id: test.id, passed: passed, stdout: JSON.stringify(result || null), stderr: '', durationMs: 0, astPassed: passed, astResult: result }
+                        post({ type: 'testResult', ...out })
+                        clearTimeout(timer)
+                        finished = true
+                        return
+                    }
+                } catch (e) {
+                    // fallthrough to runtime execution on error
+                }
+
                 const result = await handleRunTest(msg.test)
                 if (!finished) {
                     finished = true
@@ -240,3 +298,5 @@ if (loaderFn) {
 
     // Notify parent that the runner script loaded and is listening (parent still needs to send init)
     post({ type: 'loaded' })
+
+}

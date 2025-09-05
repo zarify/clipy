@@ -358,9 +358,12 @@ async function main() {
                                 const runtimeUrl = (cfg && cfg.runtime && cfg.runtime.url) || './vendor/micropython.mjs'
                                 // Convert runtime URL to be relative to tests/ directory since iframe runs there
                                 const testsRelativeRuntimeUrl = runtimeUrl.startsWith('./') ? '../' + runtimeUrl.slice(2) : runtimeUrl
-                                runFn = sandbox.createSandboxedRunFn({ runtimeUrl: testsRelativeRuntimeUrl, filesSnapshot: { [MAIN_FILE]: mainContent } })
+                                const snapshot = { [MAIN_FILE]: mainContent }
+                                console.debug && console.debug('[app] creating sandboxed runFn with snapshot keys:', Object.keys(snapshot))
+                                runFn = sandbox.createSandboxedRunFn({ runtimeUrl: testsRelativeRuntimeUrl, filesSnapshot: snapshot })
                             } catch (e) {
                                 appendTerminal('Failed to initialize sandboxed runner: ' + e, 'runtime')
+                                console.warn && console.warn('[app] sandboxed runFn init failed, falling back to adapter', e)
                                 // fall through to adapter
                             }
                         }
@@ -369,10 +372,16 @@ async function main() {
                             const adapterMod = await import('./js/test-runner-adapter.js')
                             const createRunFn = adapterMod && adapterMod.createRunFn ? adapterMod.createRunFn : adapterMod.default && adapterMod.default.createRunFn
                             runFn = createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig: () => (window.Config && window.Config.current) ? window.Config.current : {} })
+                            console.debug && console.debug('[app] using adapter runFn')
                         }
 
                         // Show loading modal immediately so it doesn't block Run button
                         try { if (typeof window.__ssg_show_test_results_loading === 'function') window.__ssg_show_test_results_loading() } catch (_e) { }
+                        // DEBUG: log test shapes to help diagnose AST test detection
+                        try {
+                            const summary = (tests || []).map(t => ({ id: t && t.id, type: t && t.type, keys: Object.keys(t || {}) }))
+                            console.log('[app] tests summary before runTests:', summary)
+                        } catch (_e) { }
                         // Run tests using the created runFn
                         const results = await runTests(tests, { runFn })
                         try { appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime') } catch (_e) { }
@@ -545,6 +554,11 @@ async function main() {
 
                 // Get the main file content and run it
                 const code = FileManager.read(MAIN_FILE) || ''
+                // DEBUG: print tests shapes so we can see ast rule presence
+                try {
+                    const summary = (tests || []).map(t => ({ id: t && t.id, type: t && t.type, keys: Object.keys(t || {}) }))
+                    console.log('[app] running tests summary:', JSON.stringify(summary, null, 2))
+                } catch (_e) { }
                 await runPythonCode(code, cfg)
             })
         }

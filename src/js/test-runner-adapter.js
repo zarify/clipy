@@ -7,6 +7,34 @@ export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfi
 
     return async function runFn(t) {
         try {
+            // Short-circuit AST tests: if the test has an `astRule` object,
+            // evaluate it against the MAIN_FILE (or test.main if provided)
+            if (t && t.astRule) {
+                try {
+                    const FileManager = getFileManager()
+                    let code = ''
+                    if (typeof t.main === 'string' && t.main.trim()) {
+                        code = t.main
+                    } else {
+                        try { code = FileManager.read(MAIN_FILE) || '' } catch (_e) { code = '' }
+                    }
+                    const { analyzeCode } = await import('./ast-analyzer.js')
+                    const result = await analyzeCode(code, (t.astRule && t.astRule.expression) || '')
+                    let passed = false
+                    if (t.astRule && t.astRule.matcher && typeof t.astRule.matcher === 'string' && t.astRule.matcher.trim()) {
+                        try {
+                            const evaluateMatch = new Function('result', `try { return ${t.astRule.matcher.trim()} } catch (e) { console.warn('AST matcher error:', e && e.message); return false }`)
+                            passed = !!evaluateMatch(result)
+                        } catch (_e) { passed = false }
+                    } else {
+                        // If no matcher provided, treat presence of result as pass
+                        passed = !!result
+                    }
+                    return { stdout: JSON.stringify(result || null), stderr: '', durationMs: 0, astPassed: passed, astResult: result }
+                } catch (e) {
+                    return { stdout: '', stderr: String(e || ''), durationMs: 0, astPassed: false }
+                }
+            }
             const FileManager = getFileManager()
 
             // Snapshot current files
