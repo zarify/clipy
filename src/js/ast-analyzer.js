@@ -75,16 +75,21 @@ export class ASTAnalyzer {
         const getCtx = (node) => node && node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
 
         const seen = new Set();
-        const traverse = (node) => {
+        const traverse = (node, inheritedLineno) => {
             if (!node || typeof node !== 'object' || seen.has(node)) return;
             seen.add(node);
-            if (Array.isArray(node)) return node.forEach(traverse);
+            if (Array.isArray(node)) return node.forEach(n => traverse(n, inheritedLineno));
+
+            // Prefer the inherited (containing statement) lineno so nested
+            // expression nodes (e.g. Name inside FormattedValue) report the
+            // surrounding statement's line number.
+            const thisLineno = inheritedLineno || node.lineno;
 
             if (node.nodeType === 'Assign' && Array.isArray(node.targets)) {
                 node.targets.forEach(t => {
                     if (t && t.nodeType === 'Name' && (variableName === '*' || t.id === variableName)) {
                         analysis.assigned = true;
-                        analysis.assignments.push({ name: t.id, lineno: node.lineno });
+                        analysis.assignments.push({ name: t.id, lineno: thisLineno });
                     }
                 });
             }
@@ -93,7 +98,7 @@ export class ASTAnalyzer {
                 const t = node.target;
                 if (variableName === '*' || t.id === variableName) {
                     analysis.assigned = true;
-                    analysis.assignments.push({ name: t.id, lineno: node.lineno });
+                    analysis.assignments.push({ name: t.id, lineno: thisLineno });
                 }
             }
 
@@ -102,19 +107,21 @@ export class ASTAnalyzer {
                 if (variableName === '*' || t.id === variableName) {
                     analysis.assigned = true;
                     analysis.modified = true;
-                    analysis.assignments.push({ name: t.id, lineno: node.lineno });
+                    analysis.assignments.push({ name: t.id, lineno: thisLineno });
                 }
             }
 
             if (node.nodeType === 'Name') {
                 const ctx = getCtx(node);
+                // Coerce to the containing statement line when available.
+                const resolvedLineno = thisLineno;
                 if (ctx === 'Load' && (variableName === '*' || node.id === variableName)) {
                     analysis.used = true;
-                    analysis.usages.push({ name: node.id, lineno: node.lineno });
+                    analysis.usages.push({ name: node.id, lineno: resolvedLineno });
                 }
                 if ((ctx === 'Store' || ctx === 'Del') && (variableName === '*' || node.id === variableName)) {
                     analysis.assigned = true;
-                    analysis.assignments.push({ name: node.id, lineno: node.lineno });
+                    analysis.assignments.push({ name: node.id, lineno: resolvedLineno });
                 }
             }
 
@@ -126,12 +133,12 @@ export class ASTAnalyzer {
             for (const k of Object.keys(node)) {
                 const c = node[k];
                 if (!c) continue;
-                if (Array.isArray(c)) c.forEach(traverse);
-                else if (typeof c === 'object') traverse(c);
+                if (Array.isArray(c)) c.forEach(item => traverse(item, thisLineno));
+                else if (typeof c === 'object') traverse(c, thisLineno);
             }
         };
 
-        if (ast && Array.isArray(ast.body)) ast.body.forEach(traverse);
+        if (ast && Array.isArray(ast.body)) ast.body.forEach(n => traverse(n, n.lineno));
         return (analysis.assigned || analysis.used) ? analysis : null;
     }
 

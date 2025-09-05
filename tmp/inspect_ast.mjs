@@ -49,3 +49,42 @@ function findPrintCall(node) {
 
 const printCall = findPrintCall(ast);
 console.log('Print call node:', printCall ? { nodeType: printCall.nodeType, lineno: printCall.lineno, func: printCall.func && (printCall.func.id || printCall.func.attr) } : null);
+
+function dumpNode(node, prefix = '') {
+    if (!node) return;
+    if (Array.isArray(node)) return node.forEach((n, i) => dumpNode(n, prefix + '[' + i + ']'));
+    const info = `${prefix}${node.nodeType || '<?>'}${node.lineno ? ' @' + node.lineno : ''}`;
+    if (node.nodeType === 'Name') {
+        console.log(info + ` id=${node.id} ctx=${node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type)}`);
+    } else {
+        console.log(info);
+    }
+    for (const k of Object.keys(node)) {
+        const v = node[k];
+        if (!v || (typeof v !== 'object')) continue;
+        dumpNode(v, prefix + '.' + k);
+    }
+}
+
+if (printCall && printCall.args) {
+    console.log('Print call args count:', printCall.args.length);
+    printCall.args.forEach((arg, i) => {
+        console.log('Arg', i);
+        dumpNode(arg, 'arg' + i + ':');
+    });
+}
+
+// Raw JSON dump of the FormattedValue node for inspection
+try {
+    const fv = printCall && printCall.args && printCall.args[0] && printCall.args[0].values && printCall.args[0].values[1];
+    if (fv) {
+        console.log('--- RAW FormattedValue JSON ---');
+        console.log(JSON.stringify(fv, (k, v) => {
+            // Avoid cycles: if value is a function or large, show a short tag
+            if (typeof v === 'function') return '[Function]';
+            return v;
+        }, 2));
+    }
+} catch (e) {
+    console.error('Could not dump FormattedValue JSON', e);
+}
