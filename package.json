@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "directories": {
-    "test": "test"
+    "doc": "docs",
+    "test": "tests"
   },
   "scripts": {
     "test": "node test/test_config_normalize.js && node test/test_feedback.js && node test/test_feedback_unit.js && node test/test_runner_multiline_stdin.js && npx playwright test --reporter=line",
@@ -16,8 +17,14 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "A modern, browser-based Python interpreter powered by MicroPython WebAssembly with advanced features for interactive coding, file management, and execution control.",
   "devDependencies": {
     "@playwright/test": "^1.55.0"
+  },
+  "dependencies": {
+    "fsevents": "^2.3.2",
+    "playwright": "^1.55.0",
+    "playwright-core": "^1.55.0",
+    "py-ast": "^1.9.0"
   }
 }
