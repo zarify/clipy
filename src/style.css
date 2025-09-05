@@ -763,7 +763,7 @@ pre#terminal-output {
 
 .modal-content {
     background: var(--panel);
-    padding: 0;
+    padding: 3px;
     /* Remove padding since header/body will handle their own */
     border-radius: 6px;
     max-width: 720px;

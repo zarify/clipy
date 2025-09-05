@@ -62,12 +62,59 @@ export class ASTAnalyzer {
 
     checkFunctionExists(ast, functionName) {
         if (!ast || !ast.body) return null;
-        for (const n of ast.body) {
-            if (n && n.nodeType === 'FunctionDef' && (functionName === '*' || n.name === functionName)) {
-                return { name: n.name, lineno: n.lineno };
+
+        // collect all function definitions matching the name
+        const defs = [];
+        const traverseDefs = (node) => {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) return node.forEach(traverseDefs);
+            if (node.nodeType === 'FunctionDef' && (functionName === '*' || node.name === functionName)) {
+                defs.push(node);
             }
-        }
-        return null;
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (c && typeof c === 'object') traverseDefs(c);
+            }
+        };
+        traverseDefs(ast);
+        if (defs.length === 0) return null;
+
+        // Find call sites for a given function name across the AST
+        const findCallSites = (root, name) => {
+            const calls = [];
+            const seen = new Set();
+            const walk = (n) => {
+                if (!n || typeof n !== 'object' || seen.has(n)) return;
+                seen.add(n);
+                if (Array.isArray(n)) return n.forEach(walk);
+                if (n.nodeType === 'Call' && n.func) {
+                    if (n.func.nodeType === 'Name' && n.func.id === name) calls.push(n.lineno || null);
+                }
+                for (const k of Object.keys(n)) {
+                    const c = n[k];
+                    if (c && typeof c === 'object') walk(c);
+                }
+            };
+            walk(root);
+            // normalize and dedupe
+            const uniq = Array.from(new Set(calls.filter(Boolean))).sort((a, b) => a - b);
+            return uniq;
+        };
+
+        const results = defs.map(fn => {
+            const name = fn.name;
+            const lineno = fn.lineno;
+            const called = findCallSites(ast, name);
+            // recursive if function calls itself within its body
+            const recursive = (function () {
+                const callsInBody = findCallSites(fn, name);
+                return callsInBody.length > 0;
+            })();
+            const parameters = (fn.args && fn.args.args) ? fn.args.args.length : 0;
+            return { name, lineno, parameters, called, recursive };
+        });
+
+        return results.length === 1 ? results[0] : results;
     }
 
     analyzeVariables(ast, variableName) {
@@ -337,16 +384,37 @@ export class ASTAnalyzer {
         const functions = [];
 
         // Manual traversal
+        // helper to find call sites for a function name
+        const findCallSites = (root, name) => {
+            const calls = [];
+            const seen = new Set();
+            const walk = (n) => {
+                if (!n || typeof n !== 'object' || seen.has(n)) return;
+                seen.add(n);
+                if (Array.isArray(n)) return n.forEach(walk);
+                if (n.nodeType === 'Call' && n.func) {
+                    if (n.func.nodeType === 'Name' && n.func.id === name) calls.push(n.lineno || null);
+                }
+                for (const k of Object.keys(n)) {
+                    const c = n[k];
+                    if (c && typeof c === 'object') walk(c);
+                }
+            };
+            walk(root);
+            return Array.from(new Set(calls.filter(Boolean))).sort((a, b) => a - b);
+        };
+
         const traverse = (node) => {
             if (!node) return;
 
             if (node.nodeType === 'FunctionDef') {
                 count++;
-                functions.push({
-                    name: node.name,
-                    lineno: node.lineno,
-                    parameters: (node.args && node.args.args) ? node.args.args.length : 0
-                });
+                const name = node.name;
+                const lineno = node.lineno;
+                const parameters = (node.args && node.args.args) ? node.args.args.length : 0;
+                const called = findCallSites(ast, name);
+                const recursive = findCallSites(node, name).length > 0;
+                functions.push({ name, lineno, parameters, called, recursive });
             }
 
             // Recursively traverse child nodes

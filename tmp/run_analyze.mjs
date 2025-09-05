@@ -33,4 +33,16 @@ print(f"Hello {name}")`;
     console.log('ANALYSIS_RESULT_ATTR_AUG_START');
     console.log(JSON.stringify(res4, null, 2));
     console.log('ANALYSIS_RESULT_ATTR_AUG_END');
+    // function exists test
+    const sample5 = `def calculate_average(numbers):
+    """Calculate the average of a list of numbers."""
+    if not numbers:
+        return 0
+    return sum(numbers) / len(numbers)
+
+calculate_average([1,2,3,4])`;
+    const res5 = await analyzeCode(sample5, 'function_exists:calculate_average');
+    console.log('ANALYSIS_RESULT_FUNC_EXISTS_START');
+    console.log(JSON.stringify(res5, null, 2));
+    console.log('ANALYSIS_RESULT_FUNC_EXISTS_END');
 })();
