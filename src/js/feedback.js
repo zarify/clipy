@@ -100,8 +100,34 @@ async function _applyPattern(pattern, text) {
         try {
             const result = await analyzeCode(text, pattern.expression)
             if (result) {
-                // Convert AST analysis result to match-like format
-                return _convertASTToMatch(result, pattern.expression)
+                // If a matcher is provided, evaluate it
+                if (pattern.matcher && pattern.matcher.trim()) {
+                    try {
+                        // Create a safe evaluation function for the matcher
+                        const evaluateMatch = new Function('result', `
+                            try {
+                                return ${pattern.matcher.trim()};
+                            } catch (e) {
+                                console.warn('AST matcher evaluation error:', e.message);
+                                return false;
+                            }
+                        `);
+                        const matchResult = evaluateMatch(result);
+
+                        // Only proceed if matcher returns truthy value
+                        if (matchResult) {
+                            return _convertASTToMatch(result, pattern.expression)
+                        } else {
+                            return null
+                        }
+                    } catch (error) {
+                        console.warn('AST matcher function creation failed:', error)
+                        return null
+                    }
+                } else {
+                    // No matcher provided, use result as-is
+                    return _convertASTToMatch(result, pattern.expression)
+                }
             }
         } catch (error) {
             console.warn('AST pattern matching failed:', error)

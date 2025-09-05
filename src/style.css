@@ -1026,3 +1026,63 @@ pre#terminal-output {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
     font-size: 0.95em;
 }
+
+/* AST Pattern Builder Styles */
+.ast-pattern-builder {
+    margin: 8px 0;
+}
+
+.ast-pattern-builder .ast-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+}
+
+.ast-tester {
+    margin-top: 12px;
+}
+
+.ast-tester textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
+    resize: vertical;
+}
+
+.ast-tester .test-result {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+}
+
+.ast-tester .test-result pre {
+    background: transparent;
+    margin: 8px 0 0 0;
+    padding: 0;
+    border: none;
+    font-size: 0.85em;
+    max-height: 200px;
+    overflow: auto;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+    border: 1px solid #6c757d;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+    border-color: #545b62;
+}
+
+.matcher-examples {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+.matcher-examples code {
+    background: #e9ecef;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
