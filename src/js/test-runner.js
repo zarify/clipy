@@ -16,6 +16,8 @@
 //  - a string -> we check `actual` includes the string
 //  - an object { type: 'regex', expression: '...' } -> RegExp test
 //  - a RegExp instance
+import { debug as logDebug } from './logger.js'
+
 function matchExpectation(actual, expected) {
     const s = String(actual || '')
     if (expected == null) return { matched: true }
@@ -143,7 +145,7 @@ async function runTests(tests, options = {}) {
 
             // Debug trace: show what we're about to match so UI logs can be used
             // to diagnose surprising pass/fail outcomes.
-            try { console.debug && console.debug('[runTests] test', String(t.id || ''), 'stdout(actual):', String(res.stdout).slice(0, 200), 'expected_stdout:', res.expected_stdout) } catch (_e) { }
+            try { logDebug('[runTests] test', String(t.id || ''), 'stdout(actual):', String(res.stdout).slice(0, 200), 'expected_stdout:', res.expected_stdout) } catch (_e) { }
 
             // Timeout handling
             if (typeof t.timeoutMs === 'number' && duration > t.timeoutMs) {

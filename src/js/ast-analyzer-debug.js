@@ -6,6 +6,7 @@
  */
 
 // Import py-ast library from vendor directory
+import { debug as logDebug, info as logInfo, warn as logWarn, error as logError } from './logger.js'
 let pyAst = null;
 
 // Initialize py-ast library (async loading)
@@ -14,9 +15,9 @@ async function initializePyAst() {
         try {
             // Use relative path from src directory (document root)
             pyAst = await import('../vendor/py-ast/index.esm.js');
-            console.log('py-ast library loaded successfully');
+            logInfo('py-ast library loaded successfully');
         } catch (error) {
-            console.error('Failed to load py-ast library:', error);
+            logError('Failed to load py-ast library:', error);
             throw new Error('AST analysis unavailable: ' + error.message);
         }
     }
@@ -64,24 +65,24 @@ export class ASTAnalyzer {
      * @returns {Object|null} - Parsed AST or null if parsing failed
      */
     async parse(code) {
-        console.log('🔍 AST Parser - Starting parse for code:', code.substring(0, 100) + '...');
+        logDebug('🔍 AST Parser - Starting parse for code:', code.substring(0, 100) + '...');
 
         if (!this.initialized) {
-            console.log('🔍 AST Parser - Not initialized, initializing now...');
+            logDebug('🔍 AST Parser - Not initialized, initializing now...');
             await this.initialize();
         }
 
         const cacheKey = this.hashCode(code);
         if (this.cache.has(cacheKey)) {
-            console.log('🔍 AST Parser - Using cached result for hash:', cacheKey);
+            logDebug('🔍 AST Parser - Using cached result for hash:', cacheKey);
             return this.cache.get(cacheKey);
         }
 
         try {
-            console.log('🔍 AST Parser - Calling pyAst.parse()...');
-            console.log('🔍 AST Parser - pyAst object:', pyAst);
+            logDebug('🔍 AST Parser - Calling pyAst.parse()...');
+            logDebug('🔍 AST Parser - pyAst object:', pyAst);
             const ast = pyAst.parse(code);
-            console.log('🔍 AST Parser - Parse successful, AST:', ast);
+            logDebug('🔍 AST Parser - Parse successful, AST:', ast);
 
             // Limit cache size to prevent memory issues
             if (this.cache.size > 100) {
@@ -92,8 +93,8 @@ export class ASTAnalyzer {
             this.cache.set(cacheKey, ast);
             return ast;
         } catch (error) {
-            console.error('🔍 AST Parser - Parse failed:', error);
-            console.warn('AST parsing failed:', error.message);
+            logError('🔍 AST Parser - Parse failed:', error);
+            logWarn('AST parsing failed:', error.message);
             this.cache.set(cacheKey, null); // Cache failures too
             return null;
         }
@@ -106,68 +107,68 @@ export class ASTAnalyzer {
      * @returns {Object|null} - Analysis result or null
      */
     analyze(ast, expression) {
-        console.log('🔍 AST Analyzer - Starting analysis');
-        console.log('🔍 AST Analyzer - AST object:', ast);
-        console.log('🔍 AST Analyzer - Expression:', expression);
+        logDebug('🔍 AST Analyzer - Starting analysis');
+        logDebug('🔍 AST Analyzer - AST object:', ast);
+        logDebug('🔍 AST Analyzer - Expression:', expression);
 
         if (!ast || !expression) {
-            console.log('🔍 AST Analyzer - Missing AST or expression, returning null');
+            logDebug('🔍 AST Analyzer - Missing AST or expression, returning null');
             return null;
         }
 
         try {
             // Parse expression format: "analysisType:target" or just "analysisType"
             const [analysisType, target] = expression.split(':');
-            console.log('🔍 AST Analyzer - Analysis type:', analysisType, 'Target:', target);
+            logDebug('🔍 AST Analyzer - Analysis type:', analysisType, 'Target:', target);
 
             let result = null;
             switch (analysisType) {
                 case 'function_exists':
-                    console.log('🔍 AST Analyzer - Running function_exists analysis');
+                    logDebug('🔍 AST Analyzer - Running function_exists analysis');
                     result = this.checkFunctionExists(ast, target);
                     break;
 
                 case 'variable_usage':
-                    console.log('🔍 AST Analyzer - Running variable_usage analysis');
+                    logDebug('🔍 AST Analyzer - Running variable_usage analysis');
                     result = this.analyzeVariables(ast, target);
                     break;
 
                 case 'control_flow':
-                    console.log('🔍 AST Analyzer - Running control_flow analysis');
+                    logDebug('🔍 AST Analyzer - Running control_flow analysis');
                     result = this.analyzeControlFlow(ast, target);
                     break;
 
                 case 'code_quality':
-                    console.log('🔍 AST Analyzer - Running code_quality analysis');
+                    logDebug('🔍 AST Analyzer - Running code_quality analysis');
                     result = this.analyzeCodeQuality(ast, target);
                     break;
 
                 case 'function_count':
-                    console.log('🔍 AST Analyzer - Running function_count analysis');
+                    logDebug('🔍 AST Analyzer - Running function_count analysis');
                     result = this.countFunctions(ast);
                     break;
 
                 case 'has_docstring':
-                    console.log('🔍 AST Analyzer - Running has_docstring analysis');
+                    logDebug('🔍 AST Analyzer - Running has_docstring analysis');
                     result = this.checkDocstrings(ast);
                     break;
 
                 case 'custom':
-                    console.log('🔍 AST Analyzer - Running custom analysis');
+                    logDebug('🔍 AST Analyzer - Running custom analysis');
                     result = this.customQuery(ast, target);
                     break;
 
                 default:
-                    console.log('🔍 AST Analyzer - Running generic query');
+                    logDebug('🔍 AST Analyzer - Running generic query');
                     // Generic AST query
                     result = this.genericQuery(ast, expression);
             }
 
-            console.log('🔍 AST Analyzer - Analysis result:', result);
+            logDebug('🔍 AST Analyzer - Analysis result:', result);
             return result;
         } catch (error) {
-            console.error('🔍 AST Analyzer - Analysis error:', error);
-            console.warn('AST analysis error:', error);
+            logError('🔍 AST Analyzer - Analysis error:', error);
+            logWarn('AST analysis error:', error);
             return null;
         }
     }
@@ -176,15 +177,15 @@ export class ASTAnalyzer {
      * Check if a specific function exists
      */
     checkFunctionExists(ast, functionName) {
-        console.log('🔍 Function Check - Looking for function:', functionName);
-        console.log('🔍 Function Check - AST structure:', Object.keys(ast));
-        console.log('🔍 Function Check - AST body:', ast.body);
+        logDebug('🔍 Function Check - Looking for function:', functionName);
+        logDebug('🔍 Function Check - AST structure:', Object.keys(ast));
+        logDebug('🔍 Function Check - AST body:', ast.body);
 
         // Let's also inspect the actual nodes in the body
         if (ast.body && Array.isArray(ast.body)) {
             ast.body.forEach((node, index) => {
-                console.log(`🔍 Function Check - Body node ${index}:`, node);
-                console.log(`🔍 Function Check - Node type: ${node.nodeType}`);
+                logDebug(`🔍 Function Check - Body node ${index}:`, node);
+                logDebug(`🔍 Function Check - Node type: ${node.nodeType}`);
             });
         }
 
@@ -193,12 +194,12 @@ export class ASTAnalyzer {
 
         try {
             // Let's try a different approach - manual traversal first to understand the structure
-            console.log('🔍 Function Check - Attempting pyAst.walk...');
+            logDebug('🔍 Function Check - Attempting pyAst.walk...');
 
             pyAst.walk(ast, {
                 FunctionDef: (node) => {
-                    console.log('🔍 Function Check - Found FunctionDef node:', node);
-                    console.log('🔍 Function Check - Function name:', node.name);
+                    logDebug('🔍 Function Check - Found FunctionDef node:', node);
+                    logDebug('🔍 Function Check - Function name:', node.name);
 
                     if (functionName === '*' || node.name === functionName) {
                         found = true;
@@ -209,7 +210,7 @@ export class ASTAnalyzer {
                             lineno: node.lineno,
                             docstring: pyAst.getDocstring(node)
                         };
-                        console.log('🔍 Function Check - Match found:', foundFunction);
+                        logDebug('🔍 Function Check - Match found:', foundFunction);
 
                         // If looking for specific function, we can stop
                         if (functionName !== '*') {
@@ -219,16 +220,16 @@ export class ASTAnalyzer {
                 },
                 // Let's also try other potential node type names
                 'FunctionDef': (node) => {
-                    console.log('🔍 Function Check - Alternative FunctionDef handler called:', node);
+                    logDebug('🔍 Function Check - Alternative FunctionDef handler called:', node);
                 }
             });
 
             // Manual check as backup
-            console.log('🔍 Function Check - Manual traversal of body...');
+            logDebug('🔍 Function Check - Manual traversal of body...');
             if (ast.body && Array.isArray(ast.body)) {
                 ast.body.forEach(node => {
                     if (node.nodeType === 'FunctionDef') {
-                        console.log('🔍 Function Check - Manual found FunctionDef:', node);
+                        logDebug('🔍 Function Check - Manual found FunctionDef:', node);
                         if (functionName === '*' || node.name === functionName) {
                             found = true;
                             foundFunction = {
@@ -244,10 +245,10 @@ export class ASTAnalyzer {
             }
 
         } catch (error) {
-            console.error('🔍 Function Check - Error during walk:', error);
+            logError('🔍 Function Check - Error during walk:', error);
         }
 
-        console.log('🔍 Function Check - Final result:', found ? foundFunction : null);
+        logDebug('🔍 Function Check - Final result:', found ? foundFunction : null);
         return found ? foundFunction : null;
     }
 
@@ -255,7 +256,7 @@ export class ASTAnalyzer {
      * Analyze variable usage patterns
      */
     analyzeVariables(ast, variableName) {
-        console.log('🔍 Variable Analysis - Looking for variable:', variableName);
+        logDebug('🔍 Variable Analysis - Looking for variable:', variableName);
 
         const analysis = {
             assigned: false,
@@ -268,9 +269,9 @@ export class ASTAnalyzer {
         try {
             pyAst.walk(ast, {
                 Assign: (node) => {
-                    console.log('🔍 Variable Analysis - Found Assign node:', node);
+                    logDebug('🔍 Variable Analysis - Found Assign node:', node);
                     node.targets.forEach(target => {
-                        console.log('🔍 Variable Analysis - Assignment target:', target);
+                        logDebug('🔍 Variable Analysis - Assignment target:', target);
                         if (target.nodeType === 'Name' &&
                             (variableName === '*' || target.id === variableName)) {
                             analysis.assigned = true;
@@ -278,12 +279,12 @@ export class ASTAnalyzer {
                                 name: target.id,
                                 lineno: node.lineno
                             });
-                            console.log('🔍 Variable Analysis - Assignment match:', target.id);
+                            logDebug('🔍 Variable Analysis - Assignment match:', target.id);
                         }
                     });
                 },
                 Name: (node) => {
-                    console.log('🔍 Variable Analysis - Found Name node:', node);
+                    logDebug('🔍 Variable Analysis - Found Name node:', node);
                     if (node.ctx?.nodeType === 'Load' &&
                         (variableName === '*' || node.id === variableName)) {
                         analysis.used = true;
@@ -291,7 +292,7 @@ export class ASTAnalyzer {
                             name: node.id,
                             lineno: node.lineno
                         });
-                        console.log('🔍 Variable Analysis - Usage match:', node.id);
+                        logDebug('🔍 Variable Analysis - Usage match:', node.id);
                     }
                 },
                 Call: (node) => {
@@ -300,17 +301,17 @@ export class ASTAnalyzer {
                         node.func.value?.nodeType === 'Name' &&
                         (variableName === '*' || node.func.value.id === variableName)) {
                         analysis.modified = true;
-                        console.log('🔍 Variable Analysis - Modification match:', node.func.value.id);
+                        logDebug('🔍 Variable Analysis - Modification match:', node.func.value.id);
                     }
                 }
             });
         } catch (error) {
-            console.error('🔍 Variable Analysis - Error during walk:', error);
+            logError('🔍 Variable Analysis - Error during walk:', error);
         }
 
-        console.log('🔍 Variable Analysis - Final analysis:', analysis);
+        logDebug('🔍 Variable Analysis - Final analysis:', analysis);
         const result = (analysis.assigned || analysis.used) ? analysis : null;
-        console.log('🔍 Variable Analysis - Returning:', result);
+        logDebug('🔍 Variable Analysis - Returning:', result);
         return result;
     }
 
@@ -318,7 +319,7 @@ export class ASTAnalyzer {
      * Analyze control flow structures
      */
     analyzeControlFlow(ast, flowType) {
-        console.log('🔍 Control Flow Analysis - Looking for flow type:', flowType);
+        logDebug('🔍 Control Flow Analysis - Looking for flow type:', flowType);
 
         const flows = {
             if_statement: 0,
@@ -335,27 +336,27 @@ export class ASTAnalyzer {
             if (!node) return;
 
             if (node.nodeType === 'If') {
-                console.log('🔍 Control Flow - Found If node:', node);
+                logDebug('🔍 Control Flow - Found If node:', node);
                 flows.if_statement++;
                 details.push({ type: 'if', lineno: node.lineno });
             }
             if (node.nodeType === 'For') {
-                console.log('🔍 Control Flow - Found For node:', node);
+                logDebug('🔍 Control Flow - Found For node:', node);
                 flows.for_loop++;
                 details.push({ type: 'for', lineno: node.lineno });
             }
             if (node.nodeType === 'While') {
-                console.log('🔍 Control Flow - Found While node:', node);
+                logDebug('🔍 Control Flow - Found While node:', node);
                 flows.while_loop++;
                 details.push({ type: 'while', lineno: node.lineno });
             }
             if (node.nodeType === 'Try') {
-                console.log('🔍 Control Flow - Found Try node:', node);
+                logDebug('🔍 Control Flow - Found Try node:', node);
                 flows.try_except++;
                 details.push({ type: 'try', lineno: node.lineno });
             }
             if (node.nodeType === 'With') {
-                console.log('🔍 Control Flow - Found With node:', node);
+                logDebug('🔍 Control Flow - Found With node:', node);
                 flows.with_statement++;
                 details.push({ type: 'with', lineno: node.lineno });
             }
@@ -379,8 +380,8 @@ export class ASTAnalyzer {
             ast.body.forEach(traverse);
         }
 
-        console.log('🔍 Control Flow Analysis - Found flows:', flows);
-        console.log('🔍 Control Flow Analysis - Details:', details);
+        logDebug('🔍 Control Flow Analysis - Found flows:', flows);
+        logDebug('🔍 Control Flow Analysis - Details:', details);
 
         if (flowType && flowType !== '*') {
             const result = flows[flowType] > 0 ? {
@@ -388,13 +389,13 @@ export class ASTAnalyzer {
                 count: flows[flowType],
                 details: details.filter(d => d.type === flowType.replace('_statement', '').replace('_loop', ''))
             } : null;
-            console.log('🔍 Control Flow Analysis - Specific flow result:', result);
+            logDebug('🔍 Control Flow Analysis - Specific flow result:', result);
             return result;
         }
 
         // Return all flow analysis
         const result = Object.values(flows).some(count => count > 0) ? { flows, details } : null;
-        console.log('🔍 Control Flow Analysis - All flows result:', result);
+        logDebug('🔍 Control Flow Analysis - All flows result:', result);
         return result;
     }
 
@@ -420,7 +421,7 @@ export class ASTAnalyzer {
      * Count total functions in code
      */
     countFunctions(ast) {
-        console.log('🔍 Function Count - Starting count');
+        logDebug('🔍 Function Count - Starting count');
         let count = 0;
         const functions = [];
 
@@ -435,7 +436,7 @@ export class ASTAnalyzer {
                     lineno: node.lineno,
                     parameters: node.args.args.length
                 });
-                console.log('🔍 Function Count - Found function:', node.name);
+                logDebug('🔍 Function Count - Found function:', node.name);
             }
 
             // Recursively traverse child nodes
@@ -451,8 +452,8 @@ export class ASTAnalyzer {
             ast.body.forEach(traverse);
         }
 
-        console.log('🔍 Function Count - Total count:', count);
-        console.log('🔍 Function Count - Functions:', functions);
+        logDebug('🔍 Function Count - Total count:', count);
+        logDebug('🔍 Function Count - Functions:', functions);
         return count > 0 ? { count, functions } : null;
     }
 
@@ -460,7 +461,7 @@ export class ASTAnalyzer {
      * Check for docstrings in functions and classes
      */
     checkDocstrings(ast) {
-        console.log('🔍 Docstring Check - Starting check');
+        logDebug('🔍 Docstring Check - Starting check');
         const analysis = {
             functions: { total: 0, withDocstring: 0 },
             classes: { total: 0, withDocstring: 0 },
@@ -473,7 +474,7 @@ export class ASTAnalyzer {
 
             if (node.nodeType === 'FunctionDef') {
                 analysis.functions.total++;
-                console.log('🔍 Docstring Check - Found function:', node.name);
+                logDebug('🔍 Docstring Check - Found function:', node.name);
 
                 // Check for docstring (first statement in body if it's a string)
                 let docstring = null;
@@ -496,12 +497,12 @@ export class ASTAnalyzer {
                     docstring: docstring
                 });
 
-                console.log('🔍 Docstring Check - Function docstring:', docstring ? 'found' : 'none');
+                logDebug('🔍 Docstring Check - Function docstring:', docstring ? 'found' : 'none');
             }
 
             if (node.nodeType === 'ClassDef') {
                 analysis.classes.total++;
-                console.log('🔍 Docstring Check - Found class:', node.name);
+                logDebug('🔍 Docstring Check - Found class:', node.name);
 
                 // Check for docstring
                 let docstring = null;
@@ -538,7 +539,7 @@ export class ASTAnalyzer {
             ast.body.forEach(traverse);
         }
 
-        console.log('🔍 Docstring Check - Analysis:', analysis);
+        logDebug('🔍 Docstring Check - Analysis:', analysis);
         const hasAnyDocstring = analysis.functions.withDocstring > 0 || analysis.classes.withDocstring > 0;
         return hasAnyDocstring ? analysis : null;
     }
@@ -582,7 +583,7 @@ export class ASTAnalyzer {
      */
     customQuery(ast, queryExpression) {
         // This could be expanded to support XPath-like queries or other advanced patterns
-        console.warn('Custom queries not yet implemented:', queryExpression);
+        logWarn('Custom queries not yet implemented:', queryExpression);
         return null;
     }
 
@@ -670,28 +671,28 @@ export async function getASTAnalyzer() {
  * @returns {Promise<Object|null>} - Analysis result
  */
 export async function analyzeCode(code, expression) {
-    console.log('🔍 analyzeCode - Starting analysis');
-    console.log('🔍 analyzeCode - Code length:', code.length);
-    console.log('🔍 analyzeCode - Expression:', expression);
+    logDebug('🔍 analyzeCode - Starting analysis');
+    logDebug('🔍 analyzeCode - Code length:', code.length);
+    logDebug('🔍 analyzeCode - Expression:', expression);
 
     try {
         const analyzer = await getASTAnalyzer();
-        console.log('🔍 analyzeCode - Got analyzer:', analyzer);
+        logDebug('🔍 analyzeCode - Got analyzer:', analyzer);
 
         const ast = await analyzer.parse(code);
-        console.log('🔍 analyzeCode - Got AST:', ast);
+        logDebug('🔍 analyzeCode - Got AST:', ast);
 
         if (!ast) {
-            console.log('🔍 analyzeCode - AST is null, returning null');
+            logDebug('🔍 analyzeCode - AST is null, returning null');
             return null;
         }
 
         const result = analyzer.analyze(ast, expression);
-        console.log('🔍 analyzeCode - Final result:', result);
+        logDebug('🔍 analyzeCode - Final result:', result);
         return result;
     } catch (error) {
-        console.error('🔍 analyzeCode - Error:', error);
-        console.error('AST analysis failed:', error);
+        logError('🔍 analyzeCode - Error:', error);
+        logError('AST analysis failed:', error);
         return null;
     }
 }

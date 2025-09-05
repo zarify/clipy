@@ -3,6 +3,7 @@ import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearA
 import { initAuthorFeedback } from './author-feedback.js'
 import { initAuthorTests } from './author-tests.js'
 import { showConfirmModal, openModal, closeModal } from './modals.js'
+import { debug as logDebug, warn as logWarn, error as logError } from './logger.js'
 import { renderMarkdown } from './utils.js'
 
 function $(id) { return document.getElementById(id) }
@@ -34,7 +35,7 @@ function loadEditor() {
         // ensure initial layout is correct
         try { if (editor && typeof editor.refresh === 'function') editor.refresh() } catch (_e) { }
     } catch (e) {
-        console.warn('CodeMirror not available, falling back to textarea')
+        logWarn('CodeMirror not available, falling back to textarea')
         ta.addEventListener('input', () => {
             files[currentFile] = ta.value
             debounceSave()
@@ -190,7 +191,7 @@ function saveToLocalStorage() {
             try { localStorage.setItem('author_config', JSON.stringify(cfg)) } catch (_e) { }
             $('validation').textContent = 'Validation: ' + (e && e.message ? e.message : e)
         }
-    } catch (e) { console.error('autosave failed', e) }
+    } catch (e) { logError('autosave failed', e) }
 }
 
 function buildCurrentConfig() {
@@ -318,7 +319,7 @@ async function handleUpload(ev) {
             debounceSave()
             return
         } catch (e) {
-            console.warn('Failed to read as text file, treating as binary:', e)
+            logWarn('Failed to read as text file, treating as binary:', e)
             // Fall through to binary handling
         }
     }
@@ -392,7 +393,7 @@ function setupHandlers() {
             // Navigate back to main app
             window.location.href = '../index.html'
         } catch (e) {
-            console.error('Failed to navigate back to app:', e)
+            logError('Failed to navigate back to app:', e)
             // Fallback navigation
             window.location.href = '../index.html'
         }
@@ -475,7 +476,7 @@ function setupHandlers() {
             }
             if (!ok) return
             // apply the parsed config
-            try { console.debug && console.debug('[author] applying imported config', parsed); applyImportedConfig(parsed) } catch (e) { alert('Failed to apply config: ' + (e && e.message ? e.message : e)); return }
+            try { logDebug('[author] applying imported config', parsed); applyImportedConfig(parsed) } catch (e) { alert('Failed to apply config: ' + (e && e.message ? e.message : e)); return }
             // After applying, show a simple modal indicating success and a close-only button.
             try {
                 const modal = document.createElement('div')
@@ -594,7 +595,7 @@ async function openChangelogModal() {
                 `
             }
         } catch (error) {
-            console.error('Failed to load changelog:', error)
+            logError('Failed to load changelog:', error)
             contentEl.innerHTML = `
                 <div style="text-align:center;padding:40px;">
                     <h3 style="color:#d32f2f;margin-bottom:12px;">⚠️ Error Loading Changelog</h3>
@@ -607,7 +608,7 @@ async function openChangelogModal() {
         // Use shared modal function for accessibility (ESC key, focus management, etc.)
         openModal(modal)
     } catch (e) {
-        console.error('Failed to open changelog modal:', e)
+        logError('Failed to open changelog modal:', e)
     }
 }
 
@@ -809,7 +810,7 @@ async function openLoadDraftsModal() {
         // Open the modal
         openModal(modal)
     } catch (e) {
-        console.error('Failed to open load drafts modal:', e)
+        logError('Failed to open load drafts modal:', e)
         contentEl.innerHTML = `
             <div style="text-align:center;padding:40px;">
                 <h3 style="color:#d32f2f;margin-bottom:12px;">⚠️ Error Loading Drafts</h3>

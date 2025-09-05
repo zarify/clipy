@@ -4,6 +4,7 @@
 // - Keeps the textarea JSON in sync (so autosave in author-page.js continues to work)
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
+import { error as logError } from './logger.js'
 import { buildASTTestForm, createDefaultASTTest } from './ast-test-builder.js'
 
 function $(sel, root = document) { return root.querySelector(sel) }
@@ -30,7 +31,7 @@ function writeTestsToTextarea(ta, arr) {
         ta.value = JSON.stringify(arr, null, 2)
         ta.dispatchEvent(new Event('input', { bubbles: true }))
     } catch (e) {
-        console.error('failed to write tests json', e)
+        logError('failed to write tests json', e)
     }
 }
 

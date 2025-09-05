@@ -580,7 +580,7 @@ export class ASTAnalyzer {
      * Custom advanced query (placeholder for future expansion)
      */
     customQuery(ast, queryExpression) {
-        console.warn('Custom queries not yet implemented:', queryExpression);
+        import('./logger.js').then(m => m.warn('Custom queries not yet implemented:', queryExpression)).catch(() => console.warn('Custom queries not yet implemented:', queryExpression))
         return null;
     }
 
@@ -700,7 +700,8 @@ export async function analyzeCode(code, expression) {
         if (!ast) return null;
         return analyzer.analyze(ast, expression);
     } catch (error) {
-        console.error('AST analysis failed:', error);
+        // Use centralized logger so we can silence in tests when desired
+        try { const { error: logError } = await import('./logger.js'); logError('AST analysis failed:', error); } catch (_e) { console.error('AST analysis failed:', error); }
         return null;
     }
 }

@@ -4,6 +4,7 @@
 // - Keeps the textarea JSON in sync (so autosave in author-page.js continues to work)
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
+import { warn as logWarn, error as logError } from './logger.js'
 import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-builder.js'
 
 const VALID_PATTERN_TYPES = ['string', 'regex', 'ast']
@@ -83,7 +84,7 @@ function writeFeedbackToTextarea(ta, arr) {
         // fire input so author-page autosave picks it up
         ta.dispatchEvent(new Event('input', { bubbles: true }))
     } catch (e) {
-        console.error('failed to write feedback json', e)
+        logError('failed to write feedback json', e)
     }
 }
 

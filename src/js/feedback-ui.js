@@ -1,4 +1,5 @@
 import { $ } from './utils.js'
+import { debug as logDebug } from './logger.js'
 
 let _matches = []
 let _config = { feedback: [] }
@@ -33,7 +34,7 @@ function renderList() {
         runBtn.addEventListener('click', () => {
             try {
                 // Trace user interaction for debugging: ensure the custom event is dispatched
-                try { console.debug && console.debug('[feedback-ui] run-tests button clicked') } catch (_e) { }
+                try { logDebug('[feedback-ui] run-tests button clicked') } catch (_e) { }
                 window.dispatchEvent(new CustomEvent('ssg:run-tests-click'))
             } catch (_e) { }
         })
@@ -361,7 +362,7 @@ export function setTestResults(results) {
                 r.meta = meta
             } catch (_e) { r.meta = null }
         })
-        console.debug && console.debug('[feedback-ui] setTestResults', _testResults.length)
+        try { logDebug('[feedback-ui] setTestResults', _testResults.length) } catch (_e) { }
     } catch (e) { }
     renderList()
 }

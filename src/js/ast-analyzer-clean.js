@@ -14,7 +14,7 @@ async function initializePyAst() {
         try {
             pyAst = await import('../vendor/py-ast/index.esm.js');
         } catch (error) {
-            console.error('Failed to load py-ast library:', error);
+            import('./logger.js').then(m => m.error('Failed to load py-ast library:', error)).catch(() => console.error('Failed to load py-ast library:', error))
             throw new Error('AST analysis unavailable: ' + error.message);
         }
     }
@@ -83,7 +83,7 @@ export class ASTAnalyzer {
             this.cache.set(cacheKey, ast);
             return ast;
         } catch (error) {
-            console.warn('AST parsing failed:', error.message);
+            import('./logger.js').then(m => m.warn('AST parsing failed:', error.message)).catch(() => console.warn('AST parsing failed:', error.message))
             this.cache.set(cacheKey, null); // Cache failures too
             return null;
         }
@@ -129,7 +129,7 @@ export class ASTAnalyzer {
                     return this.genericQuery(ast, expression);
             }
         } catch (error) {
-            console.warn('AST analysis error:', error);
+            import('./logger.js').then(m => m.warn('AST analysis error:', error)).catch(() => console.warn('AST analysis error:', error))
             return null;
         }
     }
@@ -485,7 +485,7 @@ export class ASTAnalyzer {
      * Custom advanced query (placeholder for future expansion)
      */
     customQuery(ast, queryExpression) {
-        console.warn('Custom queries not yet implemented:', queryExpression);
+        import('./logger.js').then(m => m.warn('Custom queries not yet implemented:', queryExpression)).catch(() => console.warn('Custom queries not yet implemented:', queryExpression))
         return null;
     }
 
@@ -605,7 +605,7 @@ export async function analyzeCode(code, expression) {
         if (!ast) return null;
         return analyzer.analyze(ast, expression);
     } catch (error) {
-        console.error('AST analysis failed:', error);
+        import('./logger.js').then(m => m.error('AST analysis failed:', error)).catch(() => console.error('AST analysis failed:', error))
         return null;
     }
 }

@@ -3,6 +3,7 @@
 
 // Import AST analyzer for AST pattern support
 import { analyzeCode, getASTAnalyzer } from './ast-analyzer.js';
+import { debug as logDebug, info as logInfo, warn as logWarn, error as logError } from './logger.js'
 
 // Lightweight event emitter that works in browser and node
 const _listeners = new Map()
@@ -121,7 +122,7 @@ async function _applyPattern(pattern, text) {
                             return null
                         }
                     } catch (error) {
-                        console.warn('AST matcher function creation failed:', error)
+                        logWarn('AST matcher function creation failed:', error)
                         return null
                     }
                 } else {
@@ -130,7 +131,7 @@ async function _applyPattern(pattern, text) {
                 }
             }
         } catch (error) {
-            console.warn('AST pattern matching failed:', error)
+            logWarn('AST pattern matching failed:', error)
         }
         return null
     }

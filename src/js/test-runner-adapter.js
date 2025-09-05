@@ -2,6 +2,8 @@
  * Factory to create a runFn used by the Run-tests UI.
  * This module isolates the logic so it can be unit-tested.
  */
+import { debug as logDebug, info as logInfo, warn as logWarn, error as logError } from './logger.js'
+
 export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfig }) {
     if (!getFileManager) throw new Error('getFileManager required')
 
@@ -44,7 +46,7 @@ export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfi
                 for (const n of names) {
                     try { origFiles[n] = await Promise.resolve(FileManager.read(n)) } catch (_e) { origFiles[n] = null }
                 }
-                try { console.log('DEBUG origFiles snapshot keys:', Object.keys(origFiles)) } catch (_e) { }
+                try { logDebug('DEBUG origFiles snapshot keys:', Object.keys(origFiles)) } catch (_e) { }
             } catch (_e) { }
 
             // Suppress notifier while mutating FS for the test
@@ -132,7 +134,7 @@ export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfi
             // Restore files
             try {
                 const postList = FileManager.list() || []
-                try { console.log('DEBUG postList before restore:', postList) } catch (_e) { }
+                try { logDebug('DEBUG postList before restore:', postList) } catch (_e) { }
                 for (const p of postList) {
                     if (!Object.prototype.hasOwnProperty.call(origFiles, p)) {
                         try { await FileManager.delete(p) } catch (_e) { }
@@ -148,7 +150,7 @@ export function createRunFn({ getFileManager, MAIN_FILE, runPythonCode, getConfi
                         }
                     } catch (_e) { }
                 }
-                try { console.log('DEBUG after restore main:', await FileManager.read(MAIN_FILE)) } catch (_e) { }
+                try { logDebug('DEBUG after restore main:', await FileManager.read(MAIN_FILE)) } catch (_e) { }
             } catch (_e) { }
 
             try { window.__ssg_suppress_notifier = false } catch (_e) { }

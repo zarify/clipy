@@ -2,7 +2,7 @@
 
 try {
 
-    const log = (...args) => { try { console.debug('[runner]', ...args) } catch (e) { } }
+    const log = (...args) => { try { if (typeof window !== 'undefined' && window.__SSG_DEBUG) console.debug('[runner]', ...args) } catch (e) { } }
 
     let mpInstance = null
     let runtimeAdapter = null

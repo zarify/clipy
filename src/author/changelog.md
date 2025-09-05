@@ -1,3 +1,6 @@
+## 2025-09-05
+- POC AST feedback and test options
+
 ## 2025-09-04
 - Saving and loading of drafts in authoring
 - Download of user workspace to single file or zip

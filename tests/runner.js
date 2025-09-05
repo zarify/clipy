@@ -2,7 +2,7 @@
 // Communicates with parent via postMessage and implements the small protocol
 // defined in project/author-tests-runner-spec.md
 
-const log = (...args) => { try { console.debug('[runner]', ...args) } catch (e) { } }
+const log = (...args) => { try { if (typeof window !== 'undefined' && window.__SSG_DEBUG) console.debug('[runner]', ...args) } catch (e) { } }
 
 let mpInstance = null
 let runtimeAdapter = null
