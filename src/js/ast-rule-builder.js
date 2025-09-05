@@ -17,13 +17,15 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     root.className = 'ast-rule-builder'
     root.style.border = '1px solid #e0e0e0'
     root.style.borderRadius = '4px'
-    root.style.padding = '12px'
+    root.style.padding = '16px'
     root.style.background = '#f8f9fa'
+    root.style.boxSizing = 'border-box'
 
     // Helper function for labeled form elements with optional help text
     function labeled(labelText, el, helpText, inline = false) {
         const wr = document.createElement('div')
-        wr.style.marginBottom = '8px'
+        wr.style.marginBottom = '12px'
+        wr.style.boxSizing = 'border-box'
         if (inline) {
             wr.style.display = 'flex'
             wr.style.alignItems = 'center'
@@ -31,10 +33,11 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
         }
         const l = document.createElement('div')
         l.style.fontSize = '0.9em'
-        l.style.marginBottom = inline ? '0' : '4px'
+        l.style.marginBottom = inline ? '0' : '6px'
         l.style.display = 'flex'
         l.style.alignItems = 'center'
         l.style.gap = '8px'
+        l.style.fontWeight = '500'
         const txt = document.createElement('span')
         txt.textContent = labelText
         l.appendChild(txt)
@@ -74,17 +77,22 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
         option.setAttribute('data-help', type.help)
         astTypeSelect.appendChild(option)
     })
+    astTypeSelect.style.width = '100%'
+    astTypeSelect.style.maxWidth = '300px'
 
     // Target input (optional)
     const astTarget = document.createElement('input')
     astTarget.type = 'text'
-    astTarget.style.width = '200px'
+    astTarget.style.width = '100%'
+    astTarget.style.maxWidth = '300px'
+    astTarget.style.boxSizing = 'border-box'
     astTarget.placeholder = 'e.g. calculate_average, name, for_loop'
 
     // AST expression (generated automatically)
     const astExpression = document.createElement('input')
     astExpression.type = 'text'
     astExpression.style.width = '100%'
+    astExpression.style.boxSizing = 'border-box'
     astExpression.readOnly = true
     astExpression.style.background = '#f5f5f5'
     astExpression.style.color = '#666'
@@ -93,17 +101,24 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     const astMatcher = document.createElement('textarea')
     astMatcher.rows = 3
     astMatcher.style.width = '100%'
+    astMatcher.style.boxSizing = 'border-box'
     astMatcher.style.fontFamily = 'monospace'
     astMatcher.style.fontSize = '13px'
+    astMatcher.style.resize = 'vertical'
     astMatcher.placeholder = 'JavaScript expression to evaluate result (return true/false)...'
     astMatcher.value = (existing.matcher) || ''
 
     // Matcher examples
     const matcherExamples = document.createElement('div')
     matcherExamples.className = 'matcher-examples'
-    matcherExamples.style.marginTop = '4px'
+    matcherExamples.style.marginTop = '6px'
+    matcherExamples.style.marginBottom = '12px'
     matcherExamples.style.fontSize = '0.8em'
     matcherExamples.style.color = '#666'
+    matcherExamples.style.padding = '8px'
+    matcherExamples.style.background = '#fff'
+    matcherExamples.style.border = '1px solid #e0e0e0'
+    matcherExamples.style.borderRadius = '3px'
     matcherExamples.innerHTML = `
         <strong>Examples:</strong><br>
         • <code>result && result.name === 'calculate_average'</code><br>
@@ -115,10 +130,10 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     // Preview area
     const astPreview = document.createElement('div')
     astPreview.className = 'ast-preview'
-    astPreview.style.marginTop = '8px'
-    astPreview.style.padding = '8px'
+    astPreview.style.marginBottom = '12px'
+    astPreview.style.padding = '10px'
     astPreview.style.background = '#fff'
-    astPreview.style.border = '1px solid #ddd'
+    astPreview.style.border = '1px solid #e0e0e0'
     astPreview.style.borderRadius = '3px'
     astPreview.style.fontSize = '0.9em'
     astPreview.style.color = '#666'
@@ -158,13 +173,13 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
         }
     }
 
-    // Build UI
+    // Build UI with consistent spacing
     root.appendChild(labeled('Analysis Type', astTypeSelect, 'Choose the type of code analysis to perform.'))
     root.appendChild(labeled('Target [optional]', astTarget, 'Specific target to look for (function name, variable name, etc.). Leave empty for general analysis.'))
     root.appendChild(labeled('Expression', astExpression, 'Generated AST analysis expression. This is automatically created based on your selections above.'))
+    root.appendChild(astPreview)
     root.appendChild(labeled('Result Matcher', astMatcher, 'JavaScript expression that evaluates the AST analysis result. Must return true/false to determine if the rule matches. The variable "result" contains the AST analysis data.'))
     root.appendChild(matcherExamples)
-    root.appendChild(astPreview)
     root.appendChild(testArea)
 
     // Initialize
@@ -197,18 +212,29 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
 function createTestArea(expressionField, matcherField) {
     const testArea = document.createElement('div')
     testArea.className = 'ast-tester'
-    testArea.style.marginTop = '8px'
-    testArea.style.padding = '8px'
-    testArea.style.border = '1px solid #ddd'
-    testArea.style.borderRadius = '4px'
+    testArea.style.marginTop = '12px'
+    testArea.style.padding = '12px'
     testArea.style.background = '#fff'
+    testArea.style.border = '1px solid #e0e0e0'
+    testArea.style.borderRadius = '4px'
+    testArea.style.boxSizing = 'border-box'
+
+    const testHeader = document.createElement('div')
+    testHeader.style.fontSize = '0.9em'
+    testHeader.style.fontWeight = '500'
+    testHeader.style.marginBottom = '8px'
+    testHeader.style.color = '#333'
+    testHeader.textContent = 'Test your AST rule:'
 
     const testCode = document.createElement('textarea')
     testCode.placeholder = 'Enter Python code to test your AST rule...'
     testCode.style.width = '100%'
+    testCode.style.boxSizing = 'border-box'
     testCode.rows = 4
     testCode.style.fontSize = '13px'
     testCode.style.fontFamily = 'monospace'
+    testCode.style.marginBottom = '8px'
+    testCode.style.resize = 'vertical'
     testCode.value = `def calculate_average(numbers):
     """Calculate the average of a list of numbers."""
     if not numbers:
@@ -219,17 +245,16 @@ function createTestArea(expressionField, matcherField) {
     testButton.type = 'button'
     testButton.className = 'btn'
     testButton.textContent = 'Test Rule'
-    testButton.style.marginTop = '8px'
-    testButton.style.marginRight = '8px'
+    testButton.style.marginBottom = '8px'
 
     const testResult = document.createElement('div')
     testResult.className = 'test-result'
-    testResult.style.marginTop = '8px'
-    testResult.style.padding = '8px'
+    testResult.style.padding = '10px'
     testResult.style.border = '1px solid #ddd'
     testResult.style.borderRadius = '3px'
     testResult.style.fontSize = '0.9em'
     testResult.style.display = 'none'
+    testResult.style.boxSizing = 'border-box'
 
     // Test button functionality
     testButton.addEventListener('click', async () => {
@@ -310,10 +335,8 @@ function createTestArea(expressionField, matcherField) {
         }
     })
 
-    testArea.appendChild(document.createTextNode('Test your AST rule:'))
-    testArea.appendChild(document.createElement('br'))
+    testArea.appendChild(testHeader)
     testArea.appendChild(testCode)
-    testArea.appendChild(document.createElement('br'))
     testArea.appendChild(testButton)
     testArea.appendChild(testResult)
 

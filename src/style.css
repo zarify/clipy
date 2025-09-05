@@ -92,7 +92,10 @@ header {
         max-width: 720px;
         width: 90%;
         max-height: 80vh;
-        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        /* Changed from auto to hidden */
     }
 
     .modal-header {
@@ -104,7 +107,10 @@ header {
         background: var(--panel);
         z-index: 2;
         padding-bottom: 8px;
+        margin-bottom: 8px;
         border-bottom: 1px solid #eee;
+        flex-shrink: 0;
+        /* Prevent header from shrinking */
     }
 
     .modal-header-actions {
@@ -757,18 +763,46 @@ pre#terminal-output {
 
 .modal-content {
     background: var(--panel);
-    padding: 12px;
+    padding: 0;
+    /* Remove padding since header/body will handle their own */
     border-radius: 6px;
     max-width: 720px;
     width: 90%;
     /* Ensure modal content doesn't overflow the viewport; allow internal scrolling when tall */
     max-height: 80vh;
-    overflow: auto;
+    overflow: hidden;
+    /* Let the body handle scrolling */
+    display: flex;
+    flex-direction: column;
 }
 
-/* Load drafts modal: remove overflow from content to prevent double scrollbars */
+/* Modal content body - scrollable area */
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    /* Remove padding since content inside will have its own padding */
+    min-height: 0;
+    /* Important for flex containers to allow shrinking */
+}
+
+/* Load drafts modal: ensure proper overflow handling with new structure */
 #load-drafts-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+}
+
+#load-drafts-modal .modal-body {
+    flex: 1;
     overflow: visible;
+    min-height: 0;
+}
+
+#load-drafts-modal #load-drafts-content {
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 /* Snapshot list container: limit height and allow scrolling when many snapshots exist */
@@ -797,9 +831,21 @@ pre#terminal-output {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
+    padding: 12px 12px 8px 12px;
+    /* Add padding since modal-content padding was removed */
+    margin-bottom: 0;
+    /* Remove margin since we're using padding */
     border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    /* Ensure consistent background */
+    border-radius: 6px 6px 0 0;
+    /* Match modal border radius */
+    /* Sticky positioning */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    /* Prevent shrinking */
+    flex-shrink: 0;
 }
 
 .modal-header h3 {

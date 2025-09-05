@@ -416,11 +416,11 @@ export function initAuthorFeedback() {
     addBtn.style.marginBottom = '8px'
     addBtn.style.marginRight = '8px'
 
-    const addASTBtn = document.createElement('button')
-    addASTBtn.className = 'btn btn-secondary'
-    addASTBtn.textContent = 'Add AST feedback'
-    addASTBtn.style.marginBottom = '8px'
-    addASTBtn.title = 'Add feedback that analyzes code structure using AST patterns'
+    // const addASTBtn = document.createElement('button')
+    // addASTBtn.className = 'btn btn-secondary'
+    // addASTBtn.textContent = 'Add AST feedback'
+    // addASTBtn.style.marginBottom = '8px'
+    // addASTBtn.title = 'Add feedback that analyzes code structure using AST patterns'
 
     const list = document.createElement('div')
     list.id = 'author-feedback-list'
@@ -429,7 +429,7 @@ export function initAuthorFeedback() {
     list.style.gap = '8px'
 
     container.appendChild(addBtn)
-    container.appendChild(addASTBtn)
+    // container.appendChild(addASTBtn)
     container.appendChild(list)
 
     // Insert UI and replace visible textarea with a read-only JSON view.
@@ -513,6 +513,7 @@ export function initAuthorFeedback() {
         content.appendChild(header)
         const body = document.createElement('div')
         body.id = 'author-feedback-modal-body'
+        body.className = 'modal-body'
         content.appendChild(body)
         modal.appendChild(content)
         document.body.appendChild(modal)
@@ -525,7 +526,13 @@ export function initAuthorFeedback() {
         const err = document.createElement('div')
         err.style.color = '#b00020'
         err.style.marginTop = '6px'
-        editor.root.appendChild(err)
+
+        // Create a wrapper with proper padding for the content
+        const contentWrapper = document.createElement('div')
+        contentWrapper.style.padding = '0 12px 12px 12px'
+        contentWrapper.appendChild(editor.root)
+        contentWrapper.appendChild(err)
+
         const actions = document.createElement('div')
         actions.style.marginTop = '8px'
         const save = document.createElement('button')
@@ -536,12 +543,12 @@ export function initAuthorFeedback() {
         cancel.textContent = 'Cancel'
         actions.appendChild(save)
         actions.appendChild(cancel)
-        editor.root.appendChild(actions)
+        contentWrapper.appendChild(actions)
 
         const m = ensureModal()
         const body = m.querySelector('#author-feedback-modal-body')
         body.innerHTML = ''
-        body.appendChild(editor.root)
+        body.appendChild(contentWrapper)
         // inject Save/Cancel into modal header actions so they're always visible
         const actionHolder = m.querySelector('.modal-header-actions')
         actionHolder.innerHTML = ''
@@ -579,7 +586,13 @@ export function initAuthorFeedback() {
         const err = document.createElement('div')
         err.style.color = '#b00020'
         err.style.marginTop = '6px'
-        editor.root.appendChild(err)
+
+        // Create a wrapper with proper padding for the content
+        const contentWrapper = document.createElement('div')
+        contentWrapper.style.padding = '0 12px 12px 12px'
+        contentWrapper.appendChild(editor.root)
+        contentWrapper.appendChild(err)
+
         const actions = document.createElement('div')
         actions.style.marginTop = '8px'
         const save = document.createElement('button')
@@ -590,12 +603,12 @@ export function initAuthorFeedback() {
         cancel.textContent = 'Cancel'
         actions.appendChild(save)
         actions.appendChild(cancel)
-        editor.root.appendChild(actions)
+        contentWrapper.appendChild(actions)
 
         const m = ensureModal()
         const body = m.querySelector('#author-feedback-modal-body')
         body.innerHTML = ''
-        body.appendChild(editor.root)
+        body.appendChild(contentWrapper)
         // inject Save/Cancel into modal header actions so they're always visible
         const actionHolder = m.querySelector('.modal-header-actions')
         actionHolder.innerHTML = ''
@@ -665,11 +678,11 @@ export function initAuthorFeedback() {
         openModalEditNew(newItem)
     })
 
-    addASTBtn.addEventListener('click', () => {
-        const newItem = createDefaultASTFeedback()
-        // open editor for the new item without adding it to the array yet
-        openModalEditNew(newItem)
-    })    // keep in sync if textarea changes programmatically
+    // addASTBtn.addEventListener('click', () => {
+    //     const newItem = createDefaultASTFeedback()
+    //     // open editor for the new item without adding it to the array yet
+    //     openModalEditNew(newItem)
+    // })    // keep in sync if textarea changes programmatically
     ta.addEventListener('input', () => { items = parseFeedbackFromTextarea(ta); try { jsonView.textContent = JSON.stringify(items, null, 2) } catch (_e) { jsonView.textContent = '' }; render() })
     // initial render and populate read-only view
     try { jsonView.textContent = JSON.stringify(items, null, 2) } catch (_e) { jsonView.textContent = '' }

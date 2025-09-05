@@ -356,7 +356,7 @@ export function initAuthorTests() {
     addBtn.style.marginRight = '8px'
 
     const addASTBtn = document.createElement('button')
-    addASTBtn.className = 'btn btn-secondary'
+    addASTBtn.className = 'btn'
     addASTBtn.textContent = 'Add AST test'
     addASTBtn.style.marginBottom = '8px'
     addASTBtn.title = 'Add test that analyzes code structure using AST patterns'
@@ -441,6 +441,7 @@ export function initAuthorTests() {
         content.appendChild(header)
         const body = document.createElement('div')
         body.id = 'author-tests-modal-body'
+        body.className = 'modal-body'
         content.appendChild(body)
         modal.appendChild(content)
         document.body.appendChild(modal)
@@ -453,7 +454,13 @@ export function initAuthorTests() {
         const err = document.createElement('div')
         err.style.color = '#b00020'
         err.style.marginTop = '6px'
-        editor.root.appendChild(err)
+
+        // Create a wrapper with proper padding for the content
+        const contentWrapper = document.createElement('div')
+        contentWrapper.style.padding = '0 12px 12px 12px'
+        contentWrapper.appendChild(editor.root)
+        contentWrapper.appendChild(err)
+
         const actions = document.createElement('div')
         actions.style.marginTop = '8px'
         const save = document.createElement('button')
@@ -464,12 +471,12 @@ export function initAuthorTests() {
         cancel.textContent = 'Cancel'
         actions.appendChild(save)
         actions.appendChild(cancel)
-        editor.root.appendChild(actions)
+        contentWrapper.appendChild(actions)
 
         const m = ensureModal()
         const body = m.querySelector('#author-tests-modal-body')
         body.innerHTML = ''
-        body.appendChild(editor.root)
+        body.appendChild(contentWrapper)
         const actionHolder = m.querySelector('.modal-header-actions')
         actionHolder.innerHTML = ''
         actionHolder.appendChild(save)
@@ -492,7 +499,13 @@ export function initAuthorTests() {
         const err = document.createElement('div')
         err.style.color = '#b00020'
         err.style.marginTop = '6px'
-        editor.root.appendChild(err)
+
+        // Create a wrapper with proper padding for the content
+        const contentWrapper = document.createElement('div')
+        contentWrapper.style.padding = '0 12px 12px 12px'
+        contentWrapper.appendChild(editor.root)
+        contentWrapper.appendChild(err)
+
         const actions = document.createElement('div')
         actions.style.marginTop = '8px'
         const save = document.createElement('button')
@@ -503,12 +516,12 @@ export function initAuthorTests() {
         cancel.textContent = 'Cancel'
         actions.appendChild(save)
         actions.appendChild(cancel)
-        editor.root.appendChild(actions)
+        contentWrapper.appendChild(actions)
 
         const m = ensureModal()
         const body = m.querySelector('#author-tests-modal-body')
         body.innerHTML = ''
-        body.appendChild(editor.root)
+        body.appendChild(contentWrapper)
         const actionHolder = m.querySelector('.modal-header-actions')
         actionHolder.innerHTML = ''
         actionHolder.appendChild(save)
