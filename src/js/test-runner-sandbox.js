@@ -2,7 +2,7 @@
 export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', filesSnapshot = {}, iframeSrc = './tests/runner.html', timeoutMsDefault = 20000 } = {}) {
     return function runFn(test) {
         return new Promise(async (resolve) => {
-            try { console.log('[sandbox] runFn invoked for test', (test && test.id), 'type', (test && test.type), 'keys', Object.keys(test || {}), 'full:', JSON.stringify(test || {})) } catch (_e) { }
+            // quiet: removed noisy debug log
             // Short-circuit AST-only tests in the parent so they don't need
             // an iframe execution. This mirrors adapter behaviour and keeps
             // AST evaluation fast and deterministic.
@@ -22,10 +22,7 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                 if (!astRuleObj && test && test.type === 'ast') {
                     const candidateExpression = test.expression || (test.pattern && (test.pattern.expression || test.pattern.expr)) || test.ast_expression || null
                     const candidateMatcher = test.matcher || (test.pattern && test.pattern.matcher) || test.ast_matcher || null
-                    if (candidateExpression || candidateMatcher) {
-                        astRuleObj = { expression: candidateExpression || '', matcher: candidateMatcher || '' }
-                        try { console.log('[sandbox] reconstructed astRuleObj for', test && test.id, astRuleObj) } catch (_e) { }
-                    }
+                    if (candidateExpression || candidateMatcher) astRuleObj = { expression: candidateExpression || '', matcher: candidateMatcher || '' }
                 }
 
                 // If test.type === 'ast' we should treat this as an AST test
@@ -36,7 +33,7 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
 
                 // Use explicit parentheses to avoid JS operator precedence surprises
                 if ((test && test.type === 'ast') || astRuleObj) {
-                    try { console.log('[sandbox] short-circuiting AST test in parent for', test && test.id, 'astRuleObj keys:', Object.keys(astRuleObj || {})) } catch (_e) { }
+                    // parent short-circuit for AST test
                     // proceed using astRuleObj (may be empty object)
                     try {
                         // Determine code to analyze: prefer test.main, then filesSnapshot['/main.py'] or similar
@@ -54,13 +51,13 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                         const { analyzeCode } = await import('./ast-analyzer.js')
                         let result = null
                         try {
-                            console.debug && console.debug('[sandbox] using astRuleObj for test', test && test.id, astRuleObj)
+                            // using astRuleObj for test
                             const expr = (astRuleObj && astRuleObj.expression) || ''
                             if (expr) result = await analyzeCode(code, expr)
                             else result = null
-                            console.debug && console.debug('[sandbox] astRule analyzed result for', test && test.id, result)
+                            // analysis result computed
                         } catch (err) {
-                            console.error && console.error('[sandbox] analyzeCode failed', err)
+                            // analysis failed
                             if (typeof appendTerminal === 'function') try { appendTerminal('AST analysis failed: ' + String(err), 'runtime') } catch (_e) { }
                             throw err
                         }
@@ -69,20 +66,17 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                             try {
                                 const evaluateMatch = new Function('result', `try { return ${astRuleObj.matcher.trim()} } catch (e) { console.warn('AST matcher error:', e && e.message); return false }`)
                                 passed = !!evaluateMatch(result)
-                            } catch (err) { passed = false; console.warn && console.warn('[sandbox] AST matcher evaluation failed', err) }
+                            } catch (err) { passed = false }
                         } else {
                             // If there's no matcher, consider a truthy result as a pass.
                             passed = !!result
                         }
                         // provide verbose debug info to the host so UI can surface
                         const out = { stdout: JSON.stringify(result || null), stderr: '', durationMs: 0, astPassed: passed, astResult: result }
-                        console.debug && console.debug('[sandbox] astRule short-circuit result', test && test.id, out)
+                        // short-circuit result ready
                         resolve(out)
                         return
-                    } catch (e) {
-                        resolve({ stdout: '', stderr: String(e || ''), durationMs: 0, astPassed: false })
-                        return
-                    }
+                    } catch (e) { resolve({ stdout: '', stderr: String(e || ''), durationMs: 0, astPassed: false }); return }
                 }
             } catch (_e) {
                 // fall through to iframe execution on unexpected errors
@@ -139,7 +133,7 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                             window.__ssg_append_test_output({ id: tid, type: m.type, text: m.text })
                         }
                     } catch (e) { }
-                    try { console.debug && console.debug('[sandbox] stream', m.type, (m.text || '').slice ? (m.text || '').slice(0, 200) : m.text) } catch (e) { }
+                    // stream output forwarded to host UI (quiet)
                 } else if (m.type === 'stdinRequest') {
                     // If the runner provided a prompt string, surface it to the host UI
                     try {
@@ -175,7 +169,7 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                     } catch (e) { v = '' }
                     iframe.contentWindow.postMessage({ type: 'stdinResponse', value: String(v) }, '*')
                 } else if (m.type === 'testResult') {
-                    try { console.debug && console.debug('[sandbox] testResult', m) } catch (e) { }
+                    // child testResult received
                     // Attach expected values from the original `test` object if present
                     try {
                         if (test && typeof test.expected_stdout !== 'undefined' && typeof m.expected_stdout === 'undefined') m.expected_stdout = test.expected_stdout
@@ -184,7 +178,7 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                     cleanup()
                     resolve(m)
                 } else if (m.type === 'error') {
-                    try { console.debug && console.debug('[sandbox] error', m) } catch (e) { }
+                    // child error received
                     cleanup()
                     resolve({ id: test.id, passed: false, stdout: '', stderr: String(m.error), durationMs: 0, reason: m.error })
                 }

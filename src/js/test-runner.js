@@ -158,7 +158,6 @@ async function runTests(tests, options = {}) {
             let ok = true
             let details = {}
             if (runResult && typeof runResult.astPassed === 'boolean') {
-                try { console.debug && console.debug('[runTests] received astPassed from runFn for', t && t.id, 'value', runResult.astPassed) } catch (_e) { }
                 ok = !!runResult.astPassed
                 // include astResult for debugging details
                 if (runResult.astResult) details.ast = runResult.astResult

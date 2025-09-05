@@ -17,7 +17,6 @@ try {
     let stdinRequested = false
 
     function post(o) {
-        try { console.log('[runner post]', o) } catch (_) { }
         try { window.parent.postMessage(o, location.origin) } catch (e) { try { window.parent.postMessage(o, '*') } catch (_) { } }
     }
 
@@ -72,7 +71,6 @@ try {
                                 try { pendingStdinResolves.forEach(r => { try { r('') } catch (_) { } }) } catch (_) { }
                                 pendingStdinResolves = []
                                 stdinRequested = false
-                                post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
                     })
@@ -103,7 +101,6 @@ try {
                                 try { pendingStdinResolves.forEach(r => { try { r('') } catch (_) { } }) } catch (_) { }
                                 pendingStdinResolves = []
                                 stdinRequested = false
-                                post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
                     })
@@ -238,13 +235,7 @@ try {
 
             // Diagnostic debug: report buffer sizes and small previews so the
             // host can see whether the runtime emitted any output.
-            try {
-                const joinedOut = (stdoutBuf && stdoutBuf.length) ? stdoutBuf.join('') : ''
-                const joinedErr = (stderrBuf && stderrBuf.length) ? stderrBuf.join('') : ''
-                post({ type: 'debug', text: 'afterRun stdout.len=' + (stdoutBuf ? stdoutBuf.length : 0) + ' stderr.len=' + (stderrBuf ? stderrBuf.length : 0) })
-                if (joinedOut) post({ type: 'debug', text: 'afterRun stdout.preview=' + String(joinedOut).slice(0, 200) })
-                if (joinedErr) post({ type: 'debug', text: 'afterRun stderr.preview=' + String(joinedErr).slice(0, 200) })
-            } catch (e) { }
+            // removed verbose afterRun debug posts
 
             const duration = Date.now() - start
 

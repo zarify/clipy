@@ -24,7 +24,6 @@ if (loaderFn) {
     let pendingStdinResolve = null
 
     function post(o) {
-        try { console.log('[runner post]', o) } catch (_) { }
         try { window.parent.postMessage(o, location.origin) } catch (e) { try { window.parent.postMessage(o, '*') } catch (_) { } }
     }
 
@@ -55,7 +54,6 @@ if (loaderFn) {
                             if (pendingStdinResolve) {
                                 try { pendingStdinResolve('') } catch (e) { }
                                 pendingStdinResolve = null
-                                post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
                     })
@@ -74,7 +72,6 @@ if (loaderFn) {
                             if (pendingStdinResolve) {
                                 try { pendingStdinResolve('') } catch (e) { }
                                 pendingStdinResolve = null
-                                post({ type: 'debug', text: 'stdin timeout, returning empty' })
                             }
                         }, 20000)
                     })
