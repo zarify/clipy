@@ -4,6 +4,7 @@
 // - Keeps the textarea JSON in sync (so autosave in author-page.js continues to work)
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
+import { buildASTTestForm, createDefaultASTTest } from './ast-test-builder.js'
 
 function $(sel, root = document) { return root.querySelector(sel) }
 
@@ -51,18 +52,29 @@ function createCard(item, idx, onEdit, onMoveUp, onMoveDown, onDelete) {
 
     const body = document.createElement('div')
     body.className = 'feedback-msg'
-    // Render expected_stdout/stderr safely: if it's an object (regex), show /expr/flags
-    function renderExpected(v) {
-        if (v == null) return ''
-        if (typeof v === 'string') return v
-        try {
-            if (typeof v === 'object' && v.type === 'regex') return `/${v.expression}/${v.flags || ''}`
-        } catch (_e) { }
-        try { return JSON.stringify(v) } catch (_e) { return String(v) }
-    }
-    body.textContent = 'stdin: ' + (item.stdin || '') + '  •  expected_stdout: ' + renderExpected(item.expected_stdout)
-    if (item.hide_actual_expected) {
-        body.textContent += '  •  [hide actual/expected]'
+
+    // Check if this is an AST test
+    if (item.type === 'ast' || item.astRule) {
+        body.textContent = 'AST Test: ' + (item.astRule?.expression || 'No expression') +
+            (item.expectedMessage ? '  •  ' + item.expectedMessage : '')
+        if (item.hide_actual_expected) {
+            body.textContent += '  •  [hide AST details]'
+        }
+    } else {
+        // Regular test display (existing logic)
+        // Render expected_stdout/stderr safely: if it's an object (regex), show /expr/flags
+        function renderExpected(v) {
+            if (v == null) return ''
+            if (typeof v === 'string') return v
+            try {
+                if (typeof v === 'object' && v.type === 'regex') return `/${v.expression}/${v.flags || ''}`
+            } catch (_e) { }
+            try { return JSON.stringify(v) } catch (_e) { return String(v) }
+        }
+        body.textContent = 'stdin: ' + (item.stdin || '') + '  •  expected_stdout: ' + renderExpected(item.expected_stdout)
+        if (item.hide_actual_expected) {
+            body.textContent += '  •  [hide actual/expected]'
+        }
     }
 
     const actions = document.createElement('div')
@@ -101,6 +113,12 @@ function createCard(item, idx, onEdit, onMoveUp, onMoveDown, onDelete) {
 }
 
 function buildEditorForm(existing) {
+    // Check if this is an AST test
+    if (existing.type === 'ast' || existing.astRule) {
+        return buildASTTestForm(existing)
+    }
+
+    // Regular test form (existing logic)
     const root = document.createElement('div')
     root.style.border = '1px solid #eee'
     root.style.padding = '8px'
@@ -335,6 +353,13 @@ export function initAuthorTests() {
     addBtn.className = 'btn'
     addBtn.textContent = 'Add test'
     addBtn.style.marginBottom = '8px'
+    addBtn.style.marginRight = '8px'
+
+    const addASTBtn = document.createElement('button')
+    addASTBtn.className = 'btn btn-secondary'
+    addASTBtn.textContent = 'Add AST test'
+    addASTBtn.style.marginBottom = '8px'
+    addASTBtn.title = 'Add test that analyzes code structure using AST patterns'
 
     const list = document.createElement('div')
     list.id = 'author-tests-list'
@@ -343,6 +368,7 @@ export function initAuthorTests() {
     list.style.gap = '8px'
 
     container.appendChild(addBtn)
+    container.appendChild(addASTBtn)
     container.appendChild(list)
 
     ta.parentNode.insertBefore(container, ta)
@@ -510,6 +536,12 @@ export function initAuthorTests() {
 
     addBtn.addEventListener('click', () => {
         const newItem = { id: genId(), description: 'New test', stdin: '', expected_stdout: '', expected_stderr: '', timeoutMs: undefined, hide_actual_expected: false }
+        // open editor for the new item without adding it to the array yet
+        openModalEditNew(newItem)
+    })
+
+    addASTBtn.addEventListener('click', () => {
+        const newItem = createDefaultASTTest()
         // open editor for the new item without adding it to the array yet
         openModalEditNew(newItem)
     })

@@ -4,6 +4,7 @@
 // - Keeps the textarea JSON in sync (so autosave in author-page.js continues to work)
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
+import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-builder.js'
 
 const VALID_PATTERN_TYPES = ['string', 'regex', 'ast']
 const VALID_TARGETS = ['code', 'filename', 'stdout', 'stderr', 'stdin']
@@ -261,255 +262,9 @@ function buildEditorForm(existing) {
     flags.placeholder = 'e.g. i'
     flags.value = (existing.pattern && existing.pattern.flags) || ''
 
-    // Create wrapper elements for conditional fields
-    // Create AST pattern builder UI
-    const astBuilder = document.createElement('div')
-    astBuilder.className = 'ast-pattern-builder'
-    astBuilder.style.border = '1px solid #e0e0e0'
-    astBuilder.style.borderRadius = '4px'
-    astBuilder.style.padding = '12px'
-    astBuilder.style.background = '#f8f9fa'
-
-    const astTypeSelect = document.createElement('select')
-    const astTypes = [
-        { value: 'function_exists', label: 'Function exists', help: 'Check if a specific function is defined' },
-        { value: 'function_count', label: 'Function count', help: 'Count total number of functions' },
-        { value: 'variable_usage', label: 'Variable usage', help: 'Check if a variable is used or assigned' },
-        { value: 'control_flow', label: 'Control flow', help: 'Check for loops, if statements, etc.' },
-        { value: 'has_docstring', label: 'Has docstrings', help: 'Check if functions have docstrings' },
-        { value: 'code_quality', label: 'Code quality', help: 'Advanced code quality checks' }
-    ]
-
-    astTypes.forEach(type => {
-        const option = document.createElement('option')
-        option.value = type.value
-        option.textContent = type.label
-        option.setAttribute('data-help', type.help)
-        astTypeSelect.appendChild(option)
-    })
-
-    const astTarget = document.createElement('input')
-    astTarget.type = 'text'
-    astTarget.style.width = '200px'
-    astTarget.placeholder = 'e.g. calculate_average, name, for_loop'
-
-    // AST Matcher - JavaScript expression to evaluate the AST result
-    const astMatcher = document.createElement('textarea')
-    astMatcher.rows = 3
-    astMatcher.style.width = '100%'
-    astMatcher.style.fontFamily = 'monospace'
-    astMatcher.style.fontSize = '13px'
-    astMatcher.placeholder = 'JavaScript expression to evaluate result (return true/false)...'
-    astMatcher.value = (existing.pattern && existing.pattern.matcher) || ''
-
-    const matcherExamples = document.createElement('div')
-    matcherExamples.className = 'matcher-examples'
-    matcherExamples.style.marginTop = '4px'
-    matcherExamples.style.fontSize = '0.8em'
-    matcherExamples.style.color = '#666'
-    matcherExamples.innerHTML = `
-        <strong>Examples:</strong><br>
-        • <code>result && result.name === 'calculate_average'</code><br>
-        • <code>result && result.parameters.length >= 1</code><br>
-        • <code>result && result.count >= 2</code><br>
-        • <code>result && result.details.some(d => d.type === 'for')</code>
-    `
-
-    const astPreview = document.createElement('div')
-    astPreview.className = 'ast-preview'
-    astPreview.style.marginTop = '8px'
-    astPreview.style.padding = '8px'
-    astPreview.style.background = '#fff'
-    astPreview.style.border = '1px solid #ddd'
-    astPreview.style.borderRadius = '3px'
-    astPreview.style.fontSize = '0.9em'
-    astPreview.style.color = '#666'
-
-    // Function to update AST expression based on UI selections
-    function updateASTExpression() {
-        const analysisType = astTypeSelect.value
-        const target = astTarget.value.trim()
-
-        if (target) {
-            expr.value = `${analysisType}:${target}`
-        } else {
-            expr.value = analysisType
-        }
-
-        // Update preview
-        const selectedOption = astTypeSelect.querySelector(`option[value="${analysisType}"]`)
-        const help = selectedOption ? selectedOption.getAttribute('data-help') : ''
-        astPreview.innerHTML = `<strong>Expression:</strong> ${expr.value}<br><strong>Description:</strong> ${help}`
-    }
-
-    // Event listeners for AST builder
-    astTypeSelect.addEventListener('change', updateASTExpression)
-    astTarget.addEventListener('input', updateASTExpression)
-
-    // Set initial values if editing existing AST pattern
-    if (existing.pattern && existing.pattern.type === 'ast' && existing.pattern.expression) {
-        const parts = existing.pattern.expression.split(':')
-        if (parts.length >= 1) {
-            astTypeSelect.value = parts[0]
-        }
-        if (parts.length >= 2) {
-            astTarget.value = parts.slice(1).join(':')
-        }
-    }
-
-    // Create AST pattern tester
-    const astTester = document.createElement('div')
-    astTester.className = 'ast-tester'
-    astTester.style.marginTop = '8px'
-    astTester.style.padding = '8px'
-    astTester.style.border = '1px solid #ddd'
-    astTester.style.borderRadius = '4px'
-    astTester.style.background = '#fff'
-
-    const testCode = document.createElement('textarea')
-    testCode.placeholder = 'Enter Python code to test your AST pattern...'
-    testCode.style.width = '100%'
-    testCode.rows = 4
-    testCode.style.fontSize = '13px'
-    testCode.style.fontFamily = 'monospace'
-    testCode.value = `def calculate_average(numbers):
-    """Calculate the average of a list of numbers."""
-    if not numbers:
-        return 0
-    return sum(numbers) / len(numbers)`
-
-    const testButton = document.createElement('button')
-    testButton.type = 'button'
-    testButton.className = 'btn'
-    testButton.textContent = 'Test Pattern'
-    testButton.style.marginTop = '8px'
-    testButton.style.marginRight = '8px'
-
-    const testResult = document.createElement('div')
-    testResult.className = 'test-result'
-    testResult.style.marginTop = '8px'
-    testResult.style.padding = '8px'
-    testResult.style.border = '1px solid #ddd'
-    testResult.style.borderRadius = '3px'
-    testResult.style.fontSize = '0.9em'
-    testResult.style.display = 'none'
-
-    // Test button functionality
-    testButton.addEventListener('click', async () => {
-        const code = testCode.value.trim()
-        const expression = expr.value.trim()
-
-        if (!code) {
-            testResult.style.display = 'block'
-            testResult.style.background = '#fff3cd'
-            testResult.style.borderColor = '#ffeaa7'
-            testResult.innerHTML = '⚠️ Please enter some Python code to test.'
-            return
-        }
-
-        if (!expression) {
-            testResult.style.display = 'block'
-            testResult.style.background = '#fff3cd'
-            testResult.style.borderColor = '#ffeaa7'
-            testResult.innerHTML = '⚠️ Please enter an AST expression to test.'
-            return
-        }
-
-        testButton.textContent = 'Testing...'
-        testButton.disabled = true
-
-        try {
-            // Import the analyzeCode function dynamically
-            const { analyzeCode } = await import('./ast-analyzer.js')
-            const result = await analyzeCode(code, expression)
-
-            testResult.style.display = 'block'
-
-            if (result) {
-                let matcherResult = null
-                let matcherError = null
-
-                // Test the matcher if provided
-                const matcherCode = astMatcher.value.trim()
-                if (matcherCode) {
-                    try {
-                        // Create a safe evaluation function
-                        const evaluateMatch = new Function('result', `
-                            try {
-                                return ${matcherCode};
-                            } catch (e) {
-                                throw new Error('Matcher evaluation error: ' + e.message);
-                            }
-                        `);
-                        matcherResult = evaluateMatch(result);
-                    } catch (e) {
-                        matcherError = e.message;
-                    }
-                }
-
-                if (matcherError) {
-                    testResult.style.background = '#fff3cd'
-                    testResult.style.borderColor = '#ffeaa7'
-                    testResult.innerHTML = `
-                        ⚠️ <strong>Matcher Error:</strong><br>
-                        ${matcherError}<br><br>
-                        <strong>AST Result:</strong><br>
-                        <pre>${JSON.stringify(result, null, 2)}</pre>
-                    `
-                } else if (matcherCode) {
-                    // Show matcher result
-                    const matchIcon = matcherResult ? '✅' : '❌'
-                    const matchColor = matcherResult ? '#d4edda' : '#f8d7da'
-                    const matchBorder = matcherResult ? '#c3e6cb' : '#f5c6cb'
-
-                    testResult.style.background = matchColor
-                    testResult.style.borderColor = matchBorder
-                    testResult.innerHTML = `
-                        ${matchIcon} <strong>Matcher Result: ${matcherResult}</strong><br>
-                        <em>${matcherResult ? 'Feedback will be shown' : 'Feedback will NOT be shown'}</em><br><br>
-                        <strong>AST Result:</strong><br>
-                        <pre>${JSON.stringify(result, null, 2)}</pre>
-                    `
-                } else {
-                    // No matcher, just show AST result
-                    testResult.style.background = '#d4edda'
-                    testResult.style.borderColor = '#c3e6cb'
-                    testResult.innerHTML = `
-                        ✅ <strong>Pattern matched!</strong><br>
-                        <em>Add a Result Matcher to control when feedback is shown</em><br><br>
-                        <strong>AST Result:</strong><br>
-                        <pre>${JSON.stringify(result, null, 2)}</pre>
-                    `
-                }
-            } else {
-                testResult.style.background = '#f8d7da'
-                testResult.style.borderColor = '#f5c6cb'
-                testResult.innerHTML = `❌ <strong>Pattern did not match.</strong><br>The AST analysis returned no results for this code.`
-            }
-        } catch (error) {
-            testResult.style.display = 'block'
-            testResult.style.background = '#f8d7da'
-            testResult.style.borderColor = '#f5c6cb'
-            testResult.innerHTML = `❌ <strong>Error testing pattern:</strong><br>${error.message}`
-        } finally {
-            testButton.textContent = 'Test Pattern'
-            testButton.disabled = false
-        }
-    })
-
-    astTester.appendChild(document.createTextNode('Test your AST pattern:'))
-    astTester.appendChild(document.createElement('br'))
-    astTester.appendChild(testCode)
-    astTester.appendChild(document.createElement('br'))
-    astTester.appendChild(testButton)
-    astTester.appendChild(testResult)
-
-    astBuilder.appendChild(labeled('Analysis Type', astTypeSelect, 'Choose the type of code analysis to perform.'))
-    astBuilder.appendChild(labeled('Target [optional]', astTarget, 'Specific target to look for (function name, variable name, etc.). Leave empty for general analysis.'))
-    astBuilder.appendChild(labeled('Result Matcher', astMatcher, 'JavaScript expression that evaluates the AST analysis result. Must return true/false to determine if feedback should be shown. The variable "result" contains the AST analysis data.'))
-    astBuilder.appendChild(matcherExamples)
-    astBuilder.appendChild(astPreview)
-    astBuilder.appendChild(astTester)
+    // Create AST rule builder
+    const astRuleBuilder = createASTRuleBuilder(existing.pattern || {}, 'feedback')
+    const astBuilder = astRuleBuilder.root
 
     const exprRow = labeled('Expression', expr, 'Text to search for (string) or regex pattern to match (regex).')
     const flagsRow = labeled('Flags [optional]', flags, 'Optional regex flags (e.g. "i" for case-insensitive). Only used for regex patterns.')
@@ -549,7 +304,8 @@ function buildEditorForm(existing) {
             astBuilder.style.display = ''
             exprRow.style.display = 'none'
             flagsRow.style.display = 'none'
-            updateASTExpression() // Initialize AST expression
+            // Update AST expression when switching to AST mode
+            astRuleBuilder.updateExpression()
         } else {
             // For other types, use generic labels
             const exprLabel = exprRow.querySelector('div')
@@ -617,17 +373,19 @@ function buildEditorForm(existing) {
             const when = []
             Array.from(whenWrap.querySelectorAll('input[type=radio]')).forEach(radio => { if (radio.checked) when.push(radio.value) })
 
-            const pattern = {
-                type: patternType.value || 'string',
-                target: targetSel.value || 'stdout',
-                fileTarget: fileTargetIn.value || 'main.py',
-                expression: expr.value || '',
-                flags: flags.value || ''
-            }
-
-            // Add matcher for AST patterns
-            if (patternType.value === 'ast' && astMatcher.value.trim()) {
-                pattern.matcher = astMatcher.value.trim()
+            let pattern
+            if (patternType.value === 'ast') {
+                // Use AST rule builder
+                pattern = astRuleBuilder.get()
+            } else {
+                // Regular string/regex patterns
+                pattern = {
+                    type: patternType.value || 'string',
+                    target: targetSel.value || 'stdout',
+                    fileTarget: fileTargetIn.value || 'main.py',
+                    expression: expr.value || '',
+                    flags: flags.value || ''
+                }
             }
 
             return {
@@ -908,20 +666,7 @@ export function initAuthorFeedback() {
     })
 
     addASTBtn.addEventListener('click', () => {
-        const newItem = {
-            id: genId(),
-            title: 'Check function exists',
-            when: ['edit'],
-            pattern: {
-                type: 'ast',
-                target: 'code',
-                expression: 'function_exists:calculate_average',
-                matcher: 'result && result.name === "calculate_average"'
-            },
-            message: 'Great! You defined the `calculate_average` function.',
-            severity: 'success',
-            visibleByDefault: true
-        }
+        const newItem = createDefaultASTFeedback()
         // open editor for the new item without adding it to the array yet
         openModalEditNew(newItem)
     })    // keep in sync if textarea changes programmatically
