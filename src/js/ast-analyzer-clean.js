@@ -154,7 +154,7 @@ export class ASTAnalyzer {
                             lineno: node.lineno,
                             docstring: this.getDocstring(node)
                         };
-                        
+
                         // If looking for specific function, we can stop
                         if (functionName !== '*') {
                             return;
@@ -182,7 +182,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'Assign') {
                 node.targets.forEach(target => {
                     if (target.nodeType === 'Name' &&
@@ -195,7 +195,7 @@ export class ASTAnalyzer {
                     }
                 });
             }
-            
+
             if (node.nodeType === 'Name') {
                 if (node.ctx?.nodeType === 'Load' &&
                     (variableName === '*' || node.id === variableName)) {
@@ -206,7 +206,7 @@ export class ASTAnalyzer {
                     });
                 }
             }
-            
+
             if (node.nodeType === 'Call') {
                 // Check for method calls that modify variables (e.g., list.append)
                 if (node.func?.nodeType === 'Attribute' &&
@@ -215,7 +215,7 @@ export class ASTAnalyzer {
                     analysis.modified = true;
                 }
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -249,7 +249,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'If') {
                 flows.if_statement++;
                 details.push({ type: 'if', lineno: node.lineno });
@@ -270,7 +270,7 @@ export class ASTAnalyzer {
                 flows.with_statement++;
                 details.push({ type: 'with', lineno: node.lineno });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -312,7 +312,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'FunctionDef') {
                 count++;
                 functions.push({
@@ -321,7 +321,7 @@ export class ASTAnalyzer {
                     parameters: node.args.args.length
                 });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -351,7 +351,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'FunctionDef') {
                 analysis.functions.total++;
                 const docstring = this.getDocstring(node);
@@ -366,7 +366,7 @@ export class ASTAnalyzer {
                     docstring: docstring
                 });
             }
-            
+
             if (node.nodeType === 'ClassDef') {
                 analysis.classes.total++;
                 const docstring = this.getDocstring(node);
@@ -381,7 +381,7 @@ export class ASTAnalyzer {
                     docstring: docstring
                 });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -405,9 +405,9 @@ export class ASTAnalyzer {
     getDocstring(node) {
         if (node.body && node.body.length > 0) {
             const firstStmt = node.body[0];
-            if (firstStmt.nodeType === 'Expr' && 
-                firstStmt.value && 
-                firstStmt.value.nodeType === 'Constant' && 
+            if (firstStmt.nodeType === 'Expr' &&
+                firstStmt.value &&
+                firstStmt.value.nodeType === 'Constant' &&
                 typeof firstStmt.value.value === 'string') {
                 return firstStmt.value.value;
             }
@@ -442,7 +442,7 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === nodeType) {
                 results.push({
                     type: nodeType,
@@ -450,7 +450,7 @@ export class ASTAnalyzer {
                     details: this.extractNodeDetails(node)
                 });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -497,7 +497,7 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'Constant') {
                 const value = node.value;
                 if (typeof value === 'number' && ![0, 1, -1, 2, 10, 100].includes(value)) {
@@ -514,7 +514,7 @@ export class ASTAnalyzer {
                     });
                 }
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -539,14 +539,14 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (['If', 'For', 'While', 'Try'].includes(node.nodeType)) {
                 complexity++;
             }
             if (node.nodeType === 'ExceptHandler') {
                 complexity++;
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
