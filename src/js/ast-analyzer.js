@@ -1,39 +1,18 @@
-/**
- * AST Analyzer Module for Clipy Educational Feedback
- * 
- * Provides Python AST analysis capabilities for educational feedback
- * and code quality assessment using py-ast library.
- */
+// AST analyzer: robust variable analysis and normalized ctx access
 
-// Import py-ast library from vendor directory
 let pyAst = null;
 
-// Initialize py-ast library (async loading)
 async function initializePyAst() {
-    if (!pyAst) {
-        try {
-            pyAst = await import('../vendor/py-ast/index.esm.js');
-        } catch (error) {
-            console.error('Failed to load py-ast library:', error);
-            throw new Error('AST analysis unavailable: ' + error.message);
-        }
-    }
+    if (!pyAst) pyAst = await import('../vendor/py-ast/index.esm.js');
     return pyAst;
 }
 
-/**
- * Main AST Analyzer class
- * Provides caching, parsing, and educational analysis capabilities
- */
 export class ASTAnalyzer {
     constructor() {
-        this.cache = new Map(); // Cache for parsed AST results
+        this.cache = new Map();
         this.initialized = false;
     }
 
-    /**
-     * Initialize the analyzer (load py-ast library)
-     */
     async initialize() {
         if (!this.initialized) {
             await initializePyAst();
@@ -42,193 +21,117 @@ export class ASTAnalyzer {
         return this;
     }
 
-    /**
-     * Generate a simple hash for caching
-     */
     hashCode(str) {
-        let hash = 0;
-        if (str.length === 0) return hash;
+        let h = 0;
+        if (!str) return '0';
         for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32-bit integer
+            const c = str.charCodeAt(i);
+            h = ((h << 5) - h) + c;
+            h = h & h;
         }
-        return hash.toString();
+        return String(h);
     }
 
-    /**
-     * Parse Python code to AST with caching
-     * @param {string} code - Python source code
-     * @returns {Object|null} - Parsed AST or null if parsing failed
-     */
     async parse(code) {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        const cacheKey = this.hashCode(code);
-        if (this.cache.has(cacheKey)) {
-            return this.cache.get(cacheKey);
-        }
-
+        if (!this.initialized) await this.initialize();
+        const k = this.hashCode(code);
+        if (this.cache.has(k)) return this.cache.get(k);
         try {
             const ast = pyAst.parse(code);
-
-            // Limit cache size to prevent memory issues
-            if (this.cache.size > 100) {
-                const firstKey = this.cache.keys().next().value;
-                this.cache.delete(firstKey);
-            }
-
-            this.cache.set(cacheKey, ast);
+            if (this.cache.size > 100) this.cache.delete(this.cache.keys().next().value);
+            this.cache.set(k, ast);
             return ast;
-        } catch (error) {
-            console.warn('AST parsing failed:', error.message);
-            this.cache.set(cacheKey, null); // Cache failures too
+        } catch (e) {
+            this.cache.set(k, null);
             return null;
         }
     }
 
-    /**
-     * Analyze AST based on query expression
-     * @param {Object} ast - Parsed AST
-     * @param {string} expression - Analysis query expression
-     * @returns {Object|null} - Analysis result or null
-     */
     analyze(ast, expression) {
         if (!ast || !expression) return null;
-
-        try {
-            // Parse expression format: "analysisType:target" or just "analysisType"
-            const [analysisType, target] = expression.split(':');
-
-            switch (analysisType) {
-                case 'function_exists':
-                    return this.checkFunctionExists(ast, target);
-
-                case 'variable_usage':
-                    return this.analyzeVariables(ast, target);
-
-                case 'control_flow':
-                    return this.analyzeControlFlow(ast, target);
-
-                case 'code_quality':
-                    return this.analyzeCodeQuality(ast, target);
-
-                case 'function_count':
-                    return this.countFunctions(ast);
-
-                case 'has_docstring':
-                    return this.checkDocstrings(ast);
-
-                case 'custom':
-                    return this.customQuery(ast, target);
-
-                default:
-                    // Generic AST query
-                    return this.genericQuery(ast, expression);
-            }
-        } catch (error) {
-            console.warn('AST analysis error:', error);
-            return null;
+        const [type, target] = expression.split(':');
+        switch (type) {
+            case 'variable_usage': return this.analyzeVariables(ast, target);
+            case 'function_exists': return this.checkFunctionExists(ast, target);
+            case 'control_flow': return this.analyzeControlFlow(ast, target);
+            case 'function_count': return this.countFunctions(ast);
+            case 'code_quality': return this.analyzeCodeQuality(ast, target);
+            default: return this.genericQuery(ast, expression);
         }
     }
 
-    /**
-     * Check if a specific function exists
-     */
     checkFunctionExists(ast, functionName) {
-        let found = false;
-        let foundFunction = null;
-
-        // Manual traversal through AST body
-        if (ast.body && Array.isArray(ast.body)) {
-            ast.body.forEach(node => {
-                if (node.nodeType === 'FunctionDef') {
-                    if (functionName === '*' || node.name === functionName) {
-                        found = true;
-                        foundFunction = {
-                            name: node.name,
-                            parameters: node.args.args.map(arg => arg.arg),
-                            defaults: node.args.defaults.length,
-                            lineno: node.lineno,
-                            docstring: this.getDocstring(node)
-                        };
-                        
-                        // If looking for specific function, we can stop
-                        if (functionName !== '*') {
-                            return;
-                        }
-                    }
-                }
-            });
+        if (!ast || !ast.body) return null;
+        for (const n of ast.body) {
+            if (n && n.nodeType === 'FunctionDef' && (functionName === '*' || n.name === functionName)) {
+                return { name: n.name, lineno: n.lineno };
+            }
         }
-
-        return found ? foundFunction : null;
+        return null;
     }
 
-    /**
-     * Analyze variable usage patterns
-     */
     analyzeVariables(ast, variableName) {
-        const analysis = {
-            assigned: false,
-            used: false,
-            modified: false,
-            assignments: [],
-            usages: []
-        };
+        const analysis = { assigned: false, used: false, modified: false, assignments: [], usages: [] };
+        const getCtx = (node) => node && node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
 
-        // Manual traversal
+        const seen = new Set();
         const traverse = (node) => {
-            if (!node) return;
-            
-            if (node.nodeType === 'Assign') {
-                node.targets.forEach(target => {
-                    if (target.nodeType === 'Name' &&
-                        (variableName === '*' || target.id === variableName)) {
+            if (!node || typeof node !== 'object' || seen.has(node)) return;
+            seen.add(node);
+            if (Array.isArray(node)) return node.forEach(traverse);
+
+            if (node.nodeType === 'Assign' && Array.isArray(node.targets)) {
+                node.targets.forEach(t => {
+                    if (t && t.nodeType === 'Name' && (variableName === '*' || t.id === variableName)) {
                         analysis.assigned = true;
-                        analysis.assignments.push({
-                            name: target.id,
-                            lineno: node.lineno
-                        });
+                        analysis.assignments.push({ name: t.id, lineno: node.lineno });
                     }
                 });
             }
-            
-            if (node.nodeType === 'Name') {
-                if (node.ctx?.nodeType === 'Load' &&
-                    (variableName === '*' || node.id === variableName)) {
-                    analysis.used = true;
-                    analysis.usages.push({
-                        name: node.id,
-                        lineno: node.lineno
-                    });
+
+            if (node.nodeType === 'AnnAssign' && node.target && node.target.nodeType === 'Name') {
+                const t = node.target;
+                if (variableName === '*' || t.id === variableName) {
+                    analysis.assigned = true;
+                    analysis.assignments.push({ name: t.id, lineno: node.lineno });
                 }
             }
-            
-            if (node.nodeType === 'Call') {
-                // Check for method calls that modify variables (e.g., list.append)
-                if (node.func?.nodeType === 'Attribute' &&
-                    node.func.value?.nodeType === 'Name' &&
-                    (variableName === '*' || node.func.value.id === variableName)) {
+
+            if (node.nodeType === 'AugAssign' && node.target && node.target.nodeType === 'Name') {
+                const t = node.target;
+                if (variableName === '*' || t.id === variableName) {
+                    analysis.assigned = true;
                     analysis.modified = true;
+                    analysis.assignments.push({ name: t.id, lineno: node.lineno });
                 }
             }
-            
-            // Recursively traverse child nodes
-            if (node.body && Array.isArray(node.body)) {
-                node.body.forEach(traverse);
+
+            if (node.nodeType === 'Name') {
+                const ctx = getCtx(node);
+                if (ctx === 'Load' && (variableName === '*' || node.id === variableName)) {
+                    analysis.used = true;
+                    analysis.usages.push({ name: node.id, lineno: node.lineno });
+                }
+                if ((ctx === 'Store' || ctx === 'Del') && (variableName === '*' || node.id === variableName)) {
+                    analysis.assigned = true;
+                    analysis.assignments.push({ name: node.id, lineno: node.lineno });
+                }
             }
-            if (node.orelse && Array.isArray(node.orelse)) {
-                node.orelse.forEach(traverse);
+
+            if (node.nodeType === 'Call' && node.func && node.func.nodeType === 'Attribute') {
+                const v = node.func.value;
+                if (v && v.nodeType === 'Name' && (variableName === '*' || v.id === variableName)) analysis.modified = true;
+            }
+
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
             }
         };
 
-        if (ast.body && Array.isArray(ast.body)) {
-            ast.body.forEach(traverse);
-        }
-
+        if (ast && Array.isArray(ast.body)) ast.body.forEach(traverse);
         return (analysis.assigned || analysis.used) ? analysis : null;
     }
 
@@ -249,7 +152,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'If') {
                 flows.if_statement++;
                 details.push({ type: 'if', lineno: node.lineno });
@@ -270,7 +173,7 @@ export class ASTAnalyzer {
                 flows.with_statement++;
                 details.push({ type: 'with', lineno: node.lineno });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -312,16 +215,16 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'FunctionDef') {
                 count++;
                 functions.push({
                     name: node.name,
                     lineno: node.lineno,
-                    parameters: node.args.args.length
+                    parameters: (node.args && node.args.args) ? node.args.args.length : 0
                 });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -351,7 +254,7 @@ export class ASTAnalyzer {
         // Manual traversal
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'FunctionDef') {
                 analysis.functions.total++;
                 const docstring = this.getDocstring(node);
@@ -366,7 +269,7 @@ export class ASTAnalyzer {
                     docstring: docstring
                 });
             }
-            
+
             if (node.nodeType === 'ClassDef') {
                 analysis.classes.total++;
                 const docstring = this.getDocstring(node);
@@ -381,7 +284,7 @@ export class ASTAnalyzer {
                     docstring: docstring
                 });
             }
-            
+
             // Recursively traverse child nodes
             if (node.body && Array.isArray(node.body)) {
                 node.body.forEach(traverse);
@@ -405,9 +308,9 @@ export class ASTAnalyzer {
     getDocstring(node) {
         if (node.body && node.body.length > 0) {
             const firstStmt = node.body[0];
-            if (firstStmt.nodeType === 'Expr' && 
-                firstStmt.value && 
-                firstStmt.value.nodeType === 'Constant' && 
+            if (firstStmt.nodeType === 'Expr' &&
+                firstStmt.value &&
+                firstStmt.value.nodeType === 'Constant' &&
                 typeof firstStmt.value.value === 'string') {
                 return firstStmt.value.value;
             }
@@ -425,7 +328,7 @@ export class ASTAnalyzer {
             case 'no_hardcoded_values':
                 return this.checkHardcodedValues(ast);
             case 'proper_naming':
-                return this.checkNamingConventions(ast);
+                return this.checkNamingConventions ? this.checkNamingConventions(ast) : null;
             case 'complexity':
                 return this.calculateComplexity(ast);
             default:
@@ -442,7 +345,7 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === nodeType) {
                 results.push({
                     type: nodeType,
@@ -450,13 +353,13 @@ export class ASTAnalyzer {
                     details: this.extractNodeDetails(node)
                 });
             }
-            
+
             // Recursively traverse child nodes
-            if (node.body && Array.isArray(node.body)) {
-                node.body.forEach(traverse);
-            }
-            if (node.orelse && Array.isArray(node.orelse)) {
-                node.orelse.forEach(traverse);
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
             }
         };
 
@@ -497,7 +400,7 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (node.nodeType === 'Constant') {
                 const value = node.value;
                 if (typeof value === 'number' && ![0, 1, -1, 2, 10, 100].includes(value)) {
@@ -514,13 +417,13 @@ export class ASTAnalyzer {
                     });
                 }
             }
-            
+
             // Recursively traverse child nodes
-            if (node.body && Array.isArray(node.body)) {
-                node.body.forEach(traverse);
-            }
-            if (node.orelse && Array.isArray(node.orelse)) {
-                node.orelse.forEach(traverse);
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
             }
         };
 
@@ -539,20 +442,20 @@ export class ASTAnalyzer {
 
         const traverse = (node) => {
             if (!node) return;
-            
+
             if (['If', 'For', 'While', 'Try'].includes(node.nodeType)) {
                 complexity++;
             }
             if (node.nodeType === 'ExceptHandler') {
                 complexity++;
             }
-            
+
             // Recursively traverse child nodes
-            if (node.body && Array.isArray(node.body)) {
-                node.body.forEach(traverse);
-            }
-            if (node.orelse && Array.isArray(node.orelse)) {
-                node.orelse.forEach(traverse);
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
             }
         };
 
