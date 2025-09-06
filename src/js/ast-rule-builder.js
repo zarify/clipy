@@ -67,7 +67,11 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
         { value: 'variable_usage', label: 'Variable usage', help: 'Check if a variable is used or assigned' },
         { value: 'control_flow', label: 'Control flow', help: 'Check for loops, if statements, etc.' },
         { value: 'has_docstring', label: 'Has docstrings', help: 'Check if functions have docstrings' },
-        { value: 'code_quality', label: 'Code quality', help: 'Advanced code quality checks' }
+        { value: 'code_quality', label: 'Code quality', help: 'Advanced code quality checks' },
+        { value: 'class_analysis', label: 'Class analysis', help: 'Analyze classes, methods, and inheritance' },
+        { value: 'import_statements', label: 'Import statements', help: 'Check for specific imports or import patterns' },
+        { value: 'magic_numbers', label: 'Magic numbers', help: 'Detect hardcoded numbers that should be constants' },
+        { value: 'exception_handling', label: 'Exception handling', help: 'Analyze try/except blocks and error handling' }
     ]
 
     astTypes.forEach(type => {
@@ -121,10 +125,15 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     matcherExamples.style.borderRadius = '3px'
     matcherExamples.innerHTML = `
         <strong>Examples:</strong><br>
-        • <code>result && result.name === 'calculate_average'</code><br>
-        • <code>result && result.parameters.length >= 1</code><br>
-        • <code>result && result.count >= 2</code><br>
-        • <code>result && result.details.some(d => d.type === 'for')</code>
+        • <code>result && result.name === 'calculate_average'</code> (function_exists)<br>
+        • <code>result && result.parameters >= 1</code> (function_exists)<br>
+        • <code>result && result.count >= 2</code> (function_count)<br>
+        • <code>result && result.details.some(d => d.type === 'for')</code> (control_flow)<br>
+        • <code>result && result.name === 'Calculator'</code> (class_analysis with target)<br>
+        • <code>result && result.classes.some(c => c.name === 'Calculator')</code> (class_analysis no target)<br>
+        • <code>result && result.imports.some(i => i.module === 'numpy')</code> (import_statements)<br>
+        • <code>result && result.magicNumbers.length > 0</code> (magic_numbers)<br>
+        • <code>result && result.tryCount > 0</code> (exception_handling)
     `
 
     // Preview area
@@ -236,11 +245,30 @@ function createTestArea(expressionField, matcherField) {
     testCode.style.marginBottom = '8px'
     testCode.style.resize = 'vertical'
     testCode.placeholder = `# Python code to test your AST rule e.g.
-def calculate_average(numbers):
-    """Calculate the average of a list of numbers."""
-    if not numbers:
-        return 0
-    return sum(numbers) / len(numbers)`
+import numpy as np
+from math import sqrt
+
+class Calculator:
+    """A simple calculator class."""
+    
+    def __init__(self):
+        self.history = []
+    
+    def calculate_average(self, numbers):
+        """Calculate the average of a list of numbers."""
+        try:
+            if not numbers:
+                return 0
+            total = sum(numbers)
+            count = len(numbers)
+            result = total / count  # Magic number: could use a constant
+            self.history.append(result)
+            return result
+        except ZeroDivisionError:
+            return 0
+        except Exception as e:
+            print(f"Error: {e}")
+            return None`
 
     const testButton = document.createElement('button')
     testButton.type = 'button'
@@ -368,15 +396,15 @@ function showTestResult(resultElement, type, content) {
 export function createDefaultASTFeedback() {
     return {
         id: genId(),
-        title: 'Check function exists',
+        title: 'Check class definition',
         when: ['edit'],  // AST feedback always happens at edit time
         pattern: {
             type: 'ast',
             target: 'code',
-            expression: 'function_exists:calculate_average',
-            matcher: 'result && result.name === "calculate_average"'
+            expression: 'class_analysis:Calculator',
+            matcher: 'result && result.name === "Calculator"'
         },
-        message: 'Great! You defined the `calculate_average` function.',
+        message: 'Great! You defined the `Calculator` class.',
         severity: 'success',
         visibleByDefault: true
     }
@@ -388,16 +416,16 @@ export function createDefaultASTFeedback() {
 export function createDefaultASTTest() {
     return {
         id: genId(),
-        description: 'Function definition test',
+        description: 'Import statement test',
         // AST tests don't need stdin/stdout - they analyze code structure
         astRule: {
             type: 'ast',
             target: 'code',
-            expression: 'function_exists:calculate_average',
-            matcher: 'result && result.name === "calculate_average"'
+            expression: 'import_statements:numpy',
+            matcher: 'result && result.imports.some(i => i.module && i.module.includes("numpy"))'
         },
         // Tests can have expected messages for when they pass/fail
-        expectedMessage: 'Function calculate_average is properly defined'
+        expectedMessage: 'NumPy is properly imported'
     }
 }
 

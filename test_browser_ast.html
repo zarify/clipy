@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Test AST Features in Browser</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+        }
+
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+
+        .success {
+            background: #d4edda;
+        }
+
+        .error {
+            background: #f8d7da;
+        }
+
+        .info {
+            background: #d1ecf1;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>AST Features Browser Test</h1>
+    <div id="results"></div>
+
+    <script type="module">
+        async function testFeatures() {
+            const resultsDiv = document.getElementById('results');
+
+            function addResult(title, success, message) {
+                const div = document.createElement('div');
+                div.className = `result ${success ? 'success' : 'error'}`;
+                div.innerHTML = `<strong>${title}:</strong> ${message}`;
+                resultsDiv.appendChild(div);
+            }
+
+            try {
+                // Import the analyzeCode function
+                addResult('Import', true, 'Attempting to import analyzeCode...');
+                const { analyzeCode } = await import('./src/js/ast-analyzer.js');
+                addResult('Import', true, 'Successfully imported analyzeCode');
+
+                const testCode = `
+class Calculator:
+    """A simple calculator class."""
+    
+    def __init__(self):
+        self.history = []
+    
+    def calculate_average(self, numbers):
+        try:
+            if not numbers:
+                return 0
+            return sum(numbers) / len(numbers)
+        except ZeroDivisionError:
+            return 0
+`;
+
+                addResult('Code', true, 'Test code prepared');
+
+                // Test class analysis
+                addResult('Analysis', true, 'Testing class analysis...');
+                const result = await analyzeCode(testCode, 'class_analysis:Calculator');
+
+                if (result) {
+                    addResult('Class Analysis', true, `Found class: ${result.name}, Methods: ${result.methods.length}`);
+
+                    // Test matcher
+                    const matcher = new Function('result', 'return result && result.name === "Calculator" && result.methods.length > 0');
+                    const matchResult = matcher(result);
+                    addResult('Matcher', matchResult, `Matcher result: ${matchResult}`);
+
+                    addResult('Full Result', true, `<pre>${JSON.stringify(result, null, 2)}</pre>`);
+                } else {
+                    addResult('Class Analysis', false, 'No result returned');
+                }
+
+            } catch (error) {
+                addResult('Error', false, `Error: ${error.message}<br>Stack: <pre>${error.stack}</pre>`);
+            }
+        }
+
+        // Run tests when page loads
+        testFeatures();
+    </script>
+</body>
+
+</html>

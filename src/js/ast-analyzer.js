@@ -56,6 +56,10 @@ export class ASTAnalyzer {
             case 'control_flow': return this.analyzeControlFlow(ast, target);
             case 'function_count': return this.countFunctions(ast);
             case 'code_quality': return this.analyzeCodeQuality(ast, target);
+            case 'class_analysis': return this.analyzeClasses(ast, target);
+            case 'import_statements': return this.analyzeImports(ast, target);
+            case 'magic_numbers': return this.analyzeMagicNumbers(ast, target);
+            case 'exception_handling': return this.analyzeExceptionHandling(ast, target);
             default: return this.genericQuery(ast, expression);
         }
     }
@@ -668,6 +672,358 @@ export class ASTAnalyzer {
             complexity: this.calculateComplexity(ast),
             controlFlow: this.analyzeControlFlow(ast, '*')
         };
+    }
+
+    /**
+     * Analyze classes, methods, and inheritance
+     */
+    analyzeClasses(ast, className) {
+        const classes = [];
+
+        const traverse = (node) => {
+            if (!node) return;
+
+            if (node.nodeType === 'ClassDef') {
+                const name = node.name;
+                const lineno = node.lineno;
+
+                // Extract base classes (inheritance)
+                const baseClasses = [];
+                if (node.bases && Array.isArray(node.bases)) {
+                    node.bases.forEach(base => {
+                        if (base.nodeType === 'Name') {
+                            baseClasses.push(base.id);
+                        } else if (base.nodeType === 'Attribute') {
+                            // Handle qualified names like package.ClassName
+                            baseClasses.push(this.extractQualifiedName(base));
+                        }
+                    });
+                }
+
+                // Extract methods defined in this class
+                const methods = [];
+                if (node.body && Array.isArray(node.body)) {
+                    node.body.forEach(stmt => {
+                        if (stmt.nodeType === 'FunctionDef') {
+                            const methodName = stmt.name;
+                            const parameters = (stmt.args && stmt.args.args) ? stmt.args.args.length : 0;
+                            const docstring = this.getDocstring(stmt);
+                            const isPrivate = methodName.startsWith('_');
+                            const isSpecial = methodName.startsWith('__') && methodName.endsWith('__');
+
+                            methods.push({
+                                name: methodName,
+                                parameters: parameters,
+                                lineno: stmt.lineno,
+                                hasDocstring: !!docstring,
+                                isPrivate: isPrivate,
+                                isSpecial: isSpecial
+                            });
+                        }
+                    });
+                }
+
+                const classInfo = {
+                    name: name,
+                    lineno: lineno,
+                    baseClasses: baseClasses,
+                    methods: methods,
+                    methodCount: methods.length,
+                    hasDocstring: !!this.getDocstring(node)
+                };
+
+                // If looking for a specific class, only include matches
+                if (!className || className === '*' || name === className) {
+                    classes.push(classInfo);
+                }
+            }
+
+            // Recursively traverse child nodes
+            if (node.body && Array.isArray(node.body)) {
+                node.body.forEach(traverse);
+            }
+            if (node.orelse && Array.isArray(node.orelse)) {
+                node.orelse.forEach(traverse);
+            }
+        };
+
+        if (ast.body && Array.isArray(ast.body)) {
+            ast.body.forEach(traverse);
+        }
+
+        if (className && className !== '*') {
+            const found = classes.find(c => c.name === className);
+            return found || null;
+        }
+
+        return classes.length > 0 ? { classes, count: classes.length } : null;
+    }
+
+    /**
+     * Extract qualified name from Attribute node (e.g., package.ClassName)
+     */
+    extractQualifiedName(node) {
+        if (!node) return '';
+
+        if (node.nodeType === 'Name') {
+            return node.id;
+        } else if (node.nodeType === 'Attribute') {
+            const base = this.extractQualifiedName(node.value);
+            return base ? `${base}.${node.attr}` : node.attr;
+        }
+        return '';
+    }
+
+    /**
+     * Analyze import statements
+     */
+    analyzeImports(ast, importTarget) {
+        const imports = [];
+
+        const traverse = (node) => {
+            if (!node) return;
+
+            if (node.nodeType === 'Import') {
+                if (node.names && Array.isArray(node.names)) {
+                    node.names.forEach(alias => {
+                        const module = alias.name;
+                        const asName = alias.asname;
+                        imports.push({
+                            type: 'import',
+                            module: module,
+                            alias: asName,
+                            lineno: node.lineno,
+                            qualified: false
+                        });
+                    });
+                }
+            }
+
+            if (node.nodeType === 'ImportFrom') {
+                const module = node.module;
+                const level = node.level || 0; // For relative imports
+
+                if (node.names && Array.isArray(node.names)) {
+                    node.names.forEach(alias => {
+                        const name = alias.name;
+                        const asName = alias.asname;
+                        imports.push({
+                            type: 'from_import',
+                            module: module,
+                            name: name,
+                            alias: asName,
+                            level: level,
+                            lineno: node.lineno,
+                            qualified: true,
+                            isWildcard: name === '*'
+                        });
+                    });
+                }
+            }
+
+            // Recursively traverse (though imports are typically at module level)
+            if (node.body && Array.isArray(node.body)) {
+                node.body.forEach(traverse);
+            }
+        };
+
+        if (ast.body && Array.isArray(ast.body)) {
+            ast.body.forEach(traverse);
+        }
+
+        // Filter by target if specified
+        if (importTarget && importTarget !== '*') {
+            const filtered = imports.filter(imp =>
+                imp.module === importTarget ||
+                imp.name === importTarget ||
+                (imp.module && imp.module.includes(importTarget))
+            );
+            return filtered.length > 0 ? { imports: filtered, count: filtered.length } : null;
+        }
+
+        return imports.length > 0 ? { imports, count: imports.length } : null;
+    }
+
+    /**
+     * Analyze magic numbers (hardcoded numbers that should be constants)
+     */
+    analyzeMagicNumbers(ast, threshold = '10') {
+        const magicNumbers = [];
+        const thresholdValue = threshold ? parseInt(threshold) : 10;
+
+        // Common non-magic numbers that are typically acceptable
+        const acceptableNumbers = new Set([0, 1, -1, 2, 10, 100]);
+
+        const traverse = (node) => {
+            if (!node) return;
+
+            if (node.nodeType === 'Constant' && typeof node.value === 'number') {
+                const value = node.value;
+
+                // Skip acceptable numbers and small numbers below threshold
+                if (!acceptableNumbers.has(value) && Math.abs(value) >= thresholdValue) {
+                    magicNumbers.push({
+                        value: value,
+                        lineno: node.lineno,
+                        col_offset: node.col_offset
+                    });
+                }
+            }
+
+            // Also check for numbers in other contexts (Num node for older Python ASTs)
+            if (node.nodeType === 'Num' && typeof node.n === 'number') {
+                const value = node.n;
+                if (!acceptableNumbers.has(value) && Math.abs(value) >= thresholdValue) {
+                    magicNumbers.push({
+                        value: value,
+                        lineno: node.lineno,
+                        col_offset: node.col_offset
+                    });
+                }
+            }            // Recursively traverse child nodes
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
+            }
+        };
+
+        if (ast.body && Array.isArray(ast.body)) {
+            ast.body.forEach(traverse);
+        }
+
+        return magicNumbers.length > 0 ? {
+            magicNumbers,
+            count: magicNumbers.length,
+            threshold: thresholdValue
+        } : null;
+    }
+
+    /**
+     * Analyze exception handling and check if code is within try blocks
+     */
+    analyzeExceptionHandling(ast, target) {
+        const tryBlocks = [];
+        const exceptHandlers = [];
+        let withinTryContext = false;
+
+        // Track line ranges of try blocks for "withinTry" analysis
+        const tryRanges = [];
+
+        const traverse = (node, inTryBlock = false) => {
+            if (!node) return;
+
+            if (node.nodeType === 'Try') {
+                const tryStart = node.lineno;
+                let tryEnd = tryStart;
+
+                // Calculate end line by examining body
+                if (node.body && Array.isArray(node.body) && node.body.length > 0) {
+                    const lastStmt = node.body[node.body.length - 1];
+                    if (lastStmt.lineno) {
+                        tryEnd = lastStmt.lineno;
+                    }
+                }
+
+                tryRanges.push({ start: tryStart, end: tryEnd });
+
+                const handlers = [];
+                if (node.handlers && Array.isArray(node.handlers)) {
+                    node.handlers.forEach(handler => {
+                        const exceptionType = handler.type ?
+                            (handler.type.id || this.extractQualifiedName(handler.type)) :
+                            'Exception';
+                        const handlerName = handler.name;
+
+                        handlers.push({
+                            exceptionType: exceptionType,
+                            name: handlerName,
+                            lineno: handler.lineno
+                        });
+
+                        exceptHandlers.push({
+                            exceptionType: exceptionType,
+                            name: handlerName,
+                            lineno: handler.lineno,
+                            tryLineno: tryStart
+                        });
+                    });
+                }
+
+                const hasFinally = node.finalbody && node.finalbody.length > 0;
+                const hasElse = node.orelse && node.orelse.length > 0;
+
+                tryBlocks.push({
+                    lineno: tryStart,
+                    endLineno: tryEnd,
+                    handlers: handlers,
+                    hasFinally: hasFinally,
+                    hasElse: hasElse,
+                    handlerCount: handlers.length
+                });
+
+                // Traverse try body with try context
+                if (node.body && Array.isArray(node.body)) {
+                    node.body.forEach(child => traverse(child, true));
+                }
+
+                // Traverse handlers
+                if (node.handlers && Array.isArray(node.handlers)) {
+                    node.handlers.forEach(handler => {
+                        if (handler.body && Array.isArray(handler.body)) {
+                            handler.body.forEach(child => traverse(child, false));
+                        }
+                    });
+                }
+
+                // Traverse else and finally
+                if (node.orelse && Array.isArray(node.orelse)) {
+                    node.orelse.forEach(child => traverse(child, false));
+                }
+                if (node.finalbody && Array.isArray(node.finalbody)) {
+                    node.finalbody.forEach(child => traverse(child, false));
+                }
+
+                return; // Don't traverse children again
+            }
+
+            // Check if we're in a try context for specific target analysis
+            if (inTryBlock && target && target !== '*') {
+                // This is a simplified check - you might want to make this more sophisticated
+                // to match specific patterns within try blocks
+                withinTryContext = true;
+            }
+
+            // Recursively traverse child nodes
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(child => traverse(child, inTryBlock));
+                else if (typeof c === 'object') traverse(c, inTryBlock);
+            }
+        };
+
+        if (ast.body && Array.isArray(ast.body)) {
+            ast.body.forEach(node => traverse(node, false));
+        }
+
+        // If target is specified, check if that target is within a try block
+        if (target && target !== '*') {
+            return {
+                withinTry: withinTryContext,
+                tryBlocks: tryBlocks,
+                exceptHandlers: exceptHandlers,
+                tryRanges: tryRanges
+            };
+        }
+
+        return (tryBlocks.length > 0 || exceptHandlers.length > 0) ? {
+            tryBlocks: tryBlocks,
+            exceptHandlers: exceptHandlers,
+            tryCount: tryBlocks.length,
+            handlerCount: exceptHandlers.length
+        } : null;
     }
 }
 

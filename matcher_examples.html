@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>AST Matcher Examples</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+
+        .example {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .example h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .code {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+        }
+
+        .result {
+            background: #e8f5e8;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+        }
+
+        .matcher {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+        }
+
+        pre {
+            margin: 0;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>AST Rule Matcher Examples</h1>
+    <p>Here are the correct matcher patterns for each new AST analysis type:</p>
+
+    <div id="examples"></div>
+
+    <script type="module">
+        const { analyzeCode } = await import('./src/js/ast-analyzer.js');
+
+        const examples = [
+            {
+                title: "Class Analysis (with specific target)",
+                code: `class Calculator:
+    def add(self, a, b):
+        return a + b
+    
+    def subtract(self, a, b):
+        return a - b`,
+                expression: "class_analysis:Calculator",
+                matcher: "result && result.name === 'Calculator' && result.methodCount >= 2"
+            },
+            {
+                title: "Class Analysis (all classes)",
+                code: `class Calculator:
+    def add(self, a, b):
+        return a + b
+
+class Parser:
+    def parse(self, text):
+        return text.split()`,
+                expression: "class_analysis:*",
+                matcher: "result && result.classes && result.classes.length >= 2"
+            },
+            {
+                title: "Import Statements (specific module)",
+                code: `import numpy as np
+from math import sqrt, pi
+import os`,
+                expression: "import_statements:numpy",
+                matcher: "result && result.imports.some(i => i.module && i.module.includes('numpy'))"
+            },
+            {
+                title: "Import Statements (all imports)",
+                code: `import numpy as np
+from math import sqrt, pi
+import os`,
+                expression: "import_statements:*",
+                matcher: "result && result.imports && result.imports.length >= 3"
+            },
+            {
+                title: "Magic Numbers",
+                code: `def calculate_circle_area(radius):
+    return 3.14159 * radius * radius
+
+def process_data(data):
+    threshold = 42
+    max_items = 1000
+    return [x for x in data if x > threshold][:max_items]`,
+                expression: "magic_numbers:10",
+                matcher: "result && result.magicNumbers && result.magicNumbers.length > 0"
+            },
+            {
+                title: "Exception Handling",
+                code: `def safe_divide(a, b):
+    try:
+        result = a / b
+        return result
+    except ZeroDivisionError:
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+    finally:
+        print("Division attempt completed")`,
+                expression: "exception_handling:*",
+                matcher: "result && result.tryCount > 0 && result.handlerCount >= 2"
+            }
+        ];
+
+        const container = document.getElementById('examples');
+
+        for (const example of examples) {
+            const div = document.createElement('div');
+            div.className = 'example';
+
+            const result = await analyzeCode(example.code, example.expression);
+
+            div.innerHTML = `
+                <h3>${example.title}</h3>
+                <div class="code">
+                    <strong>Code:</strong>
+                    <pre>${example.code}</pre>
+                </div>
+                <div class="code">
+                    <strong>Expression:</strong> ${example.expression}
+                </div>
+                <div class="result">
+                    <strong>Analysis Result:</strong>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                </div>
+                <div class="matcher">
+                    <strong>Recommended Matcher:</strong>
+                    <pre>${example.matcher}</pre>
+                </div>
+            `;
+
+            container.appendChild(div);
+        }
+    </script>
+</body>
+
+</html>

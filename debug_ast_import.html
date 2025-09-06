@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Debug AST Import</title>
+</head>
+
+<body>
+    <h1>Debug AST Import</h1>
+    <p>Check the browser console for import results.</p>
+
+    <script type="module">
+        console.log('Starting debug test...');
+
+        try {
+            console.log('Attempting to import ast-analyzer.js...');
+            const module = await import('./src/js/ast-analyzer.js');
+            console.log('Import successful:', module);
+
+            if (module.analyzeCode) {
+                console.log('analyzeCode function found:', typeof module.analyzeCode);
+
+                // Test with simple code
+                const testCode = `
+class Calculator:
+    def add(self, a, b):
+        return a + b
+`;
+                const testExpression = 'class_analysis:Calculator';
+
+                console.log('Testing with code:', testCode);
+                console.log('Testing with expression:', testExpression);
+
+                const result = await module.analyzeCode(testCode, testExpression);
+                console.log('Analysis result:', result);
+
+            } else {
+                console.error('analyzeCode function not found in module');
+            }
+
+        } catch (error) {
+            console.error('Import failed:', error);
+            console.error('Error details:', error.message);
+            console.error('Error stack:', error.stack);
+        }
+    </script>
+</body>
+
+</html>
