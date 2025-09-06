@@ -86,7 +86,7 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     astTarget.style.width = '100%'
     astTarget.style.maxWidth = '300px'
     astTarget.style.boxSizing = 'border-box'
-    astTarget.placeholder = 'e.g. calculate_average, name, for_loop'
+    astTarget.placeholder = 'function or variable name, feature, etc'
 
     // AST expression (generated automatically)
     const astExpression = document.createElement('input')
@@ -105,7 +105,7 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     astMatcher.style.fontFamily = 'monospace'
     astMatcher.style.fontSize = '13px'
     astMatcher.style.resize = 'vertical'
-    astMatcher.placeholder = 'JavaScript expression to evaluate result (return true/false)...'
+    astMatcher.placeholder = 'JavaScript expression that evaluates to true/false'
     astMatcher.value = (existing.matcher) || ''
 
     // Matcher examples
@@ -235,7 +235,8 @@ function createTestArea(expressionField, matcherField) {
     testCode.style.fontFamily = 'monospace'
     testCode.style.marginBottom = '8px'
     testCode.style.resize = 'vertical'
-    testCode.value = `def calculate_average(numbers):
+    testCode.placeholder = `# Python code to test your AST rule e.g.
+def calculate_average(numbers):
     """Calculate the average of a list of numbers."""
     if not numbers:
         return 0
