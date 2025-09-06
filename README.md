@@ -1,133 +1,69 @@
-# Clipy - Client-Side Python Playground
+# Clipy
 
-A modern, browser-based Python interpreter powered by MicroPython WebAssembly with advanced features for interactive coding, file management, and execution control.
+Clipy is a browser-hosted educational environment for writing and running Python code. It combines an editor, an in-browser MicroPython runtime, a terminal UI for stdin/stdout, and authoring tools for tests and automated feedback.
 
-## Features
+This README focuses on practical usage and hosting. For a module-level breakdown of the runtime JavaScript, see `docs/architecture.md`.
 
-### 🐍 **MicroPython Runtime**
-- Asyncify v3.0.0 WebAssembly build with yielding support
-- VM interruption and timeout control
-- Graceful error handling and recovery
+## Hosting locally
 
-### 📝 **Advanced Editor**
-- CodeMirror integration with Python syntax highlighting
-- Tab-based file management system
-- Real-time autosave functionality
-- Accessible keyboard shortcuts (Ctrl+Enter to run)
+Clipy is a static web app. Serve the repository root with any simple static file server and open it in a modern browser.
 
-### 💾 **File System**
-- Virtual file system with IndexedDB persistence
-- Real-time file synchronization between UI and runtime
-- Snapshot save/restore system for application state
-
-### 🖥️ **Interactive Terminal**
-- Real-time output display with ANSI support
-- Inline input collection for `input()` calls
-- Accessible terminal interface with proper ARIA labels
-
-### ⚡ **Execution Control**
-- Configurable timeout system (30s default)
-- VM interruption for infinite loop protection
-- Start/stop execution with proper cleanup
-
-## Architecture
-
-Clipy features a **modular architecture** with 13 focused modules totaling 3,235 lines of code:
-
-- **Core Runtime**: MicroPython integration, execution management, VFS
-- **UI Components**: Editor, terminal, tabs, modals
-- **Utilities**: Configuration, transformations, input handling
-
-See [`docs/MODULAR_ARCHITECTURE.md`](docs/MODULAR_ARCHITECTURE.md) for detailed documentation.
-
-## Quick Start
-
-1. **Clone and install dependencies:**
-   ```bash
-   git clone <repository-url>
-   cd clipy
-   npm install
-   ```
-
-2. **Start development server:**
-   ```bash
-   npm start
-   # or
-   python -m http.server 8000
-   ```
-
-3. **Open browser:**
-   Navigate to `http://localhost:8000/src/`
-
-4. **Start coding:**
-   - Write Python code in the editor
-   - Press `Ctrl+Enter` or click "Run" to execute
-   - Use tabs to manage multiple files
-   - Save snapshots to preserve your work
-
-## Testing
-
-Run the comprehensive test suite with Playwright:
+Examples (from the repository root):
 
 ```bash
-npm test
+# Simple Python server
+python3 -m http.server 8000
+
+# Or a Node static server
+# npx serve -s . -l 8000
 ```
 
-**Current status:** ✅ 41/41 tests passing (100% success rate)
+Open http://localhost:8000/ in your browser.
 
-## File Structure
+## Browser & platform notes
 
-```
-src/
-├── index.html          # Main HTML shell
-├── app.js             # Application entry point
-├── style.css          # Application styles
-└── js/                # Modular JavaScript architecture
-    ├── micropython.js    # Runtime management (774 lines)
-    ├── execution.js      # Execution control (403 lines)
-    ├── vfs.js           # Virtual filesystem (370 lines)
-    ├── snapshots.js     # State management (297 lines)
-    ├── terminal.js      # Terminal interface (290 lines)
-    ├── tabs.js          # Tab management (248 lines)
-    ├── input-handling.js # Input collection (221 lines)
-    ├── code-transform.js # Code transformation (195 lines)
-    ├── modals.js        # Modal dialogs (172 lines)
-    ├── editor.js        # CodeMirror integration (121 lines)
-    ├── autosave.js      # Auto-save functionality (55 lines)
-    ├── config.js        # Configuration (30 lines)
-    └── utils.js         # Utilities (59 lines)
-```
+- Requires a modern browser with ES module and WebAssembly support (Chrome, Firefox, Edge, Safari).
+- No server-side runtime is required; the app runs entirely client-side.
+- The repository includes a WebAssembly MicroPython runtime in `src/vendor/` used to execute user code in the browser.
 
-## Configuration
+## Configuration & authoring
 
-Edit `src/config/sample.json` to customize:
+- Configuration is intended to be managed through the in-app Authoring UI (use `?author=true` or the Author page). Hand-editing JSON files is discouraged; sample JSON files in the repo are examples only.
 
-- Runtime WebAssembly URLs
-- Starter code templates
-- Instructions and help text
-- Feedback and error patterns
+## Storage
 
-## Browser Compatibility
+- Clipy uses browser storage for persistence:
+   - `localStorage` is used for autosave and a lightweight files mirror.
+   - `IndexedDB` is used for authoring drafts with a localStorage fallback.
 
-- **Chrome/Edge**: Full support including WASM threading
-- **Firefox**: Full support with Asyncify
-- **Safari**: Basic support (may require additional configuration)
+## Project layout (high level)
 
-## Contributing
+- `src/` — application source code (UI wiring, runtime glue, modules). See `docs/MODULAR_ARCHITECTURE.md` for details.
+- `src/vendor/` — third-party libraries and WebAssembly assets (MicroPython, py-ast, etc.).
+- `src/tests/` — iframe runner and fixtures used by integration tests.
+- `tests/` and `test/` — Playwright and unit tests.
 
-1. Follow the modular architecture principles
-2. Maintain test coverage (run `npm test`)
-3. Update documentation for new features
-4. Use ES6 modules and async/await patterns
+## Core capabilities (what the app actually does)
+
+- Edit Python code in a browser-based editor.
+- Run user code client-side using a WebAssembly MicroPython runtime and display stdout/stderr in an integrated terminal.
+- Provide stdin support for interactive programs via the terminal UI.
+- Let authors define automated tests and expected outputs that run against user code.
+- Show test results and configured feedback messages in a feedback panel.
+- Capture snapshots and autosaves so users' work persists in the browser.
+- Provide AST-based analysis utilities used by authoring tools and AST-based tests.
+
+## What Clipy does not assume or require
+
+- It does not require a server backend to run the client UI or run the user's code.
+- Configuration is intended to be managed through the Authoring UI rather than hand-editing JSON files.
+
+## Contributing & development pointers
+
+- See `docs/architeture.md` for an authoritative module list.
+- To run a quick local server, use `python3 -m http.server` or any static server.
+- Playwright specs and integration tests live under `tests/` — run them if you change runner/iframe behavior.
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
-
-## Technical Notes
-
-- Built on MicroPython WebAssembly with Asyncify support
-- Uses IndexedDB for persistent file storage
-- Implements proper accessibility patterns (ARIA, keyboard navigation)
-- Supports VM interruption for responsive UI during long operations
-- Comprehensive error mapping and debugging support
+See `LICENSE` in the repository root.
