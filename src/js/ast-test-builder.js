@@ -129,6 +129,43 @@ export function buildASTTestForm(existing = {}) {
     root.appendChild(labeled('Timeout (ms) [optional]', timeout, 'Maximum time for AST analysis (default: 5000ms)'))
     root.appendChild(labeled('Display Options', hideDetailsWrap, 'Control whether detailed AST analysis information is shown in test results'))
 
+    // Conditional execution controls (same semantics as regular tests)
+    const conditionalWrap = document.createElement('div')
+
+    const runIfSelect = document.createElement('select')
+    runIfSelect.className = 'form-input'
+    runIfSelect.style.marginBottom = '8px'
+
+    const runIfOptions = [
+        { value: 'previous_passed', text: 'Only run if previous test passed (default)' },
+        { value: 'always', text: 'Always run this test' }
+    ]
+    runIfOptions.forEach(opt => {
+        const option = document.createElement('option')
+        option.value = opt.value
+        option.textContent = opt.text
+        runIfSelect.appendChild(option)
+    })
+
+    conditionalWrap.appendChild(runIfSelect)
+
+    // Set initial conditional value
+    if (existing?.conditional) {
+        runIfSelect.value = existing.conditional.runIf || 'previous_passed'
+    } else {
+        runIfSelect.value = 'previous_passed'
+    }
+
+    root.appendChild(labeled('Run Conditions', conditionalWrap, 'Control when this test is executed'))
+
+    // Group assignment control (populated by caller modal using #group-selector)
+    const groupSelectWrap = document.createElement('div')
+    const groupSelect = document.createElement('select')
+    groupSelect.className = 'form-input'
+    groupSelect.id = 'group-selector'
+    groupSelectWrap.appendChild(groupSelect)
+    root.appendChild(labeled('Assign to Group', groupSelectWrap, 'Assign this test to a test group or leave ungrouped'))
+
     return {
         root,
         get() {
@@ -146,6 +183,14 @@ export function buildASTTestForm(existing = {}) {
             if (failureMessage.value.trim()) test.failureMessage = failureMessage.value.trim()
             if (timeout.value) test.timeoutMs = Number(timeout.value)
             if (hideDetails.checked) test.hide_actual_expected = true
+            // Conditional execution settings
+            test.conditional = {
+                runIf: runIfSelect.value,
+                alwaysRun: false
+            }
+
+            // Group selector value will be consumed by the authoring UI
+            test._selectedGroupId = groupSelect.value
 
             return test
         }
