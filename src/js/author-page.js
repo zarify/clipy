@@ -1,5 +1,5 @@
 import { validateAndNormalizeConfig } from './config.js'
-import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearAuthorConfigInLocalStorage, saveDraft, listDrafts, loadDraft, deleteDraft } from './author-storage.js'
+import { saveAuthorConfigToLocalStorage, getAuthorConfigFromLocalStorage, clearAuthorConfigInLocalStorage, saveDraft, listDrafts, loadDraft, deleteDraft, findDraftByConfigIdAndVersion } from './author-storage.js'
 import { initAuthorFeedback } from './author-feedback.js'
 import { initAuthorTests } from './author-tests.js'
 import { showConfirmModal, openModal, closeModal } from './modals.js'
@@ -722,23 +722,40 @@ function applyImportedConfig(obj) {
 async function saveCurrentDraft() {
     const config = buildCurrentConfig()
 
-    // Create draft record with metadata
+    // Check if a draft with the same config ID and version already exists
+    const existingDraft = await findDraftByConfigIdAndVersion(config.id, config.version)
+
+    let draft
+    let draftName
     const timestamp = new Date().toLocaleString()
     const configTitle = config.title || 'Untitled'
-    const draftName = `${configTitle} (${timestamp})`
 
-    const draft = {
-        name: draftName,
-        config: config,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+    if (existingDraft) {
+        // Overwrite existing draft with same config ID and version
+        draft = {
+            ...existingDraft,  // Keep existing draft metadata (id, createdAt)
+            name: existingDraft.name || `${configTitle} (${timestamp})`,
+            config: config,
+            updatedAt: Date.now()
+        }
+        draftName = existingDraft.name || `${configTitle} (updated)`
+    } else {
+        // Create new draft
+        draftName = `${configTitle} (${timestamp})`
+        draft = {
+            name: draftName,
+            config: config,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        }
     }
 
     // Use imported saveDraft function
     const savedDraft = await saveDraft(draft)
 
     // Show success message in modal
-    showSaveDraftSuccessModal(draftName)
+    const action = existingDraft ? 'Updated' : 'Saved'
+    showSaveDraftSuccessModal(`${action}: ${draftName}`)
 }
 
 async function openLoadDraftsModal() {

@@ -1,7 +1,8 @@
 ## 2025-09-06
+- Fix: Saving drafts in authoring mode won't create multiple copies
 - Test grouping added
-- Test running can rely on previous test success
-- Test groups can rely on previous group success
+  - Test running can rely on previous test success
+  - Test groups can rely on previous group success
 - **Note:** This will break previous test configuratons
 
 ## 2025-09-05
