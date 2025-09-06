@@ -38,7 +38,7 @@ Open http://localhost:8000/ in your browser.
 
 ## Project layout (high level)
 
-- `src/` — application source code (UI wiring, runtime glue, modules). See `docs/MODULAR_ARCHITECTURE.md` for details.
+- `src/` — application source code (UI wiring, runtime glue, modules). See `docs/architecture.md` for details.
 - `src/vendor/` — third-party libraries and WebAssembly assets (MicroPython, py-ast, etc.).
 - `src/tests/` — iframe runner and fixtures used by integration tests.
 - `tests/` and `test/` — Playwright and unit tests.
