@@ -436,24 +436,10 @@ function renderList() {
             const sev = (entry.severity || 'success').toLowerCase()
             wrapper.classList.add('severity-' + sev)
 
-            // title row with icon
+            // title row (icon moved to the message block below)
             const titleRow = document.createElement('div')
             titleRow.className = 'feedback-title-row'
 
-            const icon = document.createElement('span')
-            icon.className = 'feedback-icon'
-            if (sev === 'hint') {
-                icon.textContent = '💡'
-            } else if (sev === 'warning') {
-                icon.textContent = '⚠️'
-            } else if (sev === 'info') {
-                icon.textContent = 'ℹ️'
-            } else if (sev === 'success') {
-                icon.textContent = '😊'
-            } else {
-                icon.textContent = '•'
-            }
-            titleRow.appendChild(icon)
 
             const titleEl = document.createElement('div')
             titleEl.className = 'feedback-title'
@@ -466,7 +452,22 @@ function renderList() {
             if (matched && matched.message) {
                 const msg = document.createElement('div')
                 msg.className = 'feedback-msg feedback-msg-matched matched-' + sev
+                // set the message text first, then insert the severity icon before it
                 msg.textContent = matched.message
+                const iconMsg = document.createElement('span')
+                iconMsg.className = 'feedback-icon'
+                if (sev === 'hint') {
+                    iconMsg.textContent = '💡'
+                } else if (sev === 'warning') {
+                    iconMsg.textContent = '⚠️'
+                } else if (sev === 'info') {
+                    iconMsg.textContent = 'ℹ️'
+                } else if (sev === 'success') {
+                    iconMsg.textContent = '😊'
+                } else {
+                    iconMsg.textContent = '•'
+                }
+                try { msg.insertBefore(iconMsg, msg.firstChild) } catch (_e) { }
                 wrapper.appendChild(msg)
             } else if (entry.visibleByDefault) {
                 // Show an empty placeholder or hint for visible-by-default entries
@@ -550,11 +551,29 @@ export function setFeedbackConfig(cfg) {
 
     _config = normalizedCfg
     renderList()
+    // Mark feedback tab as having new feedback if there are visible entries
+    try {
+        const fbBtn = document.getElementById('tab-btn-feedback')
+        const hasVisible = Array.isArray(_config.feedback) && _config.feedback.length > 0
+        if (fbBtn) {
+            if (hasVisible && fbBtn.getAttribute('aria-selected') !== 'true') fbBtn.classList.add('has-new-feedback')
+            else fbBtn.classList.remove('has-new-feedback')
+        }
+    } catch (_e) { }
 }
 
 export function setFeedbackMatches(matches) {
     _matches = matches || []
     renderList()
+    try {
+        const fbBtn = document.getElementById('tab-btn-feedback')
+        // If any match is present and the feedback tab isn't selected, mark it
+        const hasMatch = Array.isArray(_matches) && _matches.length > 0
+        if (fbBtn) {
+            if (hasMatch && fbBtn.getAttribute('aria-selected') !== 'true') fbBtn.classList.add('has-new-feedback')
+            else if (!hasMatch) fbBtn.classList.remove('has-new-feedback')
+        }
+    } catch (_e) { }
 }
 
 export function setTestResults(results) {
@@ -597,6 +616,14 @@ export function setTestResults(results) {
         } catch (_e) { }
     } catch (e) { }
     renderList()
+    try {
+        const fbBtn = document.getElementById('tab-btn-feedback')
+        const visibleCount = Array.isArray(_testResults) ? _testResults.filter(r => !r.skipped).length : 0
+        if (fbBtn) {
+            if (visibleCount > 0 && fbBtn.getAttribute('aria-selected') !== 'true') fbBtn.classList.add('has-new-feedback')
+            else if (visibleCount === 0) fbBtn.classList.remove('has-new-feedback')
+        }
+    } catch (_e) { }
 }
 
 export function appendTestOutput({ id, type, text }) {

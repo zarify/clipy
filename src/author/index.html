@@ -28,7 +28,10 @@
                 </button>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
-                <button id="back-to-app" class="btn btn-ghost">Back to App</button>
+                <button id="back-to-app" class="btn" title="Back to App">
+                    <span class="icon" aria-hidden="true" style="margin-right:8px;">&larr;</span>
+                    <span>Back to App</span>
+                </button>
                 <button id="new-config" class="btn">New</button>
                 <button id="save-draft" class="btn">Save Draft</button>
                 <button id="load-draft" class="btn">Load Drafts</button>
@@ -94,10 +97,7 @@
                     style="height:420px;width:100%"></textarea>
             </div>
 
-            <div class="panel" style="margin-top:8px">
-                <h3>Validation</h3>
-                <div id="validation" style="min-height:40px;color:#b00020"></div>
-            </div>
+            <!-- Validation panel removed: validation is handled via console and autosave fallback -->
         </div>
 
         <div id="tab-feedback" class="author-tab" style="margin-top:12px">

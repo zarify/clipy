@@ -187,11 +187,11 @@ function saveToLocalStorage() {
         try {
             const norm = validateAndNormalizeConfig(cfg)
             saveAuthorConfigToLocalStorage(norm)
-            $('validation').textContent = ''
+            // Validation passed; nothing to show in UI (author view removed)
         } catch (e) {
-            // keep raw config but show validation message
+            // keep raw config but persist; surface validation failure to console
             try { localStorage.setItem('author_config', JSON.stringify(cfg)) } catch (_e) { }
-            $('validation').textContent = 'Validation: ' + (e && e.message ? e.message : e)
+            console.warn('Author config validation failed (autosave preserved raw config):', e && e.message ? e.message : e)
         }
     } catch (e) { logError('autosave failed', e) }
 }

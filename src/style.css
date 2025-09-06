@@ -336,8 +336,7 @@ textarea#code {
     border-bottom: 0
 }
 
-.snapshot-item>div,
-.snapshot-item>button {
+.snapshot-item>div {
     display: inline-flex;
     align-items: center;
     gap: 8px
@@ -354,18 +353,13 @@ textarea#code {
     white-space: nowrap
 }
 
-.snapshot-item button {
-    padding: 6px 8px;
-    min-width: 36px;
-    justify-content: center
+.snapshot-item .btn-small {
+    padding: 6px 10px;
+    font-size: 0.85rem;
 }
 
-.snapshot-item button[aria-label="Load snapshot"] {
-    margin-right: 8px
-}
-
-.snapshot-item button[aria-label="Delete snapshot"] {
-    margin-left: 8px
+.snapshot-item .btn-danger {
+    border-color: #f1c0c6;
 }
 
 /* Reduce editor height so page fits without scrolling by default */
@@ -401,6 +395,52 @@ textarea#code {
     padding-right: 8px !important;
 }
 
+/* Scoped AST builder CodeMirror styles: mirror the main editor's gutter
+   and small left padding so the line-number gutter doesn't overlap code.
+   Kept scoped to `.ast-rule-builder` to avoid side effects. */
+.ast-rule-builder .CodeMirror {
+    border: 1px solid #e6e6e9;
+    border-radius: 4px;
+    box-sizing: border-box;
+    position: relative;
+    min-height: 120px;
+}
+
+.ast-rule-builder .CodeMirror-gutters {
+    background: #f4f6fb;
+    border-right: 1px solid #e6e6e9;
+    box-sizing: border-box;
+    width: 2.4em;
+}
+
+.ast-rule-builder .CodeMirror-scroll {
+    padding-right: 8px !important;
+}
+
+.ast-rule-builder .CodeMirror pre {
+    /* small left padding so code doesn't butt up against the gutter */
+    padding-left: 4px;
+    box-sizing: border-box;
+}
+
+.ast-rule-builder .CodeMirror-scroll {
+    padding-left: 4px !important;
+    padding-right: 8px !important;
+}
+
+/* Ensure the gutter visually sits above the editor content so numbers
+   never appear to float over code. Also force LTR writing mode inside
+   the AST builder's CodeMirror to avoid inherited RTL from other containers. */
+.ast-rule-builder .CodeMirror-gutters {
+    z-index: 3;
+}
+
+/* Stronger layout rules for the AST builder's CodeMirror instance.
+   Some themes/containers can alter positioning; ensure clean layout. */
+.ast-rule-builder .CodeMirror {
+    position: relative;
+}
+
 /* Error highlight for CodeMirror (marked by addLineClass 'cm-error-line') */
 .cm-error-line {
     background: rgba(255, 69, 58, 0.06) !important;
@@ -430,6 +470,40 @@ textarea#code {
     cursor: pointer;
     font-weight: 600;
     color: #444
+}
+
+/* Allow positioning of notification badge */
+.side-tab-btn {
+    position: relative;
+}
+
+/* Small pulsing badge to indicate new/unseen feedback */
+.side-tab-btn.has-new-feedback::after {
+    content: '';
+    position: absolute;
+    right: 0px;
+    top: 0px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 4px rgba(11, 92, 255, 0.12);
+    animation: ssg-tab-pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes ssg-tab-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(11, 92, 255, 0.12);
+    }
+
+    70% {
+        box-shadow: 0 0 0 6px rgba(11, 92, 255, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(11, 92, 255, 0);
+    }
 }
 
 .side-tab-btn[aria-selected="true"] {
@@ -593,7 +667,7 @@ pre#terminal-output {
 }
 
 .feedback-title {
-    font-weight: 700;
+    font-weight: normal;
     color: #0b3a8a;
     font-size: 0.95rem;
 }
@@ -925,6 +999,14 @@ pre#terminal-output {
     overflow: hidden;
 }
 
+/* Ensure actions container stays to the right and doesn't shrink */
+.snapshot-item>div:last-child {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .snapshot-mid .snapshot-ts {
     flex: 0 0 auto
 }
@@ -936,16 +1018,7 @@ pre#terminal-output {
     white-space: nowrap
 }
 
-/* Keep load/delete buttons compact and fixed width to avoid layout shifts */
-.snapshot-load-btn,
-.snapshot-delete-btn {
-    flex: 0 0 36px;
-    height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-}
+/* Snapshot action buttons now use textual Load/Delete buttons styled via .btn-small */
 
 /* File editor modal */
 .file-modal .modal-content {

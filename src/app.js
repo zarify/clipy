@@ -644,6 +644,23 @@ async function main() {
             })
         }
 
+        // Keyboard shortcut: Ctrl+Enter (Windows/Linux) or Cmd+Enter (macOS) to run when editor has focus
+        try {
+            document.addEventListener('keydown', (ev) => {
+                try {
+                    if (ev.key !== 'Enter') return
+                    if (!(ev.ctrlKey || ev.metaKey)) return
+                    // Only trigger when editor has focus to avoid accidental runs
+                    const editorHasFocus = (cm && typeof cm.hasFocus === 'function') ? cm.hasFocus() : (document.activeElement === textarea)
+                    if (!editorHasFocus) return
+                    ev.preventDefault()
+                    if (runBtn && typeof runBtn.click === 'function') {
+                        runBtn.click()
+                    }
+                } catch (_e) { }
+            })
+        } catch (_e) { }
+
         // Top-level helper: apply a loaded/normalized config to the workspace (rewrite FS & refresh UI)
         async function applyConfigToWorkspace(newCfg) {
             try {
