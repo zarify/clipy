@@ -154,7 +154,7 @@ function renderList() {
                     titleRow.appendChild(icon)
                     const titleEl = document.createElement('div')
                     titleEl.className = 'feedback-title'
-                    const authorEntry = findAuthorEntryById(r.id)
+                    const authorEntry = findAuthorEntryById(r.id) || (r.meta || null)
                     const displayTitle = (authorEntry && (authorEntry.description || authorEntry.title)) ? (authorEntry.description || authorEntry.title) : ((r.description) ? r.description : (r.id || ''))
                     titleEl.textContent = displayTitle
                     titleRow.appendChild(titleEl)
@@ -184,7 +184,20 @@ function renderList() {
                         preA.appendChild(codeA)
                         detailsWrap.appendChild(preA)
                         const expectedLabel = document.createElement('div')
-                        expectedLabel.textContent = 'Expected:'
+                        // If the author provided a failureMessage for this test,
+                        // show it beneath the compare block so authors can add
+                        // a readable explanation for mismatches.
+                        try {
+                            if (authorEntry && authorEntry.failureMessage) {
+                                const fm = document.createElement('div')
+                                fm.className = 'test-failure-message'
+                                fm.style.marginTop = '6px'
+                                fm.style.color = '#d33'
+                                fm.textContent = String(authorEntry.failureMessage)
+                                detailsWrap.appendChild(fm)
+                            }
+                        } catch (_e) { }
+                        tr.appendChild(detailsWrap)
                         expectedLabel.style.fontSize = '0.9em'
                         expectedLabel.style.margin = '8px 0 4px'
                         detailsWrap.appendChild(expectedLabel)
@@ -224,8 +237,43 @@ function renderList() {
                             stderrEl.textContent = r.stderr
                             detailsWrap.appendChild(stderrEl)
                         }
+                        // Also include author-provided failure message where present
+                        try {
+                            if (authorEntry && authorEntry.failureMessage) {
+                                const fm = document.createElement('div')
+                                fm.className = 'test-failure-message'
+                                fm.style.marginTop = '6px'
+                                fm.style.color = '#d33'
+                                fm.textContent = String(authorEntry.failureMessage)
+                                detailsWrap.appendChild(fm)
+                            }
+                        } catch (_e) { }
                         tr.appendChild(detailsWrap)
                     }
+
+                    // If this is an AST test failure and no detail blocks were
+                    // rendered above, ensure the author-provided failureMessage
+                    // is visible by creating a minimal test-io block.
+                    try {
+                        const hasDetail = tr.querySelector('.test-compare') || tr.querySelector('.feedback-msg') || tr.querySelector('.test-io')
+                        if (!r.passed && authorEntry && (authorEntry.type === 'ast' || authorEntry.astRule) && authorEntry.failureMessage && !hasDetail) {
+                            const astWrap = document.createElement('div')
+                            astWrap.className = 'test-io'
+                            astWrap.style.marginTop = '8px'
+                            astWrap.style.background = '#f8f8f8'
+                            astWrap.style.padding = '8px'
+                            astWrap.style.borderRadius = '4px'
+                            astWrap.style.fontFamily = 'monospace'
+
+                            const fm = document.createElement('div')
+                            fm.className = 'test-failure-message'
+                            fm.style.marginTop = '6px'
+                            fm.style.color = '#d33'
+                            fm.textContent = String(authorEntry.failureMessage)
+                            astWrap.appendChild(fm)
+                            tr.appendChild(astWrap)
+                        }
+                    } catch (_e) { }
 
                     tr.addEventListener('click', () => {
                         try { window.dispatchEvent(new CustomEvent('ssg:test-click', { detail: r })) } catch (_e) { }
@@ -260,12 +308,32 @@ function renderList() {
                     titleRow.appendChild(icon)
                     const titleEl = document.createElement('div')
                     titleEl.className = 'feedback-title'
-                    const authorEntry = findAuthorEntryById(r.id)
+                    const authorEntry = findAuthorEntryById(r.id) || (r.meta || null)
                     const displayTitle = (authorEntry && (authorEntry.description || authorEntry.title)) ? (authorEntry.description || authorEntry.title) : ((r.description) ? r.description : (r.id || ''))
                     titleEl.textContent = displayTitle
                     titleRow.appendChild(titleEl)
                     tr.appendChild(titleRow)
                     tr.addEventListener('click', () => { try { window.dispatchEvent(new CustomEvent('ssg:test-click', { detail: r })) } catch (_e) { } })
+                    // If AST test failed and has a failureMessage, show it even
+                    // when no stderr/compare block exists.
+                    try {
+                        if (!r.passed && authorEntry && (authorEntry.type === 'ast' || authorEntry.astRule) && authorEntry.failureMessage) {
+                            const astWrap = document.createElement('div')
+                            astWrap.className = 'test-io'
+                            astWrap.style.marginTop = '8px'
+                            astWrap.style.background = '#f8f8f8'
+                            astWrap.style.padding = '8px'
+                            astWrap.style.borderRadius = '4px'
+                            astWrap.style.fontFamily = 'monospace'
+                            const fm = document.createElement('div')
+                            fm.className = 'test-failure-message'
+                            fm.style.marginTop = '6px'
+                            fm.style.color = '#d33'
+                            fm.textContent = String(authorEntry.failureMessage)
+                            astWrap.appendChild(fm)
+                            tr.appendChild(astWrap)
+                        }
+                    } catch (_e) { }
                     testsSection.appendChild(tr)
                 }
             }
@@ -304,6 +372,8 @@ function renderList() {
                             authorEntry = cfgTests.find(t => t && t.description && String(t.description) === String(r.description)) || null
                         }
                     } catch (e) { authorEntry = null }
+                    // If we attached meta to the result earlier, use it as a fallback
+                    if (!authorEntry && r && r.meta) authorEntry = r.meta
                     const displayTitle = (authorEntry && (authorEntry.description || authorEntry.title)) ? (authorEntry.description || authorEntry.title) : ((r.description) ? r.description : (r.id || ''))
                     titleEl.textContent = displayTitle
                     titleRow.appendChild(titleEl)
@@ -312,6 +382,27 @@ function renderList() {
                     tr.addEventListener('click', () => {
                         try { window.dispatchEvent(new CustomEvent('ssg:test-click', { detail: r })) } catch (_e) { }
                     })
+
+                    // For legacy flat format, show failureMessage for failing tests
+                    // even though this branch historically didn't render details.
+                    try {
+                        if (!r.passed && authorEntry && authorEntry.failureMessage) {
+                            const det = document.createElement('div')
+                            det.className = 'test-io'
+                            det.style.marginTop = '8px'
+                            det.style.background = '#f8f8f8'
+                            det.style.padding = '8px'
+                            det.style.borderRadius = '4px'
+                            det.style.fontFamily = 'monospace'
+                            const fm = document.createElement('div')
+                            fm.className = 'test-failure-message'
+                            fm.style.marginTop = '6px'
+                            fm.style.color = '#d33'
+                            fm.textContent = String(authorEntry.failureMessage)
+                            det.appendChild(fm)
+                            tr.appendChild(det)
+                        }
+                    } catch (_e) { }
 
                     testsSection.appendChild(tr)
                 }
@@ -470,11 +561,33 @@ export function setTestResults(results) {
     _testResults = Array.isArray(results) ? results : []
     try {
         // Attach metadata from current config.tests to each result for easier rendering
-        const cfgTests = Array.isArray((_config && _config.tests) ? _config.tests : []) ? _config.tests : []
+        // Normalize _config.tests into a flat array (works for legacy and grouped formats)
+        let cfgTests = []
+        try {
+            if (_config && _config.tests) {
+                if (Array.isArray(_config.tests)) {
+                    cfgTests = _config.tests.slice()
+                } else {
+                    // grouped format: collect from groups and ungrouped
+                    if (Array.isArray(_config.tests.groups)) {
+                        for (const g of _config.tests.groups) {
+                            if (Array.isArray(g.tests)) cfgTests.push(...g.tests)
+                        }
+                    }
+                    if (Array.isArray(_config.tests.ungrouped)) cfgTests.push(..._config.tests.ungrouped)
+                }
+            }
+        } catch (_e) { cfgTests = [] }
+
         _testResults.forEach(r => {
             try {
-                let meta = cfgTests.find(t => String(t.id) === String(r.id)) || null
-                if (!meta && r.description) meta = cfgTests.find(t => t && t.description && String(t.description) === String(r.description)) || null
+                let meta = null
+                try {
+                    meta = cfgTests.find(t => String(t.id) === String(r.id)) || null
+                } catch (_e) { meta = null }
+                if (!meta && r.description) {
+                    try { meta = cfgTests.find(t => t && t.description && String(t.description) === String(r.description)) || null } catch (_e) { meta = null }
+                }
                 r.meta = meta
             } catch (_e) { r.meta = null }
         })
@@ -915,6 +1028,17 @@ function createTestResultRow(r, cfgMap, groupMap, isGrouped) {
             codeA.textContent = (r.stdout != null) ? String(r.stdout) : ''
             preA.appendChild(codeA)
             compareWrap.appendChild(preA)
+            // Show author-provided failureMessage beneath the compare block when present
+            try {
+                if (meta && meta.failureMessage) {
+                    const fm = document.createElement('div')
+                    fm.className = 'test-failure-message'
+                    fm.style.marginTop = '6px'
+                    fm.style.color = '#d33'
+                    fm.textContent = String(meta.failureMessage)
+                    compareWrap.appendChild(fm)
+                }
+            } catch (_e) { }
 
             const expectedLabel = document.createElement('div')
             expectedLabel.textContent = 'Expected:'
@@ -1006,8 +1130,43 @@ function createTestResultRow(r, cfgMap, groupMap, isGrouped) {
             detWrap.appendChild(stderrEl)
         }
 
+        // Also include author-provided failure message in the test-io area
+        try {
+            if (meta && meta.failureMessage) {
+                const fm = document.createElement('div')
+                fm.className = 'test-failure-message'
+                fm.style.marginTop = '6px'
+                fm.style.color = '#d33'
+                fm.textContent = String(meta.failureMessage)
+                detWrap.appendChild(fm)
+            }
+        } catch (_e) { }
+
         fb.appendChild(detWrap)
     }
+
+    // AST test fallback for modal: if this is an AST test failure and no detail blocks
+    // were rendered above, ensure the failureMessage is visible
+    try {
+        const hasDetailInModal = fb.querySelector('.test-compare') || fb.querySelector('.test-fail-feedback') || fb.querySelector('.test-io')
+        if (!r.passed && meta && (meta.type === 'ast' || meta.astRule) && meta.failureMessage && !hasDetailInModal) {
+            const astWrap = document.createElement('div')
+            astWrap.className = 'test-io'
+            astWrap.style.marginTop = '8px'
+            astWrap.style.background = '#f8f8f8'
+            astWrap.style.padding = '8px'
+            astWrap.style.borderRadius = '4px'
+            astWrap.style.fontFamily = 'monospace'
+
+            const fm = document.createElement('div')
+            fm.className = 'test-failure-message'
+            fm.style.marginTop = '6px'
+            fm.style.color = '#d33'
+            fm.textContent = String(meta.failureMessage)
+            astWrap.appendChild(fm)
+            fb.appendChild(astWrap)
+        }
+    } catch (_e) { }
 
     row.appendChild(fb)
     return row

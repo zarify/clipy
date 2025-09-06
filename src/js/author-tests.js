@@ -426,6 +426,13 @@ function buildEditorForm(existing) {
     setup.rows = 3
     setup.value = existing.setup ? JSON.stringify(existing.setup, null, 2) : ''
 
+    // Failure message (optional) - shown on failure beneath default messages
+    const failureMessage = document.createElement('textarea')
+    failureMessage.style.width = '100%'
+    failureMessage.rows = 2
+    failureMessage.placeholder = 'Optional short failure message to display when this test fails'
+    failureMessage.value = existing.failureMessage || ''
+
     // Hide actual/expected checkbox
     const hideActualExpected = document.createElement('input')
     hideActualExpected.type = 'checkbox'
@@ -521,6 +528,7 @@ function buildEditorForm(existing) {
 
     root.appendChild(labeled('Timeout (ms) [optional]', timeout))
     root.appendChild(labeled('Setup (JSON) [optional]', setup))
+    root.appendChild(labeled('Failure Message [optional]', failureMessage))
     root.appendChild(labeled('Display options', hideActualExpectedWrap))
 
     // Conditional execution controls
@@ -604,6 +612,9 @@ function buildEditorForm(existing) {
             if (timeout.value) out.timeoutMs = Number(timeout.value)
             if (setupVal !== null && setupVal !== undefined && setupVal !== '') out.setup = setupVal
             if (hideActualExpected.checked) out.hide_actual_expected = true
+
+            // Optional author-provided failure message
+            if (failureMessage.value && failureMessage.value.trim() !== '') out.failureMessage = failureMessage.value.trim()
 
             // Add conditional execution settings (simplified - no alwaysRun override)
             out.conditional = {
@@ -921,6 +932,8 @@ export function initAuthorTests() {
         const tests = group.tests
             ;[tests[testIdx - 1], tests[testIdx]] = [tests[testIdx], tests[testIdx - 1]]
         persist()
+        // Defensive sync: ensure textarea & global config reflect new order immediately
+        try { writeTestsToTextarea(ta, testConfig); if (window.Config && window.Config.current) window.Config.current.tests = testConfig } catch (_e) { }
     }
 
     function moveTestDown(groupIdx, testIdx) {
@@ -929,6 +942,8 @@ export function initAuthorTests() {
         const tests = group.tests
             ;[tests[testIdx + 1], tests[testIdx]] = [tests[testIdx], tests[testIdx + 1]]
         persist()
+        // Defensive sync: ensure textarea & global config reflect new order immediately
+        try { writeTestsToTextarea(ta, testConfig); if (window.Config && window.Config.current) window.Config.current.tests = testConfig } catch (_e) { }
     }
 
     function moveUngroupedTestUp(testIdx) {
@@ -936,6 +951,8 @@ export function initAuthorTests() {
         const tests = testConfig.ungrouped
             ;[tests[testIdx - 1], tests[testIdx]] = [tests[testIdx], tests[testIdx - 1]]
         persist()
+        // Defensive sync: ensure textarea & global config reflect new order immediately
+        try { writeTestsToTextarea(ta, testConfig); if (window.Config && window.Config.current) window.Config.current.tests = testConfig } catch (_e) { }
     }
 
     function moveUngroupedTestDown(testIdx) {
@@ -943,6 +960,8 @@ export function initAuthorTests() {
         const tests = testConfig.ungrouped
             ;[tests[testIdx + 1], tests[testIdx]] = [tests[testIdx], tests[testIdx + 1]]
         persist()
+        // Defensive sync: ensure textarea & global config reflect new order immediately
+        try { writeTestsToTextarea(ta, testConfig); if (window.Config && window.Config.current) window.Config.current.tests = testConfig } catch (_e) { }
     }
 
     // Test deletion operations
@@ -1036,6 +1055,10 @@ export function initAuthorTests() {
             const selectedGroupId = val._selectedGroupId
             delete val._selectedGroupId // Remove the temporary field
 
+            // Remember original location so we can re-insert at the same index
+            const originalGroupId = (groupIdx !== null && testConfig.groups && testConfig.groups[groupIdx]) ? testConfig.groups[groupIdx].id : '__ungrouped__'
+            const originalTestIdx = testIdx
+
             // Remove test from current location
             if (groupIdx !== null) {
                 testConfig.groups[groupIdx].tests.splice(testIdx, 1)
@@ -1043,14 +1066,25 @@ export function initAuthorTests() {
                 testConfig.ungrouped.splice(testIdx, 1)
             }
 
-            // Add test to new location
+            // Add test to new location. If saving back into the same group/ungrouped,
+            // insert at the original index to preserve ordering; otherwise append.
             if (selectedGroupId === '__ungrouped__') {
                 testConfig.ungrouped = testConfig.ungrouped || []
-                testConfig.ungrouped.push(val)
+                if (originalGroupId === '__ungrouped__') {
+                    const idx = Math.min(originalTestIdx, testConfig.ungrouped.length)
+                    testConfig.ungrouped.splice(idx, 0, val)
+                } else {
+                    testConfig.ungrouped.push(val)
+                }
             } else {
                 const targetGroup = testConfig.groups.find(g => g.id === selectedGroupId)
                 if (targetGroup) {
-                    targetGroup.tests.push(val)
+                    if (selectedGroupId === originalGroupId) {
+                        const idx = Math.min(originalTestIdx, targetGroup.tests.length)
+                        targetGroup.tests.splice(idx, 0, val)
+                    } else {
+                        targetGroup.tests.push(val)
+                    }
                 } else {
                     // Fallback to ungrouped if group not found
                     testConfig.ungrouped = testConfig.ungrouped || []

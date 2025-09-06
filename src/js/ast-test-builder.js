@@ -63,13 +63,6 @@ export function buildASTTestForm(existing = {}) {
     // AST rule builder
     const astRuleBuilder = createASTRuleBuilder(existing.astRule || {}, 'test')
 
-    // Expected message (what should be shown when test passes)
-    const expectedMessage = document.createElement('textarea')
-    expectedMessage.style.width = '100%'
-    expectedMessage.rows = 2
-    expectedMessage.value = existing.expectedMessage || ''
-    expectedMessage.placeholder = 'Message shown when test passes (optional)'
-
     // Failure message (what should be shown when test fails)
     const failureMessage = document.createElement('textarea')
     failureMessage.style.width = '100%'
@@ -84,18 +77,6 @@ export function buildASTTestForm(existing = {}) {
     timeout.value = typeof existing.timeoutMs === 'number' ? String(existing.timeoutMs) : ''
     timeout.placeholder = '5000'
 
-    // Hide actual/expected checkbox (for AST tests, this controls whether to show AST details)
-    const hideDetails = document.createElement('input')
-    hideDetails.type = 'checkbox'
-    hideDetails.checked = !!existing.hide_actual_expected
-    const hideDetailsWrap = document.createElement('div')
-    hideDetailsWrap.style.display = 'flex'
-    hideDetailsWrap.style.alignItems = 'center'
-    hideDetailsWrap.style.gap = '8px'
-    hideDetailsWrap.appendChild(hideDetails)
-    const hideDetailsLabel = document.createElement('span')
-    hideDetailsLabel.textContent = 'Hide AST analysis details (show only pass/fail status)'
-    hideDetailsWrap.appendChild(hideDetailsLabel)
 
     // Add a header to distinguish this as an AST test
     const header = document.createElement('div')
@@ -124,10 +105,11 @@ export function buildASTTestForm(existing = {}) {
     astSection.appendChild(astRuleBuilder.root)
     root.appendChild(astSection)
 
-    root.appendChild(labeled('Success Message [optional]', expectedMessage, 'Message displayed when the AST rule matches (test passes)'))
     root.appendChild(labeled('Failure Message [optional]', failureMessage, 'Message displayed when the AST rule does not match (test fails)'))
     root.appendChild(labeled('Timeout (ms) [optional]', timeout, 'Maximum time for AST analysis (default: 5000ms)'))
-    root.appendChild(labeled('Display Options', hideDetailsWrap, 'Control whether detailed AST analysis information is shown in test results'))
+    // Note: AST builder intentionally does not provide a success message or
+    // a "hide AST details" option because AST analysis results are handled
+    // differently by the runtime/UI and those controls are not applicable.
 
     // Conditional execution controls (same semantics as regular tests)
     const conditionalWrap = document.createElement('div')
@@ -179,10 +161,9 @@ export function buildASTTestForm(existing = {}) {
             // Add optional fields only if they have values
             if (idIn.value.trim()) test.id = idIn.value.trim()
             test.description = desc.value.trim() || 'AST Analysis Test'
-            if (expectedMessage.value.trim()) test.expectedMessage = expectedMessage.value.trim()
             if (failureMessage.value.trim()) test.failureMessage = failureMessage.value.trim()
             if (timeout.value) test.timeoutMs = Number(timeout.value)
-            if (hideDetails.checked) test.hide_actual_expected = true
+            // hide_actual_expected intentionally not set by AST builder
             // Conditional execution settings
             test.conditional = {
                 runIf: runIfSelect.value,
@@ -211,7 +192,6 @@ export function createDefaultASTTest() {
             expression: 'function_exists:calculate_average',
             matcher: 'result && result.name === "calculate_average"'
         },
-        expectedMessage: 'Function calculate_average is properly defined',
         failureMessage: 'Function calculate_average is missing or incorrectly defined'
     }
 }
