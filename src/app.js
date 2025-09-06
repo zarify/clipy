@@ -371,9 +371,31 @@ async function main() {
                 try { logDebug('[app] received ssg:run-tests-click') } catch (_e) { }
                 try {
                     const cfg = window.Config && window.Config.current ? window.Config.current : null
-                    try { logDebug('[app] current config', !!cfg, cfg && Array.isArray(cfg.tests) ? cfg.tests.length : 0) } catch (_e) { }
-                    const tests = (cfg && Array.isArray(cfg.tests)) ? cfg.tests : []
-                    if (!tests || !tests.length) {
+                    try { logDebug('[app] config available:', !!cfg, 'tests:', cfg && cfg.tests) } catch (_e) { }
+
+                    // Handle both legacy and grouped test formats
+                    let isGroupedFormat = false
+                    let testsConfig = null
+                    let testCount = 0
+
+                    if (cfg && cfg.tests) {
+                        if (Array.isArray(cfg.tests)) {
+                            // Legacy format: direct array of tests
+                            testsConfig = cfg.tests
+                            testCount = testsConfig.length
+                        } else if (cfg.tests.groups || cfg.tests.ungrouped) {
+                            // Grouped format: object with groups and ungrouped arrays
+                            isGroupedFormat = true
+                            testsConfig = cfg.tests
+                            const groupCount = (testsConfig.groups || []).reduce((sum, g) => sum + (g.tests || []).length, 0)
+                            const ungroupedCount = (testsConfig.ungrouped || []).length
+                            testCount = groupCount + ungroupedCount
+                        }
+                    }
+
+                    try { logDebug('[app] current config', !!cfg, isGroupedFormat ? 'grouped' : 'legacy', testCount) } catch (_e) { }
+
+                    if (!testsConfig || testCount === 0) {
                         try { appendTerminal('No tests defined in config', 'runtime') } catch (_e) { }
                         return
                     }
@@ -415,13 +437,53 @@ async function main() {
 
                         // Show loading modal immediately so it doesn't block Run button
                         try { if (typeof window.__ssg_show_test_results_loading === 'function') window.__ssg_show_test_results_loading() } catch (_e) { }
-                        // DEBUG: log test shapes to help diagnose AST test detection
+
+                        // Import the appropriate runner function based on test format
+                        let runnerFunction = null
+                        let testData = null
+
+                        if (isGroupedFormat) {
+                            const testRunnerMod = await import('./js/test-runner.js')
+                            runnerFunction = testRunnerMod.runGroupedTests
+                            testData = testsConfig
+                            // DEBUG: log grouped test structure
+                            try {
+                                const groupSummary = (testsConfig.groups || []).map(g => ({ name: g.name, count: (g.tests || []).length, runIf: g.conditional?.runIf }))
+                                const ungroupedCount = (testsConfig.ungrouped || []).length
+                                logDebug('[app] grouped tests summary - groups:', groupSummary, 'ungrouped:', ungroupedCount)
+                                logDebug('[app] about to call runGroupedTests with:', testData)
+                            } catch (_e) { }
+                        } else {
+                            const testRunnerMod = await import('./js/test-runner.js')
+                            runnerFunction = testRunnerMod.runTests || testRunnerMod.default
+                            testData = testsConfig
+                            // DEBUG: log test shapes to help diagnose AST test detection
+                            try {
+                                const summary = (testsConfig || []).map(t => ({ id: t && t.id, type: t && t.type, keys: Object.keys(t || {}) }))
+                                logDebug('[app] legacy tests summary before runTests:', summary)
+                            } catch (_e) { }
+                        }
+
+                        // Run tests using the appropriate runner function
+                        let runnerResult
                         try {
-                            const summary = (tests || []).map(t => ({ id: t && t.id, type: t && t.type, keys: Object.keys(t || {}) }))
-                            logDebug('[app] tests summary before runTests:', summary)
-                        } catch (_e) { }
-                        // Run tests using the created runFn
-                        const results = await runTests(tests, { runFn })
+                            runnerResult = await runnerFunction(testData, { runFn })
+                        } catch (error) {
+                            console.error('[app] Error during test execution:', error)
+                            try { appendTerminal('Test execution failed: ' + error.message, 'runtime') } catch (_e) { }
+                            return
+                        }
+
+                        // Handle different return formats
+                        let results
+                        if (isGroupedFormat && runnerResult && runnerResult.flatResults) {
+                            // Grouped runner returns {flatResults, groupResults, ...}
+                            results = runnerResult.flatResults
+                        } else {
+                            // Legacy runner returns array directly
+                            results = runnerResult
+                        }
+
                         try { appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime') } catch (_e) { }
 
                         // Update UI with results and feed failures into Feedback
@@ -446,25 +508,6 @@ async function main() {
                         try { appendTerminal('Test run failed to start: ' + _e, 'runtime') } catch (_err) { }
                         return
                     }
-                    // Run tests and publish results
-                    const results = await runTests(tests, { runFn })
-                    try {
-                        appendTerminal('Test run complete. ' + results.length + ' tests executed.', 'runtime')
-                    } catch (_e) { }
-
-                    // Push results into Feedback as runMatches (create simple feedback entries per failing test)
-                    try {
-                        // Update Feedback UI test results if setter is available
-                        try { if (typeof window.__ssg_set_test_results === 'function') window.__ssg_set_test_results(results) } catch (_e) { }
-                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
-                            for (const r of results) {
-                                if (!r.passed) {
-                                    // Emit a feedback run evaluation with the stderr/stdout so configured patterns may match
-                                    try { window.Feedback.evaluateFeedbackOnRun({ stdout: r.stdout || '', stderr: r.stderr || '' }) } catch (_e) { }
-                                }
-                            }
-                        }
-                    } catch (_e) { }
                 } catch (_err) { }
             })
         } catch (_e) { }

@@ -168,8 +168,12 @@ function validateAndNormalizeConfigInternal(rawConfig) {
                 regex: Array.isArray(rawConfig.feedback?.regex) ? rawConfig.feedback.regex : []
             }
         ,
-        // Include author-provided tests array if present
-        tests: Array.isArray(rawConfig.tests) ? rawConfig.tests : []
+        // Include author-provided tests (support both legacy array and new grouped format)
+        tests: Array.isArray(rawConfig.tests)
+            ? rawConfig.tests  // Legacy format: array of tests
+            : (rawConfig.tests && (rawConfig.tests.groups || rawConfig.tests.ungrouped))
+                ? rawConfig.tests  // New grouped format: {groups: [...], ungrouped: [...]}
+                : []  // Default: empty array
         ,
         // Preserve any files object provided by the authoring config so callers
         // (like applyConfigToWorkspace) can write them into the FileManager.

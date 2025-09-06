@@ -1,5 +1,13 @@
+## 2025-09-06
+- Test grouping added
+- Test running can rely on previous test success
+- Test groups can rely on previous group success
+- **Note:** This will break previous test configuratons
+
 ## 2025-09-05
-- POC AST feedback and test options
+- Proof of concept Abstract Syntax Tree feedback and test options
+  - AST feedback and test types added
+  - Uses JS expressions to interrogate results
 
 ## 2025-09-04
 - Saving and loading of drafts in authoring

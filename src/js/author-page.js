@@ -172,13 +172,15 @@ function saveToLocalStorage() {
                 const parsed = JSON.parse(cfg.feedback)
                 if (Array.isArray(parsed)) cfg.feedback = parsed
             }
-            // Likewise, parse tests if the textarea contains a JSON array so
-            // the saved author_config carries the tests as a structured array
-            // (the main app expects cfg.tests to be an array when running
-            // author-defined tests).
+            // Likewise, parse tests if the textarea contains a JSON structure so
+            // the saved author_config carries the tests as a structured object/array
+            // (the main app expects cfg.tests to be structured when running tests).
             if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
                 const parsedTests = JSON.parse(cfg.tests)
-                if (Array.isArray(parsedTests)) cfg.tests = parsedTests
+                // Handle both legacy format (array) and new grouped format (object)
+                if (Array.isArray(parsedTests) || (parsedTests && (parsedTests.groups || parsedTests.ungrouped))) {
+                    cfg.tests = parsedTests
+                }
             }
         } catch (_e) { /* keep raw string if invalid JSON */ }
         // try to validate/normalize but don't block autosave on failure
@@ -437,7 +439,10 @@ function setupHandlers() {
             try {
                 if (typeof cfg.tests === 'string' && cfg.tests.trim()) {
                     const parsed = JSON.parse(cfg.tests)
-                    if (Array.isArray(parsed)) cfg.tests = parsed
+                    // Handle both legacy format (array) and new grouped format (object)
+                    if (Array.isArray(parsed) || (parsed && (parsed.groups || parsed.ungrouped))) {
+                        cfg.tests = parsed
+                    }
                 }
             } catch (_e) { }
             const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
