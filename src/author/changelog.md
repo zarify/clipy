@@ -9,6 +9,8 @@
   - Import statements
   - Magic numbers
   - Exception handling
+  - Type hints added to variable report
+  - Comprehension checks
 
 ## 2025-09-05
 - Proof of concept Abstract Syntax Tree feedback and test options

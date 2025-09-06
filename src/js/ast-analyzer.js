@@ -60,6 +60,7 @@ export class ASTAnalyzer {
             case 'import_statements': return this.analyzeImports(ast, target);
             case 'magic_numbers': return this.analyzeMagicNumbers(ast, target);
             case 'exception_handling': return this.analyzeExceptionHandling(ast, target);
+            case 'comprehensions': return this.analyzeComprehensions(ast, target);
             default: return this.genericQuery(ast, expression);
         }
     }
@@ -162,8 +163,27 @@ export class ASTAnalyzer {
             return { variables: reports };
         }
 
-        const analysis = { assigned: false, used: false, modified: false, assignments: [], usages: [] };
+        const analysis = { assigned: false, used: false, modified: false, assignments: [], usages: [], annotation: null, annotations: [] };
         const getCtx = (node) => node && node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
+
+        // Helper to stringify simple annotation nodes (Name/Attribute/Subscript)
+        const stringifyAnnotation = (ann) => {
+            if (!ann) return null;
+            try {
+                if (ann.nodeType === 'Name') return ann.id;
+                if (ann.nodeType === 'Attribute') return this.extractQualifiedName(ann);
+                if (ann.nodeType === 'Subscript') {
+                    // e.g., List[int] -> extract base and subscript
+                    const base = ann.value ? stringifyAnnotation(ann.value) : null;
+                    const slice = ann.slice ? (ann.slice.value ? stringifyAnnotation(ann.slice.value) : (ann.slice.id || ann.slice.value || null)) : null;
+                    return base && slice ? `${base}[${slice}]` : (base || slice || null);
+                }
+                if (ann.nodeType === 'Constant' && typeof ann.value === 'string') return ann.value;
+            } catch (e) {
+                // ignore
+            }
+            return null;
+        };
 
         const seen = new Set();
 
@@ -222,6 +242,14 @@ export class ASTAnalyzer {
                 if (variableName === '*' || t.id === variableName) {
                     analysis.assigned = true;
                     analysis.assignments.push({ name: t.id, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
+                    // capture annotation if present
+                    if (node.annotation) {
+                        const ann = stringifyAnnotation(node.annotation) || (node.annotation.id || null);
+                        if (ann) {
+                            analysis.annotation = ann;
+                            analysis.annotations.push({ name: t.id, annotation: ann, lineno: thisLineno });
+                        }
+                    }
                 }
                 if (node.value && containsSelfReference(node.value)) {
                     analysis.modified = true;
@@ -234,6 +262,10 @@ export class ASTAnalyzer {
                     const attrName = t.attr || t.attrname || '<attr>';
                     analysis.assignments.push({ name: `${t.value.id}.${attrName}`, lineno: thisLineno, col_offset: (t.col_offset !== undefined ? Number(t.col_offset) : (node.col_offset !== undefined ? Number(node.col_offset) : 0)) });
                     analysis.modified = true;
+                    if (node.annotation) {
+                        const ann = stringifyAnnotation(node.annotation) || (node.annotation.id || null);
+                        if (ann) analysis.annotations.push({ name: `${t.value.id}.${attrName}`, annotation: ann, lineno: thisLineno });
+                    }
                 }
             }
 
@@ -266,6 +298,23 @@ export class ASTAnalyzer {
                     analysis.assigned = true;
                     analysis.assignments.push({ name: node.id, lineno: resolvedLineno, col_offset: (node.col_offset !== undefined ? Number(node.col_offset) : 0) });
                 }
+            }
+
+            // Capture function parameter annotations
+            if (node.nodeType === 'FunctionDef' && node.args && Array.isArray(node.args.args)) {
+                node.args.args.forEach(a => {
+                    const aname = a.arg || a.argname || a.id || null;
+                    if (!aname) return;
+                    if (a.annotation) {
+                        const ann = stringifyAnnotation(a.annotation) || (a.annotation.id || null);
+                        if (ann) {
+                            analysis.annotations.push({ name: aname, annotation: ann, lineno: a.lineno || node.lineno });
+                            if (variableName === '*' || variableName === aname) {
+                                analysis.annotation = ann;
+                            }
+                        }
+                    }
+                });
             }
 
             if (node.nodeType === 'Call' && node.func && node.func.nodeType === 'Attribute') {
@@ -901,6 +950,69 @@ export class ASTAnalyzer {
     }
 
     /**
+     * Analyze comprehensions (list/dict/set/generator) and report structure
+     */
+    analyzeComprehensions(ast, target) {
+        const comps = [];
+
+        const extractComp = (node) => {
+            if (!node) return null;
+            const type = node.nodeType || '<comp>';
+            const lineno = node.lineno;
+            const details = { type, lineno, generators: 0, targets: [], ifs: 0, elt: null };
+
+            // generators are under "generators" or "comprehension" depending on AST
+            const gens = node.generators || node.generator || node.generators || [];
+            if (Array.isArray(gens) && gens.length > 0) {
+                details.generators = gens.length;
+                gens.forEach(g => {
+                    // target of the comprehension (e.g., x in for x in y)
+                    if (g && g.target) {
+                        const tname = (g.target.id || g.target.arg || g.target.name) || this.extractQualifiedName(g.target);
+                        if (tname) details.targets.push(tname);
+                    }
+                    if (g && g.ifs && Array.isArray(g.ifs)) details.ifs += g.ifs.length;
+                });
+            }
+
+            // element expression (what is produced)
+            if (node.elt) {
+                details.elt = this.extractNodeDetails(node.elt);
+            } else if (node.key) {
+                // dict comp has key/value
+                details.key = this.extractNodeDetails(node.key);
+                details.value = this.extractNodeDetails(node.value);
+            }
+
+            return details;
+        };
+
+        const traverse = (node) => {
+            if (!node) return;
+            if (['ListComp', 'DictComp', 'SetComp', 'GeneratorExp'].includes(node.nodeType)) {
+                const d = extractComp(node);
+                if (d) comps.push(d);
+            }
+            for (const k of Object.keys(node)) {
+                const c = node[k];
+                if (!c) continue;
+                if (Array.isArray(c)) c.forEach(traverse);
+                else if (typeof c === 'object') traverse(c);
+            }
+        };
+
+        if (ast.body && Array.isArray(ast.body)) ast.body.forEach(traverse);
+
+        if (target && target !== '*') {
+            // filter by target appearing in targets
+            const filtered = comps.filter(c => c.targets && c.targets.includes(target));
+            return filtered.length > 0 ? { comprehensions: filtered, count: filtered.length } : null;
+        }
+
+        return comps.length > 0 ? { comprehensions: comps, count: comps.length } : null;
+    }
+
+    /**
      * Analyze exception handling and check if code is within try blocks
      */
     analyzeExceptionHandling(ast, target) {
@@ -911,9 +1023,8 @@ export class ASTAnalyzer {
         // Track line ranges of try blocks for "withinTry" analysis
         const tryRanges = [];
 
-        const traverse = (node, inTryBlock = false) => {
+        const traverse = (node, inTryBlock = false, ctx = null) => {
             if (!node) return;
-
             if (node.nodeType === 'Try') {
                 const tryStart = node.lineno;
                 let tryEnd = tryStart;
@@ -954,35 +1065,39 @@ export class ASTAnalyzer {
                 const hasFinally = node.finalbody && node.finalbody.length > 0;
                 const hasElse = node.orelse && node.orelse.length > 0;
 
+                // collect calls inside this try block
+                const calls = [];
+
                 tryBlocks.push({
                     lineno: tryStart,
                     endLineno: tryEnd,
                     handlers: handlers,
                     hasFinally: hasFinally,
                     hasElse: hasElse,
-                    handlerCount: handlers.length
+                    handlerCount: handlers.length,
+                    calls: calls
                 });
 
-                // Traverse try body with try context
+                // Traverse try body with try context and a calls context
                 if (node.body && Array.isArray(node.body)) {
-                    node.body.forEach(child => traverse(child, true));
+                    node.body.forEach(child => traverse(child, true, { calls, tryStart }));
                 }
 
                 // Traverse handlers
                 if (node.handlers && Array.isArray(node.handlers)) {
                     node.handlers.forEach(handler => {
                         if (handler.body && Array.isArray(handler.body)) {
-                            handler.body.forEach(child => traverse(child, false));
+                            handler.body.forEach(child => traverse(child, false, null));
                         }
                     });
                 }
 
                 // Traverse else and finally
                 if (node.orelse && Array.isArray(node.orelse)) {
-                    node.orelse.forEach(child => traverse(child, false));
+                    node.orelse.forEach(child => traverse(child, false, null));
                 }
                 if (node.finalbody && Array.isArray(node.finalbody)) {
-                    node.finalbody.forEach(child => traverse(child, false));
+                    node.finalbody.forEach(child => traverse(child, false, null));
                 }
 
                 return; // Don't traverse children again
@@ -993,6 +1108,16 @@ export class ASTAnalyzer {
                 // This is a simplified check - you might want to make this more sophisticated
                 // to match specific patterns within try blocks
                 withinTryContext = true;
+            }
+
+            // If this is a call and we're in a try context, record it
+            if (node.nodeType === 'Call' && inTryBlock && ctx && Array.isArray(ctx.calls)) {
+                let calledName = null;
+                if (node.func) {
+                    if (node.func.nodeType === 'Name') calledName = node.func.id;
+                    else if (node.func.nodeType === 'Attribute') calledName = this.extractQualifiedName(node.func);
+                }
+                ctx.calls.push({ name: calledName, lineno: node.lineno });
             }
 
             // Recursively traverse child nodes

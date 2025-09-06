@@ -64,14 +64,15 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
     const astTypes = [
         { value: 'function_exists', label: 'Function exists', help: 'Check if a specific function is defined' },
         { value: 'function_count', label: 'Function count', help: 'Count total number of functions' },
-        { value: 'variable_usage', label: 'Variable usage', help: 'Check if a variable is used or assigned' },
+        { value: 'variable_usage', label: 'Variable usage', help: 'Check if a variable is used or assigned. Also captures type annotations when present.' },
         { value: 'control_flow', label: 'Control flow', help: 'Check for loops, if statements, etc.' },
         { value: 'has_docstring', label: 'Has docstrings', help: 'Check if functions have docstrings' },
         { value: 'code_quality', label: 'Code quality', help: 'Advanced code quality checks' },
         { value: 'class_analysis', label: 'Class analysis', help: 'Analyze classes, methods, and inheritance' },
         { value: 'import_statements', label: 'Import statements', help: 'Check for specific imports or import patterns' },
         { value: 'magic_numbers', label: 'Magic numbers', help: 'Detect hardcoded numbers that should be constants' },
-        { value: 'exception_handling', label: 'Exception handling', help: 'Analyze try/except blocks and error handling' }
+        { value: 'exception_handling', label: 'Exception handling', help: 'Analyze try/except blocks and error handling' },
+        { value: 'comprehensions', label: 'Comprehensions', help: 'Inspect list/dict/set/generator comprehensions and their targets/ifs' }
     ]
 
     astTypes.forEach(type => {
@@ -133,7 +134,11 @@ export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
         • <code>result && result.classes.some(c => c.name === 'Calculator')</code> (class_analysis no target)<br>
         • <code>result && result.imports.some(i => i.module === 'numpy')</code> (import_statements)<br>
         • <code>result && result.magicNumbers.length > 0</code> (magic_numbers)<br>
-        • <code>result && result.tryCount > 0</code> (exception_handling)
+        • <code>result && result.tryCount > 0</code> (exception_handling)<br>
+        • <code>result && result.tryBlocks && result.tryBlocks.some(tb => tb.calls && tb.calls.some(c => c.name === 'do_work'))</code> (exception_handling: check calls in try)<br>
+        • <code>result && result.annotation === 'int'</code> (variable_usage: annotated variable)
+        • <code>result && result.annotations && result.annotations.some(a => a.name === 'x' && a.annotation === 'float')</code> (variable_usage: annotations list)
+        • <code>result && result.comprehensions && result.comprehensions.some(c => c.type === 'ListComp' && c.generators === 1)</code> (comprehensions)
     `
 
     // Preview area
