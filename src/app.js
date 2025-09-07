@@ -789,7 +789,10 @@ async function main() {
 
         // Wire config modal UI (open on header click, server list population, URL load, file upload/drop)
         try {
-            const configInfoEl = document.querySelector('.config-info') || document.querySelector('.config-title-line')
+            // Prefer the visible config title element for activation so
+            // interactive controls inside the header (reset button, student ID input)
+            // don't accidentally open the config modal via event bubbling.
+            const configInfoEl = document.querySelector('.config-title-line') || document.querySelector('.config-info')
             const configModal = document.getElementById('config-modal')
             if (configInfoEl && configModal) {
                 // Handle authoring mode setup
@@ -1124,6 +1127,10 @@ function initializeStudentIdentifier() {
         const studentIdInput = document.getElementById('student-id-input')
         if (!studentIdInput) return
 
+        // Keep layout simple: student-id container is inline and will flow
+        // naturally after the config title. Avoid absolute positioning to
+        // prevent overlap on narrow viewports.
+
         // Load saved student identifier
         const savedId = getStudentIdentifier()
         if (savedId) {
@@ -1145,6 +1152,9 @@ function initializeStudentIdentifier() {
             clearTimeout(timeoutId)
             setStudentIdentifier(studentIdInput.value)
         })
+
+        // Initial alignment after DOM/setup
+        try { if (typeof alignStudentId === 'function') alignStudentId() } catch (_e) { }
 
         logDebug('Student identifier input initialized')
     } catch (e) {
