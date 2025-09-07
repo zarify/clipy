@@ -18,8 +18,8 @@ test('live feedback updates as user types into editor', async ({ page }) => {
     await page.click('#tab-btn-feedback')
     // Wait for the feedback tab to be marked selected and the panel to be visible
     await page.waitForSelector('#tab-btn-feedback[aria-selected="true"]', { timeout: 2000 })
-    await page.waitForSelector('#feedback', { state: 'visible', timeout: 2000 })
-    await page.waitForSelector('#feedback-list')
+    await page.waitForSelector('#fdbk', { state: 'visible', timeout: 2000 })
+    await page.waitForSelector('#fdbk-list')
 
     // The feedback panel shows configured titles even when not matched.
     // Ensure the configured entry is present but has no matched message yet.
