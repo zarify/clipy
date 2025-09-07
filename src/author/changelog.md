@@ -2,6 +2,7 @@
 - Feature: Student verification codes
   - Verification codes for students when all tests are passed
   - List of student IDs and verification codes in authoring with list of codes for current config
+- Fix: Changed feedback panel IDs because they got hidden by some ad blockers 🫠
 
 ## 2025-09-06
 - Fix: Saving drafts in authoring mode won't create multiple copies
