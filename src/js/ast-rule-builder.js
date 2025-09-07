@@ -9,7 +9,28 @@
 /**
  * Create AST rule builder UI
  * @param {Object} existing - Existing rule configuration
- * @param {string} ruleType - Either 'feedback' or 'test'
+ * @param {string} ruleType - Either 'feedback' o            try {
+                // Force a refresh after a short delay to ensure gutters render properly
+                setTimeout(() => {
+                    if (codeMirrorEditor && typeof codeMirrorEditor.refresh === 'function') {
+                        console.log('AST rule builder: Refreshing CodeMirror editor')
+                        console.log('Gutters:', codeMirrorEditor.getOption('gutters'))
+                        console.log('Fixed gutter:', codeMirrorEditor.getOption('fixedGutter'))
+                        console.log('Line numbers:', codeMirrorEditor.getOption('lineNumbers'))
+                        codeMirrorEditor.refresh()
+                        
+                        // Double-check gutter elements exist
+                        const gutterEl = codeMirrorEditor.getGutterElement()
+                        console.log('Gutter element:', gutterEl)
+                        if (gutterEl) {
+                            console.log('Gutter width:', gutterEl.offsetWidth)
+                            console.log('Gutter visible:', gutterEl.offsetParent !== null)
+                        }
+                    }
+                }, 50)
+            } catch (_e) { 
+                console.error('Error during AST rule builder refresh:', _e)
+            }t'
  * @returns {Object} Builder object with root element and get() function
  */
 export function createASTRuleBuilder(existing = {}, ruleType = 'feedback') {
@@ -383,10 +404,16 @@ class Calculator:
             codeMirrorEditor = window.CodeMirror.fromTextArea(testCode, {
                 mode: 'python',
                 lineNumbers: true,
+                gutters: ['CodeMirror-linenumbers'],
+                fixedGutter: true,
+                lineNumberFormatter: function (line) {
+                    return String(line);
+                },
                 indentUnit: 4,
                 tabSize: 4,
                 matchBrackets: true,
                 autoCloseBrackets: true,
+                scrollbarStyle: 'native',
                 extraKeys: {
                     Tab: function (cm) {
                         if (cm.somethingSelected()) cm.indentSelection('add')
@@ -394,19 +421,45 @@ class Calculator:
                     }
                 }
             })
-            // Set sensible height
-            try { codeMirrorEditor.setSize('100%', 160) } catch (_e) { }
+            // Set sensible height and force a refresh to ensure gutter layout
+            try {
+                codeMirrorEditor.setSize('100%', 160)
+                // Force refresh after a brief delay to ensure proper gutter rendering
+                setTimeout(() => {
+                    if (codeMirrorEditor && typeof codeMirrorEditor.refresh === 'function') {
+                        codeMirrorEditor.refresh()
+                    }
+                }, 50)
+            } catch (_e) { }
+
+            // Add focus event listener to refresh when user clicks into editor
+            try {
+                codeMirrorEditor.on('focus', () => {
+                    console.log('AST rule builder: Editor focused, refreshing...')
+                    setTimeout(() => {
+                        if (codeMirrorEditor && typeof codeMirrorEditor.refresh === 'function') {
+                            codeMirrorEditor.refresh()
+                        }
+                    }, 10)
+                })
+            } catch (_e) { }
         }
     } catch (_e) {
         codeMirrorEditor = null
     }
 
     // If the editor is created inside a modal or hidden container, CodeMirror
-    // may need a refresh once it becomes visible. Simple refresh when visible.
+    // may need a refresh once it becomes visible. More robust visibility detection.
     if (codeMirrorEditor) {
         const refreshWhenVisible = () => {
             try {
-                if (testArea.offsetParent !== null) {
+                // Check multiple conditions for visibility
+                const isVisible = testArea.offsetParent !== null &&
+                    testArea.offsetWidth > 0 &&
+                    testArea.offsetHeight > 0
+
+                if (isVisible) {
+                    console.log('AST rule builder: Editor is now visible, refreshing...')
                     codeMirrorEditor.refresh()
                     return true
                 }
@@ -414,10 +467,47 @@ class Calculator:
             } catch (_e) { return true }
         }
 
+        // Try immediate refresh
         if (!refreshWhenVisible()) {
-            // If not visible now, try again after a short delay
-            setTimeout(refreshWhenVisible, 100)
+            // If not visible now, set up periodic checks
+            let attempts = 0
+            const maxAttempts = 20 // Try for about 2 seconds
+
+            const periodicRefresh = () => {
+                if (attempts >= maxAttempts) {
+                    console.log('AST rule builder: Giving up on visibility detection')
+                    return
+                }
+
+                attempts++
+                if (!refreshWhenVisible()) {
+                    setTimeout(periodicRefresh, 100)
+                }
+            }
+
+            setTimeout(periodicRefresh, 100)
         }
+
+        // Also set up a mutation observer to catch dynamic visibility changes
+        try {
+            if (typeof MutationObserver !== 'undefined') {
+                const observer = new MutationObserver(() => {
+                    if (refreshWhenVisible()) {
+                        observer.disconnect()
+                    }
+                })
+
+                // Watch for style changes on the test area and its parents
+                let element = testArea
+                while (element && element !== document.body) {
+                    observer.observe(element, {
+                        attributes: true,
+                        attributeFilter: ['style', 'class']
+                    })
+                    element = element.parentElement
+                }
+            }
+        } catch (_e) { }
     }
 
     return testArea

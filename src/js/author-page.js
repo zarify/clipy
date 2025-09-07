@@ -25,7 +25,18 @@ function debounceSave() {
 function loadEditor() {
     const ta = $('file-editor')
     try {
-        editor = CodeMirror.fromTextArea(ta, { lineNumbers: true, mode: 'python' })
+        editor = CodeMirror.fromTextArea(ta, {
+            lineNumbers: true,
+            mode: 'python',
+            gutters: ['CodeMirror-linenumbers'],
+            fixedGutter: true,
+            lineNumberFormatter: function (line) {
+                return String(line);
+            },
+            indentUnit: 4,
+            smartIndent: true,
+            scrollbarStyle: 'native'
+        })
         // store CM instance for tests to access if needed
         try { window.__author_code_mirror = editor } catch (_e) { }
         editor.on('change', () => {
