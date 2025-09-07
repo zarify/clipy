@@ -1,5 +1,6 @@
 import { $ } from './utils.js'
 import { debug as logDebug } from './logger.js'
+import { getStudentIdentifier, generateVerificationCode, shouldShowVerificationCode } from './zero-knowledge-verification.js'
 
 let _matches = []
 let _config = { feedback: [] }
@@ -720,6 +721,41 @@ function createResultsModal() {
     title.style.marginBottom = '12px'
     box.appendChild(title)
 
+    // Verification code display area (initially hidden)
+    const verificationDiv = document.createElement('div')
+    verificationDiv.id = 'verification-code-display'
+    verificationDiv.style.display = 'none'
+    verificationDiv.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)'
+    verificationDiv.style.color = 'white'
+    verificationDiv.style.padding = '12px 16px'
+    verificationDiv.style.borderRadius = '8px'
+    verificationDiv.style.marginBottom = '16px'
+    verificationDiv.style.textAlign = 'center'
+    verificationDiv.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)'
+
+    const verificationTitle = document.createElement('div')
+    verificationTitle.style.fontSize = '0.9em'
+    verificationTitle.style.marginBottom = '4px'
+    verificationTitle.textContent = '🎉 All tests passed! Your verification code:'
+    verificationDiv.appendChild(verificationTitle)
+
+    const verificationCode = document.createElement('div')
+    verificationCode.id = 'verification-code-text'
+    verificationCode.style.fontSize = '1.3em'
+    verificationCode.style.fontWeight = 'bold'
+    verificationCode.style.fontFamily = 'monospace'
+    verificationCode.style.letterSpacing = '2px'
+    verificationDiv.appendChild(verificationCode)
+
+    const verificationSubtext = document.createElement('div')
+    verificationSubtext.style.fontSize = '0.8em'
+    verificationSubtext.style.marginTop = '6px'
+    verificationSubtext.style.opacity = '0.9'
+    verificationSubtext.textContent = 'Share this code with your teacher as proof of completion'
+    verificationDiv.appendChild(verificationSubtext)
+
+    box.appendChild(verificationDiv)
+
     const content = document.createElement('div')
     content.className = 'test-results-content'
     box.appendChild(content)
@@ -778,6 +814,35 @@ function closeTestResultsModal() {
         if (modal._detachAccessibility) modal._detachAccessibility()
         modal.remove()
     } catch (e) { modal.style.display = 'none' }
+}
+
+async function handleVerificationCodeDisplay(results, config) {
+    const verificationDiv = document.getElementById('verification-code-display')
+    const verificationCodeText = document.getElementById('verification-code-text')
+
+    if (!verificationDiv || !verificationCodeText) return
+
+    try {
+        // Check if verification code should be shown
+        const allTestsPassed = shouldShowVerificationCode(results)
+        const studentId = getStudentIdentifier()
+
+        if (allTestsPassed && studentId) {
+            // Generate verification code
+            const verificationCode = await generateVerificationCode(config, studentId, true)
+
+            if (verificationCode) {
+                verificationCodeText.textContent = verificationCode.toUpperCase()
+                verificationDiv.style.display = 'block'
+                logDebug('Displaying verification code:', verificationCode)
+            }
+        } else {
+            verificationDiv.style.display = 'none'
+        }
+    } catch (e) {
+        logDebug('Error handling verification code display:', e)
+        verificationDiv.style.display = 'none'
+    }
 }
 
 function showTestResultsModal(results) {
@@ -845,6 +910,9 @@ function showTestResultsModal(results) {
         // Legacy format - render normally
         renderTestResults(results, cfgMap, groupMap, false)
     }
+
+    // Handle verification code display
+    handleVerificationCodeDisplay(results, _config)
 
     // Focus for a11y
     const box = modal.querySelector('.test-results-box')
