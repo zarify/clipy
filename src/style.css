@@ -243,6 +243,40 @@ main {
     }
 }
 
+/* On very narrow viewports stack the config area so the reset button
+   doesn't disappear — place the reset button under the title/input stack
+   and make the student-id input fill the available width. */
+@media (max-width: 640px) {
+    header .config-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        width: 100%;
+    }
+
+    header #reset-config-btn {
+        margin-left: 0;
+        margin-top: 4px;
+        align-self: flex-end;
+    }
+
+    header .config-stack {
+        width: 100%;
+        /* don't let the stack expand to fill vertical space in column layout */
+        flex: 0 0 auto;
+    }
+
+    header .student-id-container {
+        align-self: stretch;
+        width: 100%;
+    }
+
+    header .student-id-container input {
+        width: 100%;
+        box-sizing: border-box;
+    }
+}
+
 .panel {
     background: var(--panel);
     padding: 12px;
