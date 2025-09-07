@@ -1300,3 +1300,12 @@ pre#terminal-output {
     border-radius: 3px;
     font-size: 0.85em;
 }
+
+/* Verification panel in author page */
+#verification-panel-title {
+    margin-bottom: 5px;
+}
+
+#verification-config-id {
+    margin-bottom: 8px;
+}

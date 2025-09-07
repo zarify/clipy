@@ -2,6 +2,7 @@
 // Implements the system described in ../project/zero-knowledge-verification.md
 
 import { debug as logDebug } from './logger.js'
+import { normalizeTestsForHash, canonicalizeForHash } from './normalize-tests.js'
 
 // Simple word list for human-readable codes (BIP39-inspired but shorter)
 const WORD_LIST = [
@@ -58,30 +59,16 @@ async function generateTestSuiteHash(testConfig) {
     }
 
     // Create a normalized representation of the tests for consistent hashing
-    let testData
+    let normalizedTests = []
     try {
-        if (Array.isArray(testConfig.tests)) {
-            // Legacy format: direct array of tests
-            testData = testConfig.tests.map(normalizeTest)
-        } else if (testConfig.tests.groups || testConfig.tests.ungrouped) {
-            // Grouped format
-            testData = {
-                groups: (testConfig.tests.groups || []).map(group => ({
-                    name: group.name,
-                    tests: (group.tests || []).map(normalizeTest)
-                })),
-                ungrouped: (testConfig.tests.ungrouped || []).map(normalizeTest)
-            }
-        } else {
-            testData = []
-        }
+        normalizedTests = normalizeTestsForHash(testConfig)
     } catch (e) {
-        logDebug('Error normalizing test config:', e)
-        testData = []
+        logDebug('Error normalizing test config for hash:', e)
+        normalizedTests = []
     }
 
-    // Convert to JSON string for hashing
-    const testString = JSON.stringify(testData)
+    // Canonicalize (sort keys) for deterministic JSON string
+    const testString = canonicalizeForHash(normalizedTests)
 
     // Generate SHA-256 hash
     try {

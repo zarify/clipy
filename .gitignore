@@ -4,3 +4,4 @@ test/__pycache__/
 test-results/*
 test-results/.last-run.json
 .DS_Store
+tmp/
