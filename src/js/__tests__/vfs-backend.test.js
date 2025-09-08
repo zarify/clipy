@@ -1,9 +1,11 @@
+import { clearLocalStorageMirror } from './test-utils/test-setup.js'
+
 test('localStorage backend basic CRUD and path normalization', async () => {
     const mod = await import('../vfs-backend.js')
     const { createLocalStorageBackend } = mod
 
     // Ensure clean localStorage key space (backend uses LS_KEY 'ssg_files_v1')
-    localStorage.removeItem('ssg_files_v1')
+    clearLocalStorageMirror()
 
     const backend = createLocalStorageBackend()
     // initially empty
@@ -35,7 +37,7 @@ test('edge cases: large content, object content, and error handling in mount/syn
     const mod = await import('../vfs-backend.js')
     const { createLocalStorageBackend } = mod
 
-    localStorage.removeItem('ssg_files_v1')
+    clearLocalStorageMirror()
     const backend = createLocalStorageBackend()
 
     // large content
@@ -88,7 +90,7 @@ test('mountToEmscripten writes files to provided FS and syncFromEmscripten reads
     const mod = await import('../vfs-backend.js')
     const { createLocalStorageBackend } = mod
 
-    localStorage.removeItem('ssg_files_v1')
+    clearLocalStorageMirror()
     const backend = createLocalStorageBackend()
 
     // seed backend

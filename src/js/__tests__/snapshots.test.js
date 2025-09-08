@@ -42,6 +42,8 @@ test('saveSnapshotsForCurrentConfig persists snapshots to localStorage', async (
     expect(parsed[0].ts).toBe(10)
 })
 
+import { setupTerminalDOM, setMAIN_FILE, ensureAppendTerminalDebug, clearLocalStorageMirror } from './test-utils/test-setup.js'
+
 test('renderSnapshots updates DOM lists and summaries', async () => {
     const snapshots = await import('../snapshots.js')
     const cfg = await import('../config.js')
@@ -64,10 +66,10 @@ test('renderSnapshots updates DOM lists and summaries', async () => {
 
     // Set up DOM containers
     document.body.innerHTML = `
-    <div id="snapshot-list"></div>
-    <div id="snapshot-storage-summary"></div>
-    <div id="snapshot-storage-summary-header"></div>
-  `
+        <div id="snapshot-list"></div>
+        <div id="snapshot-storage-summary"></div>
+        <div id="snapshot-storage-summary-header"></div>
+    `
 
     snapshots.renderSnapshots()
 
@@ -121,7 +123,10 @@ test('restoreSnapshot writes files to backend and updates mem/localStorage', asy
     }
 
     // Ensure any existing ssg_files_v1 is cleared
-    localStorage.removeItem('ssg_files_v1')
+    clearLocalStorageMirror()
+
+    // Ensure global MAIN_FILE is set so mapping logic can detect it
+    setMAIN_FILE(MAIN_FILE)
 
     await snapshots.restoreSnapshot(0, [snap], true)
 

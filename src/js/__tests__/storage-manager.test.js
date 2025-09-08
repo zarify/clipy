@@ -94,6 +94,8 @@ test('safeSetItem rethrows non-quota error', async () => {
 })
 
 // Edge cases
+import { setupTerminalDOM } from './test-utils/test-setup.js'
+
 test('showStorageQuotaModal DOM fallback resolves on button click', async () => {
     const { makeFakeStorage, makeMgr } = await import('./test-utils/storage-fixtures.js')
     const storage = makeFakeStorage()

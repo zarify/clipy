@@ -1,14 +1,11 @@
+import { setupTerminalDOM } from './test-utils/test-setup.js'
+
 test('terminal append, prompt and stderr buffering', async () => {
     const mod = await import('../terminal.js')
     const { createTerminal } = mod
 
     // Prepare a clean DOM for the terminal
-    document.body.innerHTML = `
-    <div id="terminal-output"></div>
-    <input id="stdin-box" />
-    <button id="stdin-send"></button>
-    <form id="terminal-input-form"></form>
-  `
+    setupTerminalDOM()
 
     const host = { document }
     const t = createTerminal(host)

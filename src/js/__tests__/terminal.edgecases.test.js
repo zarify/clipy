@@ -4,11 +4,11 @@ test('terminal multi-line prompt matching and mapping retry', async () => {
 
     // Prepare DOM with multiple lines that should match a multi-line prompt
     document.body.innerHTML = `
-    <div id="terminal-output">
-      <div class="terminal-line">Part one of prompt</div>
-      <div class="terminal-line">and part two</div>
-    </div>
-  `
+        <div id="terminal-output">
+            <div class="terminal-line">Part one of prompt</div>
+            <div class="terminal-line">and part two</div>
+        </div>
+    `
 
     const host = { document }
     const t = createTerminal(host)
