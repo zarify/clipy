@@ -4,7 +4,7 @@ import { appendTerminal, appendTerminalDebug } from './terminal.js'
 import { warn as logWarn, error as logError, info as logInfo } from './logger.js'
 import { safeSetItem } from './storage-manager.js'
 
-// Name of the protected main program file (normalized)
+// Main file path used across the app (protected, not deletable)
 export const MAIN_FILE = '/main.py'
 
 // VFS runtime references (populated during async VFS init)
@@ -238,46 +238,8 @@ export function markExpectedWrite(p, content, host = window) {
     } catch (_e) { }
 }
 
-// Simple FileManager shim (localStorage-backed initially)
-let FileManager = {
-    key: 'ssg_files_v1',
-    _load() {
-        try {
-            return JSON.parse(localStorage.getItem(this.key) || '{}')
-        } catch (e) {
-            return {}
-        }
-    },
-    _save(m) {
-        const result = safeSetItem(this.key, JSON.stringify(m))
-        if (!result.success) {
-            throw new Error(result.error || 'Storage quota exceeded')
-        }
-    },
-    _norm(p) { if (!p) return p; return p.startsWith('/') ? p : ('/' + p) },
-
-    list() { return Object.keys(this._load()).sort() },
-    read(path) {
-        const m = this._load()
-        return m[this._norm(path)] || null
-    },
-    write(path, content) {
-        const m = this._load()
-        m[this._norm(path)] = content
-        this._save(m)
-        return Promise.resolve()
-    },
-    delete(path) {
-        if (this._norm(path) === MAIN_FILE) {
-            logWarn('Attempt to delete protected main file ignored:', path)
-            return Promise.resolve()
-        }
-        const m = this._load()
-        delete m[this._norm(path)]
-        this._save(m)
-        return Promise.resolve()
-    }
-}
+// Simple FileManager shim (localStorage-backed initially) created via factory
+let FileManager = createFileManager(window)
 
 // Convenience helper: wait for a file to appear in mem/runtime/backend
 window.waitForFile = async function (path, timeoutMs = 2000) {
