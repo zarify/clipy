@@ -1,25 +1,25 @@
 {
   "name": "ssg_micro",
   "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "directories": {
     "doc": "docs",
     "test": "tests"
   },
   "scripts": {
-    "test": "node test/test_config_normalize.js && node test/test_feedback.js && node test/test_feedback_unit.js && node test/test_runner_multiline_stdin.js && npx playwright test --reporter=line",
-    "test:unit-iframe": "node test/test_runner_iframe_unit.js",
-    "test:playwright-iframe": "npx playwright test tests/playwright_runner_iframe.spec.js --reporter=line",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "test:playwright": "npx playwright test --project=firefox",
-    "test:firefox": "npx playwright test --project=firefox",
-    "test:verbose": "npx playwright test"
+    "test:playwright-verbose": "npx playwright test"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "A modern, browser-based Python interpreter powered by MicroPython WebAssembly with advanced features for interactive coding, file management, and execution control.",
   "devDependencies": {
-    "@playwright/test": "^1.55.0"
+    "@playwright/test": "^1.55.0",
+    "jest": "^29.6.0",
+    "jest-environment-jsdom": "^29.6.0"
   },
   "dependencies": {
     "fsevents": "^2.3.2",
