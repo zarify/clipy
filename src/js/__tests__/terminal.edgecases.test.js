@@ -56,3 +56,22 @@ test('terminal works with fake host (no DOM)', async () => {
     expect(() => t.replaceBufferedStderr('x')).not.toThrow()
     expect(() => t.findOrCreatePromptLine('x')).not.toThrow()
 })
+
+test('fake-host stores stderr buffer and does not touch DOM', async () => {
+    const mod = await import('../terminal.js')
+    const { createTerminal } = mod
+
+    const host = {}
+    const t = createTerminal(host)
+
+    // enable buffering should initialize host buffer
+    t.enableStderrBuffering()
+    expect(Array.isArray(host.__ssg_stderr_buffer)).toBeTruthy()
+
+    // append stderr should populate host buffer
+    t.appendTerminal('err1', 'stderr')
+    expect(host.__ssg_stderr_buffer.length).toBeGreaterThanOrEqual(1)
+
+    // replaceBufferedStderr should try to append mapped text but not throw
+    expect(() => t.replaceBufferedStderr('mapped on host')).not.toThrow()
+})
