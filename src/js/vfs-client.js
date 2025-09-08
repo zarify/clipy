@@ -112,6 +112,73 @@ function setupNotificationSystem() {
     })()
 }
 
+// Test-friendly factory: set up notification system on a provided host object
+// Returns the notifier function that was installed on the host.
+export function createNotificationSystem(host = window) {
+    try {
+        // Initialize expected writes tracking
+        if (!host.__ssg_expected_writes) {
+            host.__ssg_expected_writes = new Map()
+        }
+
+        // expose a global notifier the UI side will implement
+        host.__ssg_notify_file_written = host.__ssg_notify_file_written || (function () {
+            const lastNotified = new Map()
+            const DEBOUNCE_MS = 120
+            return function (path, content) {
+                try {
+                    try {
+                        if (host.__ssg_suppress_notifier) {
+                            try { appendTerminalDebug && appendTerminalDebug('[notify] globally suppressed: ' + String(path)) } catch (_e) { }
+                            return
+                        }
+                    } catch (_e) { }
+                    if (typeof path !== 'string') return
+                    const n = '/' + path.replace(/^\/+/, '')
+
+                    try {
+                        const prev = lastNotified.get(n) || 0
+                        const now = Date.now()
+                        if (now - prev < DEBOUNCE_MS) return
+                        lastNotified.set(n, now)
+                    } catch (_e) { }
+
+                    try {
+                        if (consumeExpectedWriteIfMatchesHost(n, content, host)) {
+                            try { appendTerminalDebug && appendTerminalDebug('[notify] ignored expected write: ' + n) } catch (_e) { }
+                            return
+                        }
+                    } catch (_e) { }
+
+                    try { appendTerminalDebug('notify: ' + n) } catch (_e) { }
+
+                    try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
+                    try {
+                        const map = JSON.parse(host.localStorage.getItem('ssg_files_v1') || '{}')
+                        map[n] = content
+                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                        if (!result.success) {
+                            logWarn('Failed to update localStorage mirror:', result.error)
+                        }
+                    } catch (_e) { }
+
+                    try {
+                        if (n !== MAIN_FILE) {
+                            try { host.__ssg_pending_tabs = (host.__ssg_pending_tabs || []).concat([n]) } catch (_e) { }
+                        }
+                    } catch (_e) { }
+
+                    try { host.__ssg_pending_tabs = Array.from(new Set(host.__ssg_pending_tabs || [])) } catch (_e) { }
+                    try { setTimeout(() => { try { flushPendingTabs() } catch (_e) { } }, 10) } catch (_e) { }
+                } catch (_e) { }
+            }
+        })()
+        return host.__ssg_notify_file_written
+    } catch (e) {
+        return null
+    }
+}
+
 /**
  * Flush pending tabs (should be called by tab manager)
  */
@@ -141,6 +208,20 @@ function consumeExpectedWriteIfMatches(path, content) {
     return false
 }
 
+function consumeExpectedWriteIfMatchesHost(path, content, host) {
+    try {
+        const map = host.__ssg_expected_writes
+        if (map && typeof map.get === 'function') {
+            const rec = map.get(path)
+            if (rec && String(rec.content || '') === String(content || '')) {
+                map.delete(path)
+                return true
+            }
+        }
+    } catch (_e) { }
+    return false
+}
+
 // Track expected writes we performed into the runtime FS
 try { window.__ssg_expected_writes = window.__ssg_expected_writes || new Map() } catch (_e) { }
 
@@ -149,10 +230,11 @@ function _normPath(p) {
     return p.startsWith('/') ? p : ('/' + p)
 }
 
-export function markExpectedWrite(p, content) {
+export function markExpectedWrite(p, content, host = window) {
     try {
         const n = _normPath(p)
-        window.__ssg_expected_writes.set(n, { content: String(content || ''), ts: Date.now() })
+        host.__ssg_expected_writes = host.__ssg_expected_writes || new Map()
+        host.__ssg_expected_writes.set(n, { content: String(content || ''), ts: Date.now() })
     } catch (_e) { }
 }
 
@@ -384,3 +466,35 @@ export function getMem() {
 }
 
 export { settleVfsReady }
+
+// Create a FileManager bound to a host object (defaults to window). Useful for tests.
+export function createFileManager(host = window) {
+    const KEY = 'ssg_files_v1'
+    function _load() { try { return JSON.parse(host.localStorage.getItem(KEY) || '{}') } catch (e) { return {} } }
+    function _save(m) { const result = safeSetItem(KEY, JSON.stringify(m)); if (!result.success) throw new Error(result.error || 'Storage quota exceeded') }
+    function _norm(p) { if (!p) return p; return p.startsWith('/') ? p : ('/' + p) }
+
+    return {
+        key: KEY,
+        list() { return Object.keys(_load()).sort() },
+        read(path) { try { const m = _load(); return m[_norm(path)] || null } catch (e) { return null } },
+        write(path, content) { try { const m = _load(); m[_norm(path)] = content; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } },
+        delete(path) { try { if (_norm(path) === MAIN_FILE) { try { logWarn('Attempt to delete protected main file ignored:', path) } catch (_e) { } return Promise.resolve() } const m = _load(); delete m[_norm(path)]; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } }
+    }
+}
+
+// Lightweight factory returning helpers scoped for testing or multiple instances.
+export function createVfsClient(options = {}) {
+    const host = options.host || window
+    return {
+        createNotificationSystem: (h = host) => createNotificationSystem(h),
+        createFileManager: (h = host) => createFileManager(h),
+        markExpectedWrite: (p, c, h = host) => markExpectedWrite(p, c, h),
+        // expose some of the existing module API for convenience
+        initializeVFS: (cfg) => initializeVFS(cfg),
+        getFileManager: () => getFileManager(),
+        getBackendRef: () => getBackendRef(),
+        getMem: () => getMem(),
+        settleVfsReady: () => settleVfsReady()
+    }
+}
