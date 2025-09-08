@@ -1,5 +1,5 @@
 // Exported for use in autosave.js
-export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig, debugSnapshotStorage }
+export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig, debugSnapshotStorage, renderSnapshots, restoreSnapshot, clearStorage }
 
 // Restore from the special 'current' snapshot if it exists
 export async function restoreCurrentSnapshotIfExists() {
