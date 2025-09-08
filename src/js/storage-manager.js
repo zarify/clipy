@@ -239,7 +239,13 @@ export function createStorageManager(opts = {}) {
                     if (key.startsWith('snapshots_')) {
                         const configId = key.replace('snapshots_', '')
                         const raw = storage.getItem(key) || '[]'
-                        const snapshots = JSON.parse(raw)
+                        let snapshots = []
+                        try {
+                            snapshots = JSON.parse(raw)
+                        } catch (_e) {
+                            // malformed snapshot JSON, treat as empty
+                            snapshots = []
+                        }
                         configs.push({
                             configId,
                             snapshotCount: Array.isArray(snapshots) ? snapshots.length : 0,
