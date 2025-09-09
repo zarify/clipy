@@ -234,8 +234,8 @@ async function runTests(tests, options = {}) {
 }
 
 // Expose for Node require and ES imports
-if (typeof module !== 'undefined' && module.exports) module.exports = { runTests, matchExpectation, runGroupedTests }
-export { runTests, matchExpectation, runGroupedTests }
+if (typeof module !== 'undefined' && module.exports) module.exports = { runTests, matchExpectation, runGroupedTests, computeMismatchReason }
+export { runTests, matchExpectation, runGroupedTests, computeMismatchReason }
 
 /**
  * Run grouped tests with conditional execution support

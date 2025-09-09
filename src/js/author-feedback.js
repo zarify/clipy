@@ -564,9 +564,39 @@ export function initAuthorFeedback() {
 
         function validateAndSave() {
             const val = editor.get()
+
             if (val.pattern && val.pattern.type === 'regex') {
+                // If the editor.get() did not capture flags (rare in some DOM test
+                // environments), try to read directly from the modal's flags input
+                // as a fallback so edits persist correctly.
                 try {
-                    new RegExp(val.pattern.expression || '', val.pattern.flags || '')
+                    if (!val.pattern.flags || String(val.pattern.flags) === '') {
+                        // Use the local modal instance (m) which contains the editor DOM
+                        // for this edit session. In some test environments the outer
+                        // `modal` variable may not reference the same node, so prefer
+                        // the local one created above.
+                        const modalEl = m
+                        const flagsEl = modalEl && modalEl.querySelector ? modalEl.querySelector('input[placeholder="e.g. i"]') : null
+                        // no-op fallback debug removed
+                        if (flagsEl && typeof flagsEl.value === 'string') val.pattern.flags = flagsEl.value
+                    }
+                } catch (_e) { /* ignore fallback failures */ }
+
+                const flagsVal = String(val.pattern.flags || '')
+                // Accept only standard JS regex flags: g i m s u y (d is optional on newer engines)
+                const allowed = /^[gimsuyd]*$/
+                if (!allowed.test(flagsVal)) {
+                    err.textContent = 'Invalid regex flags: only the letters g, i, m, s, u, y, d are allowed.'
+                    return
+                }
+                // disallow duplicate flags as RegExp constructor will throw
+                const uniq = new Set(flagsVal.split(''))
+                if (uniq.size !== flagsVal.length) {
+                    err.textContent = 'Invalid regex flags: duplicate flag characters detected.'
+                    return
+                }
+                try {
+                    new RegExp(val.pattern.expression || '', flagsVal)
                     err.textContent = ''
                 } catch (e) {
                     err.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
@@ -625,8 +655,19 @@ export function initAuthorFeedback() {
         function validateAndSave() {
             const val = editor.get()
             if (val.pattern && val.pattern.type === 'regex') {
+                const flagsVal = String(val.pattern.flags || '')
+                const allowed = /^[gimsuyd]*$/
+                if (!allowed.test(flagsVal)) {
+                    err.textContent = 'Invalid regex flags: only the letters g, i, m, s, u, y, d are allowed.'
+                    return
+                }
+                const uniq = new Set(flagsVal.split(''))
+                if (uniq.size !== flagsVal.length) {
+                    err.textContent = 'Invalid regex flags: duplicate flag characters detected.'
+                    return
+                }
                 try {
-                    new RegExp(val.pattern.expression || '', val.pattern.flags || '')
+                    new RegExp(val.pattern.expression || '', flagsVal)
                     err.textContent = ''
                 } catch (e) {
                     err.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
@@ -690,4 +731,5 @@ export function initAuthorFeedback() {
     render()
 }
 
+export { parseFeedbackFromTextarea, writeFeedbackToTextarea, getValidTargetsForWhen }
 export default { initAuthorFeedback }

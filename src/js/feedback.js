@@ -296,8 +296,8 @@ async function evaluateFeedbackOnRun(ioCapture) {
 }
 
 // Expose for other modules
-const Feedback = { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on, off }
+const Feedback = { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on, off, validateConfig }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Feedback
 
-export { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on, off }
+export { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on, off, validateConfig }

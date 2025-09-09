@@ -11,6 +11,7 @@ Replace this file with the list of source files lacking direct unit tests (check
 - [x] src/js/author-tests.js  (tests added: src/js/__tests__/author-tests.test.js, src/js/__tests__/author-tests.edgecases.test.js, src/js/__tests__/author-tests.expand.test.js, src/js/__tests__/author-tests.modal-editor.test.js)
 - [ ] src/js/author-verification.js
 - [ ] src/js/autosave.js
+- [x] src/js/autosave.js  (tests added: src/js/__tests__/autosave.test.js)
 - [ ] src/js/download.js
 - [x] src/js/editor.js
 - [ ] src/js/feedback-ui.js
@@ -24,6 +25,7 @@ Replace this file with the list of source files lacking direct unit tests (check
 - [x] src/js/test-runner-adapter.js
 - [x] src/js/test-runner-sandbox.js
 - [x] src/js/test-runner.js
+- [x] src/js/test-runner extra coverage (tests added: src/js/__tests__/test-runner.extra.test.js)
 - [ ] src/js/traceback_mapper.js
 - [ ] src/js/vfs-glue.js
 - [ ] src/js/zero-knowledge-verification.js
