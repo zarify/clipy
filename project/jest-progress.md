@@ -2,7 +2,7 @@
 
 Replace this file with the list of source files lacking direct unit tests (checked items mean tests exist).
 
-- [ ] src/js/ast-analyzer.js
+- [x] src/js/ast-analyzer.js  (tests added: src/js/__tests__/ast-analyzer.test.js)
 - [ ] src/js/ast-rule-builder.js
 - [ ] src/js/ast-test-builder.js
 - [ ] src/js/author-feedback.js
