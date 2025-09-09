@@ -1,5 +1,87 @@
 import { jest } from '@jest/globals'
 
+describe('editor deeper behavior', () => {
+    beforeEach(() => {
+        jest.resetModules()
+        jest.useFakeTimers()
+        document.body.innerHTML = `
+            <div id="editor-host"></div>
+            <textarea id="code"></textarea>
+            <button id="run"></button>
+        `
+        // default config getter
+        const fakeConfig = { starter: 'init' }
+        jest.unstable_mockModule('../config.js', () => ({ getConfig: () => fakeConfig }))
+        jest.unstable_mockModule('../logger.js', () => ({ info: () => { }, warn: () => { }, error: () => { } }))
+    })
+
+    afterEach(() => {
+        try { delete window.CodeMirror } catch (_) { }
+        jest.useRealTimers()
+    })
+
+    test('CodeMirror change syncs to textarea and triggers feedback after debounce', async () => {
+        // mock Feedback and TabManager
+        window.Feedback = { evaluateFeedbackOnEdit: jest.fn() }
+        window.TabManager = { getActive: () => '/main.py' }
+
+        // fake CodeMirror implementation capturing listeners
+        window.CodeMirror = function (host, opts) {
+            const state = { opts }
+            const listeners = {}
+            return {
+                getOption(k) { return state.opts[k] },
+                setOption(k, v) { state.opts[k] = v },
+                getValue() { return state.opts.value },
+                setValue(v) { state.opts.value = v },
+                on(evt, cb) { listeners[evt] = cb },
+                _trigger(evt) { if (listeners[evt]) listeners[evt]() }
+            }
+        }
+
+        const mod = await import('../editor.js')
+        const { initializeEditor, getTextarea, getCodeMirror } = mod
+
+        const cm = initializeEditor()
+        expect(cm).toBeTruthy()
+        const textarea = getTextarea()
+        // set CodeMirror value and trigger change
+        cm.setValue('print(1)')
+        cm._trigger('change')
+
+        // textarea should sync immediately
+        expect(textarea.value).toBe('print(1)')
+
+        // Advance timers for debounce (300ms)
+        jest.advanceTimersByTime(300)
+        // Feedback should be called
+        expect(window.Feedback.evaluateFeedbackOnEdit).toHaveBeenCalledWith('print(1)', '/main.py')
+    })
+
+    test('textarea input event updates CodeMirror value', async () => {
+        window.CodeMirror = function (host, opts) {
+            const state = { opts }
+            return {
+                getOption(k) { return state.opts[k] },
+                setOption(k, v) { state.opts[k] = v },
+                getValue() { return state.opts.value },
+                setValue(v) { state.opts.value = v },
+                on() { }
+            }
+        }
+
+        const mod = await import('../editor.js')
+        const { initializeEditor, getTextarea, getCodeMirror } = mod
+        const cm = initializeEditor()
+        const ta = getTextarea()
+        ta.value = 'abc'
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        // CodeMirror should reflect textarea value
+        expect(cm.getValue()).toBe('abc')
+    })
+})
+
+
 describe('editor behavior tests', () => {
     beforeEach(() => {
         document.body.innerHTML = ''
