@@ -1,78 +1,145 @@
-## Jest test progress — snapshot
+## Jest test coverage gaps — checklist
 
-This note captures the current state of the Jest/jsdom effort so you can pick it up later.
+Replace this file with the list of source files lacking direct unit tests (checked items mean tests exist).
 
-### One-line plan
-Summarize what was done, what is green, what remains, and the preferred next steps to finish outstanding work.
+- [ ] src/js/ast-analyzer.js
+- [ ] src/js/ast-rule-builder.js
+- [ ] src/js/ast-test-builder.js
+- [ ] src/js/author-feedback.js
+- [ ] src/js/author-page.js
+- [x] src/js/author-page.js  (tests added: src/js/__tests__/author-page.test.js)
+- [x] src/js/author-storage.js
+- [ ] src/js/author-tests.js
+- [ ] src/js/author-verification.js
+- [ ] src/js/autosave.js
+- [ ] src/js/download.js
+- [x] src/js/editor.js
+- [ ] src/js/feedback-ui.js
+- [ ] src/js/feedback.js
+- [x] src/js/input-handling.js
+- [ ] src/js/logger.js
+- [ ] src/js/modals.js
+- [ ] src/js/normalize-tests.js
+- [ ] src/js/storage.js
+- [ ] src/js/tabs.js
+- [x] src/js/test-runner-adapter.js
+- [x] src/js/test-runner-sandbox.js
+- [x] src/js/test-runner.js
+- [ ] src/js/traceback_mapper.js
+- [ ] src/js/vfs-glue.js
+- [ ] src/js/zero-knowledge-verification.js
 
-## What we implemented
-- Set up Jest + jsdom global setup and polyfills to stabilize DOM/localStorage/TextDecoder behaviors used by tests.
-- Extracted shared test helpers under `src/js/__tests__/test-utils/` (e.g. `test-setup.js`, `storage-fixtures.js`, `execution-fixtures.js`).
-- Converted key singletons into factory-friendly APIs (modules expose `createX(...)` factories while retaining backwards-compatible defaults).
+---
 
-## Tests added (high level)
-- Execution-related tests: `src/js/__tests__/execution.test.js` — safety timeouts, asyncify recovery, input fallback, feedback evaluation.
-- VFS client tests: `src/js/__tests__/vfs-client.core.test.js`, `vfs-client.init.test.js`, `vfs-client.indexeddb.test.js`, `vfs-client.edgecases.test.js`.
-- MicroPython adapter tests: `src/js/__tests__/micropython.test.js` — adapter injection, interrupt API behaviors.
-- Storage manager tests (new): `src/js/__tests__/storage-manager.core.test.js`, `src/js/__tests__/storage-manager.quota.test.js`.
-- Vendored runtime loader integration test: `src/js/__tests__/loadMicroPython.integration.test.js` (spawn-based, runs a fresh Node ESM process and temporarily stubs `src/vendor/micropython.mjs`).
+For each file above, add focused subtasks describing recommended tests. Keep tests small and runnable under Jest (jsdom) where possible. Below are recommended subtasks per file.
 
-## Files created or modified (not exhaustive)
-- `jest.setup.js`, `jest.config.cjs` — test environment wiring (global setup, jsdom polyfills).
-- `src/js/__tests__/test-utils/*` — shared test utilities.
-- Multiple `src/js/__tests__/*.test.js` suites (see list above).
-- `src/js/__tests__/loadMicroPython.integration.test.js` — spawn/integration test for the vendored loader path.
+- src/js/ast-analyzer.js
+	- [ ] unit: parse small AST snippets and verify returned analysis shape
+	- [ ] unit: edge cases (empty input, invalid nodes)
+	- [ ] integration: feed analyzer output to `ast-rule-builder` to assert end-to-end rules
 
-## How to run the tests (quick)
-Use the project's Node and Jest invocation used during development. Example commands used in this work:
+- src/js/ast-rule-builder.js
+	- [ ] unit: build rules from fixtures and assert expected matcher functions
+	- [ ] unit: invalid rule definitions produce helpful errors
+	- [ ] integration: combined with `ast-test-builder` to verify rule enforcement on test examples
 
-```bash
-node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand
-```
+- src/js/ast-test-builder.js
+	- [ ] unit: transform test ASTs into runnable test objects
+	- [ ] unit: boundary tests for deeply nested/large ASTs
 
-To run a specific test file (example):
+- src/js/author-feedback.js
+	- [ ] unit: formatting of feedback messages, sanitization, and truncation logic
+	- [ ] integration: simulate receiving runtime errors and assert produced feedback payload
 
-```bash
-node --experimental-vm-modules ./node_modules/jest/bin/jest.js src/js/__tests__/storage-manager.core.test.js --runInBand -i
-```
+- src/js/author-page.js
+	- [ ] unit: page-level helper functions (URL params, restore state)
+	- [ ] e2e-ish: mount simple DOM and assert UI wiring (using jsdom)
 
-Notes:
-- The test suite runs under ESM and uses `--experimental-vm-modules` in local runs.
-- Some integration tests spawn a child Node process (the vendored runtime loader test) to avoid ESM mocking/caching issues.
+- src/js/author-storage.js
+	- [ ] unit: read/write abstraction tests using an in-memory/localStorage mock
+	- [ ] edge: storage quota / serialization failures handling
 
-## Status / coverage mapping
-- Jest + jsdom harness: Done
-- Shared test utilities: Done
-- `execution.js`: Good coverage — tests added and passing
-- `vfs-client.js`: Good coverage — core/init/indexeddb/edge-case tests added and passing
-- `micropython.js`: Adapter and interrupt tests added and passing
-- `storage-manager.js`: Basic save/load + quota tests added and passing
-- `loadMicroPythonRuntime` (vendored loader): Integration test added (spawn-based) and verified locally; alternative in-process mocking tests were tried but found fragile.
+- src/js/author-tests.js
+	- [ ] unit: test import/export of author-defined tests and meta-data handling
+	- [ ] integration: run author tests against a sample runner stub to assert pass/fail mapping
 
-## Outstanding work / recommended next steps
-1. Expand `storage-manager` tests
-   - Add migration tests for legacy `ssg_files_*` formats.
-   - Add tests for `getAllSnapshotConfigs`, malformed JSON handling, and cleanup helpers (`cleanupOldSnapshots`, `cleanupOtherConfigs`, `cleanupAllStorageData`).
+- src/js/author-verification.js
+	- [ ] unit: correctness of verification algorithm on known-good/bad inputs
+	- [ ] integration: wire into zero-knowledge verification stubs to validate expected calls
 
-2. Harden vendored-runtime tests
-   - Current spawn-based integration test is reliable; optionally extend it to assert runtime API behaviors (e.g., call `runPythonAsync`).
-   - If you need in-process coverage, consider using Jest's `jest.unstable_mockModule` at the top-level test file before any imports (non-trivial to get right under ESM).
+- src/js/autosave.js
+	- [ ] unit: timer-based save scheduling, debouncing behavior
+	- [ ] unit: cancel/restore logic when document changes rapidly
 
-3. Extract spawn/integration helpers to `src/js/__tests__/test-utils/` for reuse when adding more integration tests.
+- src/js/download.js
+	- [ ] unit: blob / data URL creation and filename handling
+	- [ ] integration: mock anchor click to verify download trigger
 
-4. Add CI wiring if desired — ensure CI runs Node with ESM support and includes `--experimental-vm-modules` when needed, or adapt tests to avoid that flag for CI stability.
+- src/js/editor.js
+	- [ ] unit: cursor/selection helpers and serialization
+	- [ ] unit: undo/redo buffer behavior (small sequences)
+	- [ ] integration: mount editor component in jsdom and simulate basic edits
 
-## Quick troubleshooting notes
-- If tests read storage/localStorage too early, ensure the Jest global setup (`jest.setup.js`) is referenced in `jest.config.cjs` so the localStorage mirror and `TextDecoder` polyfill are in place before modules import.
-- If you see vendored-runtime adapter `null` in tests, prefer the spawn-based integration test approach used in `loadMicroPython.integration.test.js`.
+- src/js/feedback-ui.js
+	- [ ] unit: rendering logic given different feedback payloads (errors, hints)
+	- [ ] integration: simulate user actions that dismiss/expand feedback and verify state
 
-## Resume checklist (what to pick up first)
-- [ ] Add migration tests for `storage-manager`
-- [ ] Extend `loadMicroPython.integration.test.js` to assert runtime API calls
-- [ ] Extract spawn-based helpers to `test-utils`
-- [ ] Run full test suite in CI to verify flags and ESM behaviors
+- src/js/feedback.js
+	- [ ] unit: feedback aggregation and severity ordering
+	- [ ] integration: ensure runtime errors produce correct feedback objects
 
-## Last-known local test state
-- Recent local runs showed multiple test suites passing after the changes (tests added during this session passed locally on macOS development runs).
+- src/js/input-handling.js
+	- [ ] unit: stdin buffering, line-oriented reads, and EOF handling
+	- [ ] unit: concurrent read requests and queuing behavior
+	- [ ] integration: couple with a fake runtime adapter to validate host<->VM input exchange
 
-If you want, I can implement the next item (migration tests for `storage-manager`) now — say “go” and I will add them and run the suite.
+- src/js/logger.js
+	- [ ] unit: log level filtering, message formatting
+	- [ ] integration: assert that certain modules call logger with expected messages (use spies)
+
+- src/js/modals.js
+	- [ ] unit: modal open/close state transitions and focus trapping helpers
+	- [ ] integration: keyboard interactions (Escape to close) in jsdom
+
+- src/js/normalize-tests.js
+	- [ ] unit: normalization rules for test fixtures and edge cases (duplicate names, missing fields)
+	- [ ] integration: verify normalized tests feed into test-runner with expected structure
+
+- src/js/storage.js
+	- [ ] unit: read/write/delete operations with a mock backend (IndexedDB/localStorage abstraction)
+	- [ ] edge: simulate backend failures and verify retry/failure paths
+
+- src/js/tabs.js
+	- [ ] unit: tab activation, close, and reordering logic
+	- [ ] integration: assert UI updates in jsdom when switching tabs
+
+- src/js/test-runner-adapter.js
+	- [ ] unit: adapter contract compliance (run, runPythonAsync, interrupt, setYielding)
+	- [ ] integration: load vendored runtime stub and exercise API surface in a child process (spawn)
+
+- src/js/test-runner-sandbox.js
+	- [ ] unit: sandbox initialization, message dispatch, and teardown
+	- [ ] integration: spawn a worker/child and assert messages are marshalled correctly
+
+- src/js/test-runner.js
+	- [ ] unit: orchestration logic (start/stop suite, per-test lifecycle hooks)
+	- [ ] integration: run a tiny test suite with a stubbed adapter and assert reporter events
+
+- src/js/traceback_mapper.js
+	- [ ] unit: mapping of runtime stack traces to source locations; test with synthetic traces
+	- [ ] edge: partial/garbled trace inputs
+
+- src/js/vfs-glue.js
+	- [ ] unit: glue layer between runtime FS and host VFS client (path normalization, error translation)
+	- [ ] integration: simulate runtime writes and assert host notifications are emitted
+
+- src/js/zero-knowledge-verification.js
+	- [ ] unit: verification steps, deterministic outputs for fixed inputs
+	- [ ] integration: verify interaction with author-verification and reporter stubs
+
+
+### Suggested next steps
+
+1. Prioritize `src/js/editor.js`, `src/js/input-handling.js`, and the `test-runner*` files for tests.
+2. Add small unit tests first (API surface + edge cases), then add a couple of focused integration tests where necessary.
+3. Mark items as done by checking the box when tests are added and committed.
