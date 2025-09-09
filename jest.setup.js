@@ -40,3 +40,13 @@ if (typeof globalThis.fetch === 'undefined') {
         }
     } catch (e) { }
 }
+
+// Provide a noop appendTerminal and appendTerminalDebug for tests that import UI modules
+globalThis.appendTerminalDebug = globalThis.appendTerminalDebug || (() => { })
+globalThis.appendTerminal = globalThis.appendTerminal || ((content, type) => {
+    try {
+        // Keep a lightweight event log for tests that inspect terminal output
+        window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []
+        window.__ssg_terminal_event_log.push({ when: Date.now(), action: type || 'stdout', text: String(content).slice(0, 200) })
+    } catch (_e) { }
+})

@@ -436,10 +436,8 @@ export async function loadMicroPythonRuntime(cfg) {
     try {
         let localMod = null
         try {
-            console.debug('[mp-debug] attempting to import vendor module:', '../vendor/micropython.mjs')
             // Import micropython.mjs directly to get loadMicroPython function
             await import('../vendor/micropython.mjs')
-            console.debug('[mp-debug] import completed, globalThis.loadMicroPython exists=', Boolean(globalThis.loadMicroPython))
             if (globalThis.loadMicroPython) {
                 localMod = { loadMicroPython: globalThis.loadMicroPython }
                 appendTerminalDebug('Loaded asyncify runtime via direct import: ./vendor/micropython.mjs')
@@ -447,7 +445,6 @@ export async function loadMicroPythonRuntime(cfg) {
                 appendTerminalDebug('micropython.mjs imported but loadMicroPython not found on globalThis')
             }
         } catch (e) {
-            console.debug('[mp-debug] import failed:', e && e.stack ? e.stack : e)
             appendTerminalDebug('Failed to import ./vendor/micropython.mjs: ' + e)
         }
 
@@ -455,7 +452,6 @@ export async function loadMicroPythonRuntime(cfg) {
         if (localMod) {
             // Prefer the modern loader API if present: loadMicroPython
             if (typeof localMod.loadMicroPython === 'function') {
-                console.debug('[mp-debug] localMod.loadMicroPython detected')
                 appendTerminalDebug('Vendor module provides loadMicroPython(); initializing runtime...')
                 try {
                     let captured = ''
@@ -470,11 +466,7 @@ export async function loadMicroPythonRuntime(cfg) {
                             TextDecoderCtor = null
                         }
                     }
-                    const td = TextDecoderCtor ? new TextDecoderCtor() : {
-                        decode: (buf) => {
-                            try { return Buffer.from(buf).toString('utf8') } catch (_e) { return String(buf || '') }
-                        }
-                    }
+                    const td = TextDecoderCtor ? new TextDecoderCtor() : { decode: (buf) => { try { return Buffer.from(buf).toString('utf8') } catch (_e) { return String(buf || '') } } }
                     const stdout = (chunk) => {
                         let content = ''
 
@@ -567,14 +559,14 @@ export async function loadMicroPythonRuntime(cfg) {
                     // Set up custom input handler
                     const inputHandler = createInputHandler()
 
-                    console.debug('[mp-debug] calling localMod.loadMicroPython with url=', (cfg?.runtime?.wasm) || './vendor/micropython.wasm')
+                    appendTerminalDebug('Calling vendor loadMicroPython with url: ' + ((cfg && cfg.runtime && cfg.runtime.wasm) || './vendor/micropython.wasm'))
                     const mpInstance = await localMod.loadMicroPython({
                         url: (cfg?.runtime?.wasm) || './vendor/micropython.wasm',
                         stdout, stderr, stdin, linebuffer: true,
                         inputHandler: inputHandler
                     })
 
-                    console.debug('[mp-debug] mpInstance returned:', Boolean(mpInstance))
+                    // mpInstance returned
                     // NEW: Check if this is an asyncify build with yielding support
                     const hasYieldingSupport = typeof mpInstance.interruptExecution === 'function' &&
                         typeof mpInstance.setYielding === 'function' &&
@@ -653,7 +645,6 @@ export async function loadMicroPythonRuntime(cfg) {
                         appendTerminalDebug('Could not setup filesystem notifications: ' + e)
                     }
 
-                    console.debug('[mp-debug] about to call setRuntimeAdapter; hasYieldingSupport=', hasYieldingSupport)
                     setRuntimeAdapter({
                         _module: mpInstance,  // Expose the module for asyncify detection
                         hasYieldingSupport: hasYieldingSupport,  // NEW: Flag to indicate asyncify features
@@ -691,17 +682,14 @@ export async function loadMicroPythonRuntime(cfg) {
                         setYielding: hasYieldingSupport ? mpInstance.setYielding.bind(mpInstance) : null,
                         clearInterrupt: hasYieldingSupport ? mpInstance.clearInterrupt.bind(mpInstance) : null
                     })
-                    console.debug('[mp-debug] setRuntimeAdapter completed; runtimeAdapter now=', Boolean(getRuntimeAdapter && getRuntimeAdapter()))
 
                     return runtimeAdapter
                 } catch (e) {
-                    console.debug('[mp-debug] exception during vendor init:', e && e.stack ? e.stack : e)
                     appendTerminal('Failed to initialize vendored MicroPython: ' + e)
                 }
             }
         }
     } catch (e) {
-        console.debug('[mp-debug] local vendor load outer catch:', e && e.stack ? e.stack : e)
         appendTerminalDebug('Local vendor load failed: ' + e)
     }
 
