@@ -168,9 +168,10 @@ function renderList() {
                     // Reuse existing detail rendering logic (actual/expected, stderr)
                     const hasExpected = authorEntry && (authorEntry.expected_stdout != null)
                     const isRegexExpected = hasExpected && (typeof authorEntry.expected_stdout === 'object' && authorEntry.expected_stdout.type === 'regex')
+                    const isExactExpected = hasExpected && (typeof authorEntry.expected_stdout === 'object' && authorEntry.expected_stdout.type === 'exact')
                     const hasStderr = r.stderr && r.stderr.trim().length > 0
                     const hideActualExpected = authorEntry && authorEntry.hide_actual_expected
-                    if (!r.passed && hasExpected && !isRegexExpected && !hasStderr && !hideActualExpected) {
+                    if (!r.passed && hasExpected && !isRegexExpected && !isExactExpected && !hasStderr && !hideActualExpected) {
                         const detailsWrap = document.createElement('div')
                         detailsWrap.className = 'test-compare'
                         detailsWrap.style.marginTop = '8px'
@@ -216,6 +217,7 @@ function renderList() {
                             const exp = authorEntry.expected_stdout
                             if (typeof exp === 'string') codeE.textContent = exp
                             else if (typeof exp === 'object' && exp.type === 'regex') codeE.textContent = `/${exp.expression}/${exp.flags || ''}`
+                            else if (typeof exp === 'object' && exp.type === 'exact') codeE.textContent = `[exact: ${exp.expression}]`
                             else codeE.textContent = JSON.stringify(exp)
                         } catch (_e) { codeE.textContent = String(authorEntry.expected_stdout) }
                         preE.appendChild(codeE)
@@ -1135,7 +1137,7 @@ function createTestResultRow(r, cfgMap, groupMap, isGrouped) {
         }
 
         const hideActualExpected = meta && meta.hide_actual_expected
-        if (!r.passed && expected != null && !(typeof expected === 'object' && expected.type === 'regex') && !(r.stderr && r.stderr.trim().length > 0) && !hideActualExpected) {
+        if (!r.passed && expected != null && !(typeof expected === 'object' && (expected.type === 'regex' || expected.type === 'exact')) && !(r.stderr && r.stderr.trim().length > 0) && !hideActualExpected) {
             const compareWrap = document.createElement('div')
             compareWrap.className = 'test-compare'
             compareWrap.style.marginTop = '8px'
@@ -1171,6 +1173,7 @@ function createTestResultRow(r, cfgMap, groupMap, isGrouped) {
             try {
                 if (typeof expected === 'string') codeE.textContent = expected
                 else if (typeof expected === 'object' && expected.type === 'regex') codeE.textContent = `/${expected.expression}/${expected.flags || ''}`
+                else if (typeof expected === 'object' && expected.type === 'exact') codeE.textContent = `[exact: ${expected.expression}]`
                 else codeE.textContent = JSON.stringify(expected)
             } catch (_e) { codeE.textContent = String(expected) }
             preE.appendChild(codeE)

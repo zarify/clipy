@@ -288,12 +288,13 @@ function createCard(item, idx, onEdit, onMoveUp, onMoveDown, onDelete, testNumbe
         }
     } else {
         // Regular test display (existing logic)
-        // Render expected_stdout/stderr safely: if it's an object (regex), show /expr/flags
+        // Render expected_stdout/stderr safely: if it's an object (regex/exact), show appropriate format
         function renderExpected(v) {
             if (v == null) return ''
             if (typeof v === 'string') return v
             try {
                 if (typeof v === 'object' && v.type === 'regex') return `/${v.expression}/${v.flags || ''}`
+                if (typeof v === 'object' && v.type === 'exact') return `[exact: ${v.expression}]`
             } catch (_e) { }
             try { return JSON.stringify(v) } catch (_e) { return String(v) }
         }
@@ -376,11 +377,12 @@ function buildEditorForm(existing) {
     stdin.rows = 3
     stdin.value = existing.stdin || ''
 
-    // Expected stdout editor: allow String or Regex modes
+    // Expected stdout editor: allow String, Exact, or Regex modes
     const expectedOutMode = document.createElement('select')
-    const optS = document.createElement('option'); optS.value = 'string'; optS.textContent = 'String'
+    const optS = document.createElement('option'); optS.value = 'string'; optS.textContent = 'String (contains)'
+    const optE = document.createElement('option'); optE.value = 'exact'; optE.textContent = 'Exact match'
     const optR = document.createElement('option'); optR.value = 'regex'; optR.textContent = 'Regex'
-    expectedOutMode.appendChild(optS); expectedOutMode.appendChild(optR)
+    expectedOutMode.appendChild(optS); expectedOutMode.appendChild(optE); expectedOutMode.appendChild(optR)
 
     const expectedOutText = document.createElement('textarea')
     expectedOutText.style.width = '100%'
@@ -396,11 +398,12 @@ function buildEditorForm(existing) {
     expectedOutFlags.style.width = '100%'
     expectedOutFlags.placeholder = 'flags (e.g. i)'
 
-    // Expected stderr editor
+    // Expected stderr editor: allow String, Exact, or Regex modes
     const expectedErrMode = document.createElement('select')
-    const eOptS = document.createElement('option'); eOptS.value = 'string'; eOptS.textContent = 'String'
+    const eOptS = document.createElement('option'); eOptS.value = 'string'; eOptS.textContent = 'String (contains)'
+    const eOptE = document.createElement('option'); eOptE.value = 'exact'; eOptE.textContent = 'Exact match'
     const eOptR = document.createElement('option'); eOptR.value = 'regex'; eOptR.textContent = 'Regex'
-    expectedErrMode.appendChild(eOptS); expectedErrMode.appendChild(eOptR)
+    expectedErrMode.appendChild(eOptS); expectedErrMode.appendChild(eOptE); expectedErrMode.appendChild(eOptR)
 
     const expectedErrText = document.createElement('textarea')
     expectedErrText.style.width = '100%'
@@ -965,6 +968,11 @@ function buildEditorForm(existing) {
             expectedOutExpr.value = existing.expected_stdout.expression || ''
             expectedOutFlags.value = existing.expected_stdout.flags || ''
             expectedOutText.style.display = 'none'
+        } else if (existing.expected_stdout && typeof existing.expected_stdout === 'object' && existing.expected_stdout.type === 'exact') {
+            expectedOutMode.value = 'exact'
+            expectedOutText.value = existing.expected_stdout.expression || ''
+            expectedOutExpr.style.display = 'none'
+            expectedOutFlags.style.display = 'none'
         } else {
             expectedOutMode.value = 'string'
             expectedOutText.value = existing.expected_stdout || ''
@@ -984,6 +992,11 @@ function buildEditorForm(existing) {
             expectedErrExpr.value = existing.expected_stderr.expression || ''
             expectedErrFlags.value = existing.expected_stderr.flags || ''
             expectedErrText.style.display = 'none'
+        } else if (existing.expected_stderr && typeof existing.expected_stderr === 'object' && existing.expected_stderr.type === 'exact') {
+            expectedErrMode.value = 'exact'
+            expectedErrText.value = existing.expected_stderr.expression || ''
+            expectedErrExpr.style.display = 'none'
+            expectedErrFlags.style.display = 'none'
         } else {
             expectedErrMode.value = 'string'
             expectedErrText.value = existing.expected_stderr || ''
@@ -1087,23 +1100,29 @@ function buildEditorForm(existing) {
                 filesVal = files.value || null
             }
 
-            // expected stdout: respect selected mode (string or regex)
+            // expected stdout: respect selected mode (string, exact, or regex)
             let expectedOutVal = undefined
             if (typeof expectedOutMode !== 'undefined' && expectedOutMode.value === 'regex') {
                 const expr = (expectedOutExpr.value || '').trim()
                 const flagsV = (expectedOutFlags.value || '').trim()
                 if (expr !== '') expectedOutVal = { type: 'regex', expression: expr, flags: flagsV || '' }
+            } else if (typeof expectedOutMode !== 'undefined' && expectedOutMode.value === 'exact') {
+                const v = (expectedOutText.value || '').trim()
+                expectedOutVal = v === '' ? undefined : { type: 'exact', expression: v }
             } else {
                 const v = (expectedOutText.value || '').trim()
                 expectedOutVal = v === '' ? undefined : v
             }
 
-            // expected stderr: respect selected mode
+            // expected stderr: respect selected mode (string, exact, or regex)
             let expectedErrVal = undefined
             if (typeof expectedErrMode !== 'undefined' && expectedErrMode.value === 'regex') {
                 const expr = (expectedErrExpr.value || '').trim()
                 const flagsV = (expectedErrFlags.value || '').trim()
                 if (expr !== '') expectedErrVal = { type: 'regex', expression: expr, flags: flagsV || '' }
+            } else if (typeof expectedErrMode !== 'undefined' && expectedErrMode.value === 'exact') {
+                const v = (expectedErrText.value || '').trim()
+                expectedErrVal = v === '' ? undefined : { type: 'exact', expression: v }
             } else {
                 const v = (expectedErrText.value || '').trim()
                 expectedErrVal = v === '' ? undefined : v

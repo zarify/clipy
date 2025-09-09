@@ -1,6 +1,7 @@
 ## 2025-09-09
 - Fix: Tests now receive the full user workspace, not just `main.py`
 - Enhancement: Authoring now allows files to be added to each test
+- Enhancement: Tests now allow for exact or partial matching
 
 ## 2025-09-07
 - Feature: Student verification codes
