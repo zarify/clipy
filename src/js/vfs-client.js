@@ -230,6 +230,26 @@ function _normPath(p) {
     return p.startsWith('/') ? p : ('/' + p)
 }
 
+// Safe decoder for Uint8Array / ArrayBuffer values returned by some FS implementations
+function safeDecode(buf) {
+    if (buf == null) return buf
+    try {
+        if (typeof buf === 'string') return buf
+        if (buf instanceof ArrayBuffer) buf = new Uint8Array(buf)
+        if (ArrayBuffer.isView(buf)) {
+            if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(buf)
+            try {
+                // Node fallback
+                // eslint-disable-next-line no-restricted-globals
+                const util = typeof require === 'function' ? require('util') : null
+                if (util && util.TextDecoder) return new util.TextDecoder('utf-8').decode(buf)
+            } catch (_e) { }
+            try { return Buffer.from(buf).toString('utf8') } catch (_e) { return String(buf) }
+        }
+        return String(buf)
+    } catch (e) { return String(buf) }
+}
+
 export function markExpectedWrite(p, content, host = window) {
     try {
         const n = _normPath(p)
@@ -333,67 +353,91 @@ export async function initializeVFS(cfg) {
         FileManager = {
             list() { return Object.keys(mem).sort() },
             read(path) {
-                const n = path && path.startsWith('/') ? path : ('/' + path)
-                return mem[n] || null
+                try {
+                    const n = _normPath(path)
+                    const v = mem[n]
+                    return v == null ? null : v
+                } catch (_e) { return null }
             },
             write(path, content) {
-                const n = path && path.startsWith('/') ? path : ('/' + path)
-                const prev = mem[n]
-
-                // If content didn't change, return early
-                try { if (prev === content) return Promise.resolve() } catch (_e) { }
-
-                // update in-memory copy first
-                mem[n] = content
-
-                // update localStorage mirror for tests and fallbacks
                 try {
-                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                    map[n] = content
-                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                    if (!result.success) {
-                        logWarn('Failed to update localStorage mirror:', result.error)
-                    }
-                } catch (_e) { }
+                    const n = _normPath(path)
 
-                return backend.write(n, content).catch(e => {
-                    logError('VFS write failed', e)
-                    throw e
-                })
+                    if (n === MAIN_FILE && (content == null || content === '')) {
+                        // protect main file from being cleared accidentally
+                        logWarn('Attempt to clear protected main file ignored:', path)
+                        return Promise.resolve()
+                    }
+
+                    const prev = mem[n]
+                    // If content didn't change, return early
+                    try { if (prev === content) return Promise.resolve() } catch (_e) { }
+
+                    // update in-memory copy first
+                    mem[n] = content
+
+                    // update localStorage mirror for tests and fallbacks
+                    try {
+                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                        map[n] = content
+                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                        if (!result.success) {
+                            logWarn('Failed to update localStorage mirror:', result.error)
+                        }
+                    } catch (_e) { }
+
+                    // mark expected write so the notifier can ignore the echo
+                    try { markExpectedWrite(n, content) } catch (_e) { }
+
+                    return backend.write(n, content).then(res => {
+                        try { // notify host about write
+                            try { if (typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(n, content) } catch (_e) { }
+                        } catch (_e) { }
+                        return res
+                    }).catch(e => {
+                        logError('VFS write failed', e)
+                        throw e
+                    })
+                } catch (e) { return Promise.reject(e) }
             },
             delete(path) {
-                const n = path && path.startsWith('/') ? path : ('/' + path)
-                if (n === MAIN_FILE) {
-                    logWarn('Attempt to delete protected main file ignored:', path)
-                    return Promise.resolve()
-                }
-
-                delete mem[n]
-
                 try {
-                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                    delete map[n]
-                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                    if (!result.success) {
-                        logWarn('Failed to update localStorage mirror:', result.error)
+                    const n = _normPath(path)
+                    if (n === MAIN_FILE) {
+                        logWarn('Attempt to delete protected main file ignored:', path)
+                        return Promise.resolve()
                     }
-                } catch (_e) { }
 
-                // also attempt to remove from interpreter FS
-                try {
-                    const fs = window.__ssg_runtime_fs
-                    if (fs) {
-                        try {
-                            if (typeof fs.unlink === 'function') fs.unlink(n)
-                            else if (typeof fs.unlinkSync === 'function') fs.unlinkSync(n)
-                        } catch (_e) { }
-                    }
-                } catch (_e) { }
+                    delete mem[n]
 
-                return backend.delete(n).catch(e => {
-                    logError('VFS delete failed', e)
-                    throw e
-                })
+                    try {
+                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
+                        delete map[n]
+                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+                        if (!result.success) {
+                            logWarn('Failed to update localStorage mirror:', result.error)
+                        }
+                    } catch (_e) { }
+
+                    // also attempt to remove from interpreter FS
+                    try {
+                        const fs = window.__ssg_runtime_fs
+                        if (fs) {
+                            try {
+                                if (typeof fs.unlink === 'function') fs.unlink(n)
+                                else if (typeof fs.unlinkSync === 'function') fs.unlinkSync(n)
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
+
+                    return backend.delete(n).then(res => {
+                        try { if (typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(n, null) } catch (_e) { }
+                        return res
+                    }).catch(e => {
+                        logError('VFS delete failed', e)
+                        throw e
+                    })
+                } catch (e) { return Promise.reject(e) }
             }
         }
 
@@ -439,7 +483,7 @@ export function createFileManager(host = window) {
     return {
         key: KEY,
         list() { return Object.keys(_load()).sort() },
-        read(path) { try { const m = _load(); return m[_norm(path)] || null } catch (e) { return null } },
+        read(path) { try { const m = _load(); const v = m[_norm(path)]; return v == null ? null : v } catch (e) { return null } },
         write(path, content) { try { const m = _load(); m[_norm(path)] = content; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } },
         delete(path) { try { if (_norm(path) === MAIN_FILE) { try { logWarn('Attempt to delete protected main file ignored:', path) } catch (_e) { } return Promise.resolve() } const m = _load(); delete m[_norm(path)]; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } }
     }
