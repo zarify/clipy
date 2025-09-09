@@ -44,15 +44,17 @@ function openDb() {
 }
 
 export async function saveDraft(rec) {
+    // Ensure id and timestamps exist regardless of storage backend
+    const now = Date.now()
+    if (!rec.id) rec.id = String(now)
+    if (!rec.createdAt) rec.createdAt = now
+    rec.updatedAt = now
+
     try {
         const db = await openDb()
         return new Promise((resolve, reject) => {
             const tx = db.transaction(STORE, 'readwrite')
             const store = tx.objectStore(STORE)
-            const now = Date.now()
-            rec.updatedAt = now
-            if (!rec.id) rec.id = String(now)
-            if (!rec.createdAt) rec.createdAt = now
             const r = store.put(rec)
             r.onsuccess = () => resolve(rec)
             r.onerror = () => reject(r.error)
@@ -65,7 +67,9 @@ export async function saveDraft(rec) {
             return rec
         } catch (_e) { throw e }
     }
-} export async function listDrafts() {
+}
+
+export async function listDrafts() {
     try {
         const db = await openDb()
         return new Promise((resolve, reject) => {
