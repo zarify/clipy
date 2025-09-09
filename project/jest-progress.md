@@ -3,13 +3,12 @@
 Replace this file with the list of source files lacking direct unit tests (checked items mean tests exist).
 
 - [x] src/js/ast-analyzer.js  (tests added: src/js/__tests__/ast-analyzer.test.js)
-- [ ] src/js/ast-rule-builder.js
-- [ ] src/js/ast-test-builder.js
+- [x] src/js/ast-rule-builder.js  (tests added: src/js/__tests__/ast-rule-builder.test.js)
+- [x] src/js/ast-test-builder.js  (tests added: src/js/__tests__/ast-test-builder.test.js, src/js/__tests__/ast-test-builder.edgecases.test.js)
 - [ ] src/js/author-feedback.js
-- [ ] src/js/author-page.js
 - [x] src/js/author-page.js  (tests added: src/js/__tests__/author-page.test.js)
 - [x] src/js/author-storage.js
-- [ ] src/js/author-tests.js
+- [x] src/js/author-tests.js  (tests added: src/js/__tests__/author-tests.test.js, src/js/__tests__/author-tests.edgecases.test.js, src/js/__tests__/author-tests.expand.test.js, src/js/__tests__/author-tests.modal-editor.test.js)
 - [ ] src/js/author-verification.js
 - [ ] src/js/autosave.js
 - [ ] src/js/download.js
