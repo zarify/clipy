@@ -37,4 +37,6 @@ export function setMAIN_FILE(path) {
 
 export function ensureAppendTerminalDebug() {
     global.appendTerminalDebug = global.appendTerminalDebug || (() => { })
+    // Provide a noop appendTerminal for tests so modules that call it don't throw
+    global.appendTerminal = global.appendTerminal || (() => { })
 }

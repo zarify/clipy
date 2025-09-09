@@ -34,10 +34,16 @@ test('loadMicroPythonRuntime initializes runtime adapter from vendored module', 
         await fsp.writeFile(p, stub, 'utf8')
 
         // Now import the module under test and call loadMicroPythonRuntime
+        // Debug: log vendor path and any existing global loader
+        // (temporary instrumentation for triage)
+        console.debug('[test-debug] vendor path:', p)
+        console.debug('[test-debug] globalThis.loadMicroPython BEFORE import:', Boolean(globalThis.loadMicroPython))
         const mod = await import('../micropython.js')
         const { loadMicroPythonRuntime, getRuntimeAdapter } = mod
 
         const adapter = await loadMicroPythonRuntime({ runtime: { wasm: './vendor/micropython.wasm' } })
+        console.debug('[test-debug] adapter returned from loadMicroPythonRuntime:', Boolean(adapter))
+        console.debug('[test-debug] getRuntimeAdapter() after load call:', Boolean(mod.getRuntimeAdapter && mod.getRuntimeAdapter()))
 
         // Expect an adapter object to be returned and registered
         const runtimeAdapter = getRuntimeAdapter()
