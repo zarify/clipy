@@ -417,11 +417,35 @@ async function main() {
                             try {
                                 const sandbox = await import('./js/test-runner-sandbox.js')
                                 const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
-                                const mainContent = (FileManager ? (FileManager.read(MAIN_FILE) || '') : '')
                                 const runtimeUrl = (cfg && cfg.runtime && cfg.runtime.url) || './vendor/micropython.mjs'
                                 // Convert runtime URL to be relative to tests/ directory since iframe runs there
                                 const testsRelativeRuntimeUrl = runtimeUrl.startsWith('./') ? '../' + runtimeUrl.slice(2) : runtimeUrl
-                                const snapshot = { [MAIN_FILE]: mainContent }
+
+                                // Create snapshot with ALL user workspace files, not just main.py
+                                const snapshot = {}
+                                if (FileManager) {
+                                    try {
+                                        const allFiles = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                        for (const filePath of allFiles) {
+                                            try {
+                                                const content = FileManager.read(filePath)
+                                                if (content !== null) {
+                                                    snapshot[filePath] = content
+                                                }
+                                            } catch (e) {
+                                                logWarn('[app] failed to read file for snapshot:', filePath, e)
+                                            }
+                                        }
+                                    } catch (e) {
+                                        logWarn('[app] failed to list files for snapshot:', e)
+                                        // Fallback to just main file
+                                        const mainContent = FileManager.read(MAIN_FILE) || ''
+                                        snapshot[MAIN_FILE] = mainContent
+                                    }
+                                } else {
+                                    logWarn('[app] no FileManager available for snapshot')
+                                }
+
                                 logDebug('[app] creating sandboxed runFn with snapshot keys:', Object.keys(snapshot))
                                 runFn = sandbox.createSandboxedRunFn({ runtimeUrl: testsRelativeRuntimeUrl, filesSnapshot: snapshot })
                             } catch (e) {

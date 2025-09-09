@@ -1,3 +1,7 @@
+## 2025-09-09
+- Fix: Tests now receive the full user workspace, not just `main.py`
+- Enhancement: Authoring now allows files to be added to each test
+
 ## 2025-09-07
 - Feature: Student verification codes
   - Verification codes for students when all tests are passed
