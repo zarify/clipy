@@ -6,6 +6,8 @@
 - [ ] Dark mode
 - [ ] Maybe switch to IndexedDB support only - check browser support
 - [ ] New playwrite and other tests
+- [ ] Continue with the jest tests
+- [ ] Marking code needs to send the user workspace, not just the `main.py` code. Currently trying to read a file in userspace fails because it doesn't get sent for marking
 - [-] Tests that always run vs tests that only run if previous passes
 - [-] AST support for feedback and tests
 - [-] Implement save and restore drafts
