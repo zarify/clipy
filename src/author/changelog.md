@@ -1,3 +1,7 @@
+## 2025-09-10
+- Enhancement: Check AST matcher expressions for syntax and truthy values
+- Enhancement: Test builder modal now has a sticky header like Feedback builder modals
+
 ## 2025-09-09
 - Fix: Tests now receive the full user workspace, not just `main.py`
 - Enhancement: Authoring now allows files to be added to each test

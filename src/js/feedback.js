@@ -115,10 +115,13 @@ async function _applyPattern(pattern, text) {
                         `);
                         const matchResult = evaluateMatch(result);
 
-                        // Only proceed if matcher returns truthy value
-                        if (matchResult) {
-                            return _convertASTToMatch(result, pattern.expression)
+                        // Only accept strict boolean true from matcher. If matcher
+                        // returns a non-boolean truthy value, warn and treat as no-match.
+                        if (typeof matchResult === 'boolean') {
+                            if (matchResult) return _convertASTToMatch(result, pattern.expression)
+                            return null
                         } else {
+                            logWarn('AST matcher returned non-boolean value; matcher must return true or false')
                             return null
                         }
                     } catch (error) {

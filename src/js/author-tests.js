@@ -1556,29 +1556,64 @@ export function initAuthorTests() {
         contentWrapper.style.padding = '0 12px 12px 12px'
         contentWrapper.appendChild(editor.root)
 
-        const actions = document.createElement('div')
-        actions.style.marginTop = '8px'
+        const m = ensureModal()
+        // Use modal header actions so buttons are sticky and visible top-right
+        const header = m.querySelector('.modal-header')
+        const h3 = header ? header.querySelector('h3') : null
+        if (h3) h3.textContent = 'Edit Test'
+
+        // Header message area for validation/failure messages
+        let headerMessage = header ? header.querySelector('.modal-header-message') : null
+        if (!headerMessage && header) {
+            headerMessage = document.createElement('div')
+            headerMessage.className = 'modal-header-message'
+            headerMessage.style.color = '#b00020'
+            headerMessage.style.fontSize = '0.9em'
+            headerMessage.style.marginLeft = '12px'
+            headerMessage.style.flex = '1'
+            headerMessage.style.alignSelf = 'center'
+            // insert headerMessage between title and actions
+            const actionHolder = header.querySelector('.modal-header-actions')
+            header.insertBefore(headerMessage, actionHolder)
+        }
+
+        // Inject Save/Cancel into header action holder
+        const actionHolder = header ? header.querySelector('.modal-header-actions') : null
+        actionHolder && (actionHolder.innerHTML = '')
         const save = document.createElement('button')
         save.className = 'btn btn-primary'
         save.textContent = 'Save'
         const cancel = document.createElement('button')
         cancel.className = 'btn'
         cancel.textContent = 'Cancel'
-        actions.appendChild(save)
-        actions.appendChild(cancel)
-        contentWrapper.appendChild(actions)
+        actionHolder && actionHolder.appendChild(save)
+        actionHolder && actionHolder.appendChild(cancel)
 
-        const m = ensureModal()
-        const h3 = m.querySelector('h3')
-        h3.textContent = 'Edit Test'
         const body = m.querySelector('#author-tests-modal-body')
         body.innerHTML = ''
         body.appendChild(contentWrapper)
 
         try { openModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'false'); m.style.display = 'flex' }
 
+        // Clear header message when any input in the editor changes (covers matcher edits)
+        try {
+            editor.root.addEventListener('input', () => { if (headerMessage) headerMessage.textContent = '' })
+            editor.root.addEventListener('change', () => { if (headerMessage) headerMessage.textContent = '' })
+        } catch (_e) { }
+
         function validateAndSave() {
             const val = editor.get()
+            // If this is an AST test, ensure the AST tester did not produce
+            // a non-boolean truthy matcher result. If it did, block saving.
+            try {
+                if ((val.type && val.type === 'ast') || val.astRule) {
+                    const testResultEl = m && m.querySelector ? m.querySelector('.ast-rule-builder .test-result') : null
+                    if (testResultEl && testResultEl.dataset && testResultEl.dataset.nonBoolean) {
+                        if (headerMessage) headerMessage.textContent = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        return
+                    }
+                }
+            } catch (_e) { /* ignore DOM-check failures */ }
             if (!val.id) val.id = genId()
 
             const selectedGroupId = val._selectedGroupId
@@ -1634,6 +1669,10 @@ export function initAuthorTests() {
         const contentWrapper = document.createElement('div')
         contentWrapper.style.padding = '0 12px 12px 12px'
         contentWrapper.appendChild(editor.root)
+        const err = document.createElement('div')
+        err.style.color = '#b00020'
+        err.style.marginTop = '6px'
+        contentWrapper.appendChild(err)
 
         const actions = document.createElement('div')
         actions.style.marginTop = '8px'
@@ -1682,29 +1721,61 @@ export function initAuthorTests() {
         contentWrapper.style.padding = '0 12px 12px 12px'
         contentWrapper.appendChild(editor.root)
 
-        const actions = document.createElement('div')
-        actions.style.marginTop = '8px'
+        const m = ensureModal()
+        const header = m.querySelector('.modal-header')
+        const h3 = header ? header.querySelector('h3') : null
+        if (h3) h3.textContent = 'New Test'
+
+        // Header message area for validation/failure messages
+        let headerMessage = header ? header.querySelector('.modal-header-message') : null
+        if (!headerMessage && header) {
+            headerMessage = document.createElement('div')
+            headerMessage.className = 'modal-header-message'
+            headerMessage.style.color = '#b00020'
+            headerMessage.style.fontSize = '0.9em'
+            headerMessage.style.marginLeft = '12px'
+            headerMessage.style.flex = '1'
+            headerMessage.style.alignSelf = 'center'
+            const actionHolder = header.querySelector('.modal-header-actions')
+            header.insertBefore(headerMessage, actionHolder)
+        }
+
+        // Inject Save/Cancel into header action holder
+        const actionHolder = header ? header.querySelector('.modal-header-actions') : null
+        actionHolder && (actionHolder.innerHTML = '')
         const save = document.createElement('button')
         save.className = 'btn btn-primary'
         save.textContent = 'Save'
         const cancel = document.createElement('button')
         cancel.className = 'btn'
         cancel.textContent = 'Cancel'
-        actions.appendChild(save)
-        actions.appendChild(cancel)
-        contentWrapper.appendChild(actions)
+        actionHolder && actionHolder.appendChild(save)
+        actionHolder && actionHolder.appendChild(cancel)
 
-        const m = ensureModal()
-        const h3 = m.querySelector('h3')
-        h3.textContent = 'New Test'
         const body = m.querySelector('#author-tests-modal-body')
         body.innerHTML = ''
         body.appendChild(contentWrapper)
 
         try { openModalHelper(m) } catch (_e) { m.setAttribute('aria-hidden', 'false'); m.style.display = 'flex' }
 
+        // Clear header message when any input in the editor changes (covers matcher edits)
+        try {
+            editor.root.addEventListener('input', () => { if (headerMessage) headerMessage.textContent = '' })
+            editor.root.addEventListener('change', () => { if (headerMessage) headerMessage.textContent = '' })
+        } catch (_e) { }
+
         function validateAndSave() {
             const val = editor.get()
+            // Block save for AST tests whose matcher returned a non-boolean truthy value
+            try {
+                if ((val.type && val.type === 'ast') || val.astRule) {
+                    const testResultEl = m && m.querySelector ? m.querySelector('.ast-rule-builder .test-result') : null
+                    if (testResultEl && testResultEl.dataset && testResultEl.dataset.nonBoolean) {
+                        if (headerMessage) headerMessage.textContent = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        return
+                    }
+                }
+            } catch (_e) { /* ignore DOM-check failures */ }
             if (!val.id) val.id = genId()
 
             const selectedGroupId = val._selectedGroupId
