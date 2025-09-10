@@ -30,7 +30,7 @@ This file is a deduplicated, up-to-date mapping of `src/js` modules to whether t
 - [x] src/js/vfs-backend.js  (tests: src/js/__tests__/vfs-backend.test.js)
 - [ ] src/js/vfs-glue.js  (no direct tests found)
 - [ ] src/js/traceback_mapper.js  (no direct tests found)
-- [x] src/js/zero-knowledge-verification.js  (no direct tests found; commonly mocked)
+ - [x] src/js/zero-knowledge-verification.js  (tests: src/js/__tests__/zero-knowledge-verification.test.js)
 - [x] src/js/terminal.js  (tests: src/js/__tests__/terminal.test.js, src/js/__tests__/terminal.edgecases.test.js)
 - [x] src/js/micropython.js  (tests: src/js/__tests__/micropython.test.js, src/js/__tests__/loadMicroPython.test.js)
 
