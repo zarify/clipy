@@ -413,7 +413,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         try {
             const CURRENT_ID = '__current__'
             // Work with the passed snapshots array (it's sourced from storage)
-            const snaps = snapshots || getSnapshotsForCurrentConfig()
+            const snaps = snapshots || await getSnapshotsForCurrentConfig()
             const curIdx = snaps.findIndex(x => x && x.id === CURRENT_ID)
             // Only copy if there is a current snapshot and we're not restoring it
             if (curIdx !== -1 && curIdx !== index) {
@@ -429,7 +429,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
                 // Remove the special-current marker and append the copied snapshot into history
                 snaps.splice(curIdx, 1)
                 snaps.push(copySnap)
-                try { saveSnapshotsForCurrentConfig(snaps) } catch (_e) { /* non-fatal */ }
+                try { await saveSnapshotsForCurrentConfig(snaps) } catch (_e) { /* non-fatal */ }
             }
         } catch (e) {
             logError('Failed to persist current-as-history copy before restore:', e)
@@ -596,11 +596,11 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         // subsequent autosave/restore semantics see this as the current working copy.
         try {
             const CURRENT_ID = '__current__'
-            const snapsAll = getSnapshotsForCurrentConfig()
+            const snapsAll = await getSnapshotsForCurrentConfig()
             // Remove any existing current slot
             const filtered = snapsAll.filter(s => s && s.id !== CURRENT_ID)
             filtered.push({ id: CURRENT_ID, ts: Date.now(), config: snap.config, files: snap.files })
-            saveSnapshotsForCurrentConfig(filtered)
+            await saveSnapshotsForCurrentConfig(filtered)
         } catch (e) {
             logError('Failed to persist restored snapshot as __current__:', e)
         }
