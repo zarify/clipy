@@ -158,10 +158,20 @@ async function main() {
         // Suppress automatic terminal auto-switching during startup
         try { if (typeof window !== 'undefined') window.__ssg_suppress_terminal_autoswitch = true } catch (_e) { }
 
+        // 0. Migrate existing localStorage data to unified storage
+        try {
+            const { migrateFromLocalStorage, initUnifiedStorage } = await import('./js/unified-storage.js')
+            await initUnifiedStorage()
+            await migrateFromLocalStorage()
+            logInfo('Storage migration completed')
+        } catch (e) {
+            logWarn('Storage migration failed (continuing anyway):', e)
+        }
+
         // 1. Load configuration
         // Priority order:
         // 1. URL ?config= parameter (overrides everything)
-        // 2. Saved current_config from localStorage
+        // 2. Saved current_config from unified storage
         // 3. Default sample config
         let cfg = null
         try {
@@ -190,15 +200,15 @@ async function main() {
         // If no URL config, try loading saved current config
         if (!cfg) {
             try {
-                logInfo('main: attempting to load current config from localStorage')
-                const savedConfig = loadCurrentConfig()
+                logInfo('main: attempting to load current config from unified storage')
+                const savedConfig = await loadCurrentConfig()
                 if (savedConfig) {
                     cfg = savedConfig
                     // Set this as the current config so helpers reflect the right identity
                     setCurrentConfig(cfg)
-                    logInfo('main: loaded config from current_config localStorage:', cfg.id, cfg.version)
+                    logInfo('main: loaded config from unified storage:', cfg.id, cfg.version)
                 } else {
-                    logInfo('main: no current config found in localStorage')
+                    logInfo('main: no current config found in unified storage')
                 }
             } catch (e) {
                 logWarn('Failed to load current config:', e)
@@ -212,10 +222,10 @@ async function main() {
             logInfo('main: loaded default config:', cfg.id, cfg.version)
         }
 
-        // Save the loaded config as current (whether from URL, localStorage, or default)
+        // Save the loaded config as current (whether from URL, unified storage, or default)
         try {
             setCurrentConfig(cfg)
-            saveCurrentConfig(cfg)
+            await saveCurrentConfig(cfg)
             // Debug what was actually saved
             logDebug('=== Config Loading Debug ===')
             logDebug('Final loaded config:', cfg.id, cfg.version)

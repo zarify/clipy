@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Snapshot Functions Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            cursor: pointer;
+        }
+
+        #output {
+            margin-top: 20px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .file-content {
+            background: #f8f9fa;
+            padding: 10px;
+            border-left: 3px solid #007bff;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Snapshot Functions Test</h1>
+    <p>Test the Save Snapshot and Clear Storage functionality with unified storage.</p>
+
+    <div class="test-section">
+        <h3>Setup Test Environment</h3>
+        <button onclick="setupTestEnvironment()">Setup Test Files & Config</button>
+        <button onclick="clearTestEnvironment()">Clear Test Environment</button>
+    </div>
+
+    <div class="test-section">
+        <h3>Save Snapshot Tests</h3>
+        <button onclick="testSaveSnapshot()">Test Save Snapshot</button>
+        <button onclick="testMultipleSnapshots()">Create Multiple Snapshots</button>
+        <button onclick="listAllSnapshots()">List All Snapshots</button>
+    </div>
+
+    <div class="test-section">
+        <h3>Clear Storage Tests</h3>
+        <button onclick="testClearStorage()">Test Clear All Snapshots</button>
+        <button onclick="verifyStorageEmpty()">Verify Storage is Empty</button>
+    </div>
+
+    <div class="test-section">
+        <h3>File Size Calculation Tests</h3>
+        <button onclick="testFileSizeCalculation()">Test Snapshot Size Calculation</button>
+        <button onclick="testLargeFileSnapshot()">Test Large File Snapshot</button>
+    </div>
+
+    <div id="output"></div>
+
+    <script type="module">
+        window.log = function (message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        // Mock the necessary dependencies for snapshot functions
+        window.$ = function (id) {
+            return document.getElementById(id) || { innerHTML: '', textContent: '' };
+        }
+
+        // Mock file manager and VFS
+        let mockFiles = {};
+        window.getFileManager = () => ({
+            list: () => Object.keys(mockFiles),
+            read: (path) => mockFiles[path] || null,
+            write: (path, content) => { mockFiles[path] = content; }
+        });
+
+        window.getMem = () => mockFiles;
+        window.getBackendRef = () => null; // Use FileManager instead
+
+        // Mock config functions
+        let currentConfig = { id: 'test-config', version: '1.0' };
+        window.getConfig = () => currentConfig;
+        window.getConfigIdentity = () => `${currentConfig.id}@${currentConfig.version}`;
+        window.getConfigKey = () => `snapshots_${window.getConfigIdentity()}`;
+
+        // Mock terminal and modal functions
+        window.appendTerminal = (msg, type) => log(`Terminal: ${msg}`, type === 'runtime' ? 'info' : type);
+        window.activateSideTab = () => { };
+        window.showConfirmModal = async (title, msg) => {
+            return confirm(`${title}\n\n${msg}`);
+        };
+
+        window.setupTestEnvironment = async function () {
+            try {
+                log('Setting up test environment...', 'info');
+
+                // Clear any existing data
+                mockFiles = {};
+
+                // Setup test config
+                currentConfig = { id: 'test-config', version: '1.0' };
+
+                // Create test files
+                mockFiles['/main.py'] = 'print("Hello from main")';
+                mockFiles['/utils.py'] = 'def helper():\n    return "helper function"';
+                mockFiles['/data.txt'] = 'Sample data file content';
+
+                log('✅ Test environment set up successfully', 'success');
+                log(`Config: ${window.getConfigIdentity()}`, 'info');
+                log(`Files: ${Object.keys(mockFiles).join(', ')}`, 'info');
+
+            } catch (error) {
+                log(`❌ Setup failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.clearTestEnvironment = async function () {
+            try {
+                // Clear unified storage
+                const { clearAllSnapshots, initUnifiedStorage } = await import('./src/js/unified-storage.js');
+                await initUnifiedStorage();
+                await clearAllSnapshots();
+
+                // Clear mock data
+                mockFiles = {};
+
+                log('✅ Test environment cleared', 'success');
+            } catch (error) {
+                log(`❌ Clear failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.testSaveSnapshot = async function () {
+            try {
+                log('Testing save snapshot functionality...', 'info');
+
+                // Import the snapshot functions
+                const snapshotModule = await import('./src/js/snapshots.js');
+
+                // Make sure we have files to snapshot
+                if (Object.keys(mockFiles).length === 0) {
+                    await setupTestEnvironment();
+                }
+
+                // Test saving a snapshot
+                log('Attempting to save snapshot...', 'info');
+
+                // We need to use the internal saveSnapshot function
+                // Since it's not exported, let's create our own version using the same logic
+                const { saveSnapshots, loadSnapshots } = await import('./src/js/unified-storage.js');
+
+                const snap = {
+                    ts: Date.now(),
+                    config: window.getConfigIdentity(),
+                    metadata: {
+                        configVersion: currentConfig.version || '1.0'
+                    },
+                    files: { ...mockFiles } // Copy current files
+                };
+
+                const existingSnaps = await loadSnapshots(window.getConfigIdentity());
+                existingSnaps.push(snap);
+                await saveSnapshots(window.getConfigIdentity(), existingSnaps);
+
+                log('✅ Snapshot saved successfully!', 'success');
+                log(`Snapshot timestamp: ${new Date(snap.ts).toLocaleString()}`, 'info');
+                log(`Files in snapshot: ${Object.keys(snap.files).length}`, 'info');
+
+                // Verify the snapshot was saved
+                const verifySnaps = await loadSnapshots(window.getConfigIdentity());
+                const savedSnap = verifySnaps.find(s => s.ts === snap.ts);
+
+                if (savedSnap) {
+                    log('✅ Snapshot verification passed', 'success');
+                    log(`Verified files: ${Object.keys(savedSnap.files).join(', ')}`, 'info');
+                } else {
+                    log('❌ Snapshot verification failed', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Save snapshot test failed: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        window.testMultipleSnapshots = async function () {
+            try {
+                log('Creating multiple test snapshots...', 'info');
+
+                const { saveSnapshots, loadSnapshots } = await import('./src/js/unified-storage.js');
+                const configId = window.getConfigIdentity();
+
+                let allSnaps = await loadSnapshots(configId);
+
+                // Create 3 different snapshots with different file contents
+                for (let i = 1; i <= 3; i++) {
+                    const testFiles = {
+                        '/main.py': `print("Snapshot ${i} - main file")`,
+                        '/test.py': `# Test file for snapshot ${i}\ndef test_${i}():\n    return ${i}`,
+                        '/data.json': `{"snapshot": ${i}, "timestamp": ${Date.now()}}`
+                    };
+
+                    const snap = {
+                        ts: Date.now() + i, // Slight time offset
+                        config: configId,
+                        metadata: { configVersion: '1.0', snapshotNumber: i },
+                        files: testFiles
+                    };
+
+                    allSnaps.push(snap);
+                    await new Promise(resolve => setTimeout(resolve, 10)); // Small delay
+                }
+
+                await saveSnapshots(configId, allSnaps);
+                log(`✅ Created ${allSnaps.length} snapshots total`, 'success');
+
+            } catch (error) {
+                log(`❌ Multiple snapshots test failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.listAllSnapshots = async function () {
+            try {
+                log('Listing all snapshots...', 'info');
+
+                const { getAllSnapshots } = await import('./src/js/unified-storage.js');
+                const allSnapshotData = await getAllSnapshots();
+
+                if (allSnapshotData.length === 0) {
+                    log('No snapshots found', 'warning');
+                    return;
+                }
+
+                let totalSnapshots = 0;
+                for (const data of allSnapshotData) {
+                    log(`Config: ${data.id}`, 'info');
+                    if (data.snapshots && Array.isArray(data.snapshots)) {
+                        totalSnapshots += data.snapshots.length;
+                        data.snapshots.forEach((snap, index) => {
+                            const fileCount = Object.keys(snap.files || {}).length;
+                            const size = JSON.stringify(snap.files || {}).length;
+                            log(`  Snapshot ${index + 1}: ${new Date(snap.ts).toLocaleString()}, ${fileCount} files, ~${size} bytes`, 'info');
+                        });
+                    }
+                }
+
+                log(`✅ Total snapshots across all configs: ${totalSnapshots}`, 'success');
+
+            } catch (error) {
+                log(`❌ List snapshots failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.testClearStorage = async function () {
+            try {
+                log('Testing clear all snapshots functionality...', 'info');
+
+                // First check what we have
+                const { getAllSnapshots, clearAllSnapshots } = await import('./src/js/unified-storage.js');
+                const beforeData = await getAllSnapshots();
+
+                let totalBefore = 0;
+                for (const data of beforeData) {
+                    if (data.snapshots) totalBefore += data.snapshots.length;
+                }
+
+                log(`Found ${totalBefore} snapshots before clearing`, 'info');
+
+                if (totalBefore === 0) {
+                    log('⚠️ No snapshots to clear. Create some first.', 'warning');
+                    return;
+                }
+
+                // Clear all snapshots
+                await clearAllSnapshots();
+                log('✅ Clear all snapshots completed', 'success');
+
+                // Verify they're gone
+                const afterData = await getAllSnapshots();
+                let totalAfter = 0;
+                for (const data of afterData) {
+                    if (data.snapshots) totalAfter += data.snapshots.length;
+                }
+
+                if (totalAfter === 0) {
+                    log('✅ Verification passed: All snapshots cleared', 'success');
+                } else {
+                    log(`❌ Verification failed: ${totalAfter} snapshots still remain`, 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Clear storage test failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.verifyStorageEmpty = async function () {
+            try {
+                const { getAllSnapshots } = await import('./src/js/unified-storage.js');
+                const data = await getAllSnapshots();
+
+                if (data.length === 0) {
+                    log('✅ Storage is empty', 'success');
+                } else {
+                    log(`❌ Storage is not empty: ${data.length} config entries found`, 'error');
+                    data.forEach(entry => {
+                        const count = entry.snapshots ? entry.snapshots.length : 0;
+                        log(`  ${entry.id}: ${count} snapshots`, 'info');
+                    });
+                }
+            } catch (error) {
+                log(`❌ Storage verification failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.testFileSizeCalculation = async function () {
+            try {
+                log('Testing file size calculation...', 'info');
+
+                // Create a snapshot with known content sizes
+                const testFiles = {
+                    '/small.txt': 'Hello', // 5 bytes
+                    '/medium.txt': 'A'.repeat(1000), // 1000 bytes 
+                    '/large.txt': 'B'.repeat(10000) // 10000 bytes
+                };
+
+                // Test the size calculation function (from snapshots.js)
+                function computeSnapshotSize(snap) {
+                    try {
+                        let total = 0;
+                        const files = snap.files || {};
+                        for (const k of Object.keys(files)) {
+                            const v = String(files[k] || '');
+                            total += new TextEncoder().encode(v).length;
+                        }
+                        return total;
+                    } catch (e) { return 0; }
+                }
+
+                const testSnap = {
+                    ts: Date.now(),
+                    config: 'test@1.0',
+                    files: testFiles
+                };
+
+                const calculatedSize = computeSnapshotSize(testSnap);
+                const expectedSize = 5 + 1000 + 10000; // 11005 bytes
+
+                log(`Calculated size: ${calculatedSize} bytes`, 'info');
+                log(`Expected size: ${expectedSize} bytes`, 'info');
+
+                if (calculatedSize === expectedSize) {
+                    log('✅ File size calculation is correct', 'success');
+                } else {
+                    log(`❌ Size calculation mismatch (diff: ${Math.abs(calculatedSize - expectedSize)})`, 'error');
+                }
+
+                // Test size formatting
+                function formatSize(bytes) {
+                    if (bytes < 1024) return `${bytes}B`;
+                    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+                    return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
+                }
+
+                log(`Formatted size: ${formatSize(calculatedSize)}`, 'info');
+
+            } catch (error) {
+                log(`❌ Size calculation test failed: ${error.message}`, 'error');
+            }
+        }
+
+        window.testLargeFileSnapshot = async function () {
+            try {
+                log('Testing snapshot with large files...', 'info');
+
+                // Create files of different sizes
+                const largeFiles = {
+                    '/tiny.txt': 'x',
+                    '/small.py': 'print("hello world")',
+                    '/medium.js': 'console.log("' + 'x'.repeat(500) + '");',
+                    '/large.data': 'X'.repeat(50000), // 50KB
+                };
+
+                const { saveSnapshots } = await import('./src/js/unified-storage.js');
+                const configId = 'size-test@1.0';
+
+                const snap = {
+                    ts: Date.now(),
+                    config: configId,
+                    files: largeFiles
+                };
+
+                // Calculate total size
+                let totalSize = 0;
+                for (const [path, content] of Object.entries(largeFiles)) {
+                    const size = new TextEncoder().encode(content).length;
+                    totalSize += size;
+                    log(`${path}: ${size} bytes`, 'info');
+                }
+
+                log(`Total snapshot size: ${totalSize} bytes (${(totalSize / 1024).toFixed(1)}KB)`, 'info');
+
+                // Save the large snapshot
+                await saveSnapshots(configId, [snap]);
+                log('✅ Large file snapshot saved successfully', 'success');
+
+            } catch (error) {
+                log(`❌ Large file snapshot test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-setup on page load
+        window.addEventListener('load', () => {
+            log('Snapshot test page loaded', 'info');
+            log('Click "Setup Test Files & Config" to begin testing', 'info');
+        });
+    </script>
+</body>
+
+</html>

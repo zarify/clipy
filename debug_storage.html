@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Storage Debug</title>
+    <script type="module">
+        // Debug both localStorage and IndexedDB usage patterns
+
+        console.log('=== Storage Debug Analysis ===');
+
+        // Check what's currently in localStorage
+        console.log('localStorage keys:', Object.keys(localStorage));
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            const value = localStorage.getItem(key);
+            console.log(`localStorage[${key}]:`, value ? value.substring(0, 100) + '...' : value);
+        }
+
+        // Test IndexedDB availability 
+        console.log('IndexedDB available:', !!window.indexedDB);
+
+        // Simulate the storage conflict scenario
+        async function simulateStorageConflict() {
+            console.log('\n=== Simulating Storage Conflict ===');
+
+            // 1. Save config to localStorage (like the app does on startup)
+            const testConfig = { id: 'test', version: '1.0' };
+            localStorage.setItem('current_config', JSON.stringify(testConfig));
+            console.log('1. Saved config to localStorage');
+
+            // 2. Save some snapshots to localStorage 
+            const testSnapshots = [{ ts: Date.now(), config: 'test@1.0' }];
+            localStorage.setItem('snapshots_test@1.0', JSON.stringify(testSnapshots));
+            console.log('2. Saved snapshots to localStorage');
+
+            // 3. Save VFS files to localStorage
+            const testFiles = { '/main.py': 'print("hello")' };
+            localStorage.setItem('ssg_files_v1', JSON.stringify(testFiles));
+            console.log('3. Saved VFS files to localStorage');
+
+            // 4. Now try to initialize IndexedDB (like what happens during VFS init)
+            if (window.indexedDB) {
+                try {
+                    const request = indexedDB.open('ssg_vfs_db', 1);
+                    request.onupgradeneeded = (event) => {
+                        console.log('4a. IndexedDB database being created/upgraded');
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains('files')) {
+                            db.createObjectStore('files', { keyPath: 'path' });
+                        }
+                    };
+                    request.onsuccess = (event) => {
+                        console.log('4b. IndexedDB opened successfully');
+                        const db = event.target.result;
+
+                        // Try to read/write to IndexedDB while localStorage has data
+                        const transaction = db.transaction(['files'], 'readwrite');
+                        const store = transaction.objectStore('files');
+
+                        // This is where conflicts might occur during migration
+                        store.put({ path: '/main.py', content: 'print("from indexeddb")' });
+
+                        const getRequest = store.get('/main.py');
+                        getRequest.onsuccess = () => {
+                            console.log('4c. IndexedDB file written and read back:', getRequest.result);
+
+                            // Now compare what's in localStorage vs IndexedDB
+                            const lsFiles = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}');
+                            console.log('LocalStorage has:', lsFiles['/main.py']);
+                            console.log('IndexedDB has:', getRequest.result.content);
+                            console.log('*** CONFLICT DETECTED ***', lsFiles['/main.py'] !== getRequest.result.content);
+                        };
+                    };
+                    request.onerror = (event) => {
+                        console.error('4. IndexedDB open failed:', event.target.error);
+                    };
+                } catch (error) {
+                    console.error('4. IndexedDB initialization error:', error);
+                }
+            }
+
+            // 5. Simulate reload config button behavior
+            setTimeout(() => {
+                console.log('\n=== Simulating Config Reload ===');
+
+                // Config reload clears and reloads config
+                localStorage.removeItem('current_config');
+                localStorage.setItem('current_config', JSON.stringify({ id: 'test', version: '1.1' }));
+                console.log('5. Config reloaded with new version');
+
+                // Now snapshots are tied to old config version but files might be mixed
+                const snapshots = JSON.parse(localStorage.getItem('snapshots_test@1.0') || '[]');
+                const currentConfig = JSON.parse(localStorage.getItem('current_config'));
+                console.log('Old snapshots config:', snapshots[0]?.config);
+                console.log('New config identity:', `${currentConfig.id}@${currentConfig.version}`);
+                console.log('*** VERSION MISMATCH DETECTED ***', snapshots[0]?.config !== `${currentConfig.id}@${currentConfig.version}`);
+
+            }, 1000);
+        }
+
+        // Run the simulation
+        simulateStorageConflict();
+    </script>
+</head>
+
+<body>
+    <h1>Storage Conflict Debug</h1>
+    <p>Check browser console for detailed analysis.</p>
+</body>
+
+</html>

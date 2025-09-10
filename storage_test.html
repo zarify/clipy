@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Storage Migration Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px;
+        }
+
+        #output {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Storage Migration Test</h1>
+    <p>This page tests the unified storage system and migration from localStorage.</p>
+
+    <button onclick="testInitialization()">Test Initialization</button>
+    <button onclick="testConfigOperations()">Test Config Storage</button>
+    <button onclick="testMigration()">Test Migration</button>
+    <button onclick="testFallback()">Test Fallback</button>
+    <button onclick="clearAll()">Clear All Storage</button>
+
+    <div id="output"></div>
+
+    <script type="module">
+        window.log = function (message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        window.testInitialization = async function () {
+            try {
+                log('Testing unified storage initialization...', 'info');
+
+                const { initUnifiedStorage } = await import('./src/js/unified-storage.js');
+                const db = await initUnifiedStorage();
+
+                if (db) {
+                    log('✅ Unified storage initialized successfully', 'success');
+                    log(`Database name: ${db.name}`, 'info');
+                } else {
+                    log('❌ Failed to initialize unified storage', 'error');
+                }
+            } catch (error) {
+                log(`❌ Initialization error: ${error.message}`, 'error');
+            }
+        }
+
+        window.testConfigOperations = async function () {
+            try {
+                log('Testing config save/load operations...', 'info');
+
+                const { saveConfig, loadConfig, clearConfig } = await import('./src/js/unified-storage.js');
+
+                // Test save
+                const testConfig = {
+                    id: 'test-config',
+                    version: '1.0',
+                    title: 'Test Configuration',
+                    timestamp: Date.now()
+                };
+
+                await saveConfig(testConfig);
+                log('✅ Config saved successfully', 'success');
+
+                // Test load
+                const loadedConfig = await loadConfig();
+                if (loadedConfig && loadedConfig.id === testConfig.id) {
+                    log('✅ Config loaded successfully', 'success');
+                    log(`Loaded config: ${loadedConfig.id}@${loadedConfig.version}`, 'info');
+                } else {
+                    log('❌ Config load failed or data mismatch', 'error');
+                    log(`Expected: ${testConfig.id}, Got: ${loadedConfig?.id || 'null'}`, 'error');
+                }
+
+                // Test clear
+                await clearConfig();
+                const clearedConfig = await loadConfig();
+                if (!clearedConfig) {
+                    log('✅ Config cleared successfully', 'success');
+                } else {
+                    log('❌ Config clear failed', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Config operations error: ${error.message}`, 'error');
+            }
+        }
+
+        window.testMigration = async function () {
+            try {
+                log('Testing localStorage migration...', 'info');
+
+                // Setup test localStorage data
+                localStorage.setItem('current_config', JSON.stringify({ id: 'legacy', version: '0.9' }));
+                localStorage.setItem('snapshots_legacy@0.9', JSON.stringify([{ ts: 123, config: 'legacy@0.9' }]));
+                localStorage.setItem('ssg_files_v1', JSON.stringify({ '/legacy.py': 'print("legacy")' }));
+                localStorage.setItem('author_config', JSON.stringify({ name: 'Test Author' }));
+
+                log('Set up legacy localStorage data', 'info');
+
+                const { migrateFromLocalStorage, loadConfig, loadSnapshots, loadFile, loadSetting } = await import('./src/js/unified-storage.js');
+
+                // Run migration
+                await migrateFromLocalStorage();
+                log('✅ Migration completed', 'success');
+
+                // Verify migrated data
+                const config = await loadConfig();
+                if (config && config.id === 'legacy') {
+                    log('✅ Config migrated successfully', 'success');
+                } else {
+                    log('❌ Config migration failed', 'error');
+                }
+
+                const snapshots = await loadSnapshots('legacy@0.9');
+                if (snapshots && snapshots.length > 0) {
+                    log('✅ Snapshots migrated successfully', 'success');
+                } else {
+                    log('❌ Snapshots migration failed', 'error');
+                }
+
+                const file = await loadFile('/legacy.py');
+                if (file === 'print("legacy")') {
+                    log('✅ Files migrated successfully', 'success');
+                } else {
+                    log('❌ Files migration failed', 'error');
+                }
+
+                const authorConfig = await loadSetting('author_config');
+                if (authorConfig && authorConfig.name === 'Test Author') {
+                    log('✅ Settings migrated successfully', 'success');
+                } else {
+                    log('❌ Settings migration failed', 'error');
+                }
+
+                // Check localStorage cleanup
+                if (!localStorage.getItem('current_config')) {
+                    log('✅ localStorage cleaned up', 'success');
+                } else {
+                    log('⚠️ localStorage not fully cleaned up', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Migration test error: ${error.message}`, 'error');
+            }
+        }
+
+        window.testFallback = async function () {
+            try {
+                log('Testing localStorage fallback...', 'info');
+
+                // Temporarily disable IndexedDB
+                const originalIDB = window.indexedDB;
+                delete window.indexedDB;
+
+                // Clear modules cache to force reimport
+                delete window.__unifiedStorageModule;
+
+                // Import should detect no IndexedDB and use fallbacks
+                const { saveConfig, loadConfig } = await import('./src/js/unified-storage.js');
+
+                // This should fail and use localStorage fallback in config.js
+                try {
+                    await saveConfig({ id: 'fallback-test', version: '1.0' });
+                    log('Config save attempted (should use fallback)', 'info');
+                } catch (e) {
+                    log('Config save failed as expected, fallback should be used', 'info');
+                }
+
+                // Restore IndexedDB
+                window.indexedDB = originalIDB;
+
+                // Check if localStorage has the fallback data
+                const fallbackData = localStorage.getItem('current_config');
+                if (fallbackData) {
+                    const parsed = JSON.parse(fallbackData);
+                    if (parsed.id === 'fallback-test') {
+                        log('✅ Fallback to localStorage working', 'success');
+                    } else {
+                        log('❌ Fallback data incorrect', 'error');
+                    }
+                } else {
+                    log('❌ No fallback data found', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Fallback test error: ${error.message}`, 'error');
+            }
+        }
+
+        window.clearAll = async function () {
+            try {
+                log('Clearing all storage...', 'info');
+
+                // Clear IndexedDB
+                if (window.indexedDB) {
+                    try {
+                        const deleteReq = indexedDB.deleteDatabase('clipy_unified_storage');
+                        deleteReq.onsuccess = () => log('IndexedDB database deleted', 'info');
+                        deleteReq.onerror = () => log('Failed to delete IndexedDB database', 'error');
+                    } catch (e) {
+                        log('IndexedDB delete error: ' + e.message, 'error');
+                    }
+                }
+
+                // Clear localStorage
+                localStorage.clear();
+                log('localStorage cleared', 'info');
+
+                log('✅ All storage cleared', 'success');
+
+            } catch (error) {
+                log(`❌ Clear storage error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run initialization test
+        window.addEventListener('load', () => {
+            log('Page loaded - ready for testing', 'info');
+            log('IndexedDB available: ' + (!!window.indexedDB), 'info');
+        });
+    </script>
+</body>
+
+</html>

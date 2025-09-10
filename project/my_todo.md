@@ -4,7 +4,7 @@
 - [ ] Make a logo
 - [ ] Make a favicon
 - [ ] Dark mode
-- [ ] Maybe switch to IndexedDB support only - check browser support
+- [ ] Maybe switch to IndexedDB support only - check browser support - localStorage and IndexedDB seem to fight when loading the page and when the reload config button is used
 - [ ] New playwrite and other tests
 - [ ] Continue with the jest tests
 - [-] Add the ability to attach files to tests

@@ -287,57 +287,77 @@ export function initializeInstructions(cfg) {
     } catch (_e) { }
 }
 
-// Current config persistence functions
-const CURRENT_CONFIG_KEY = 'current_config'
-
-export function saveCurrentConfig(cfg) {
+// Current config persistence functions using unified storage
+export async function saveCurrentConfig(cfg) {
     try {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(CURRENT_CONFIG_KEY, JSON.stringify(cfg))
-        }
+        const { saveConfig } = await import('./unified-storage.js')
+        await saveConfig(cfg)
+        logDebug('Config saved via unified storage:', cfg.id, cfg.version)
     } catch (e) {
-        logWarn('Failed to save current config to localStorage:', e)
+        logWarn('Failed to save current config to unified storage:', e)
+        // Fallback to localStorage for backward compatibility during transition
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('current_config', JSON.stringify(cfg))
+                logDebug('Config saved to localStorage fallback')
+            }
+        } catch (fallbackError) {
+            logError('Both unified storage and localStorage failed:', fallbackError)
+        }
     }
 }
 
-export function loadCurrentConfig() {
+export async function loadCurrentConfig() {
     try {
-        if (typeof localStorage !== 'undefined') {
-            const stored = localStorage.getItem(CURRENT_CONFIG_KEY)
-            logDebug('Raw stored config:', stored ? 'exists' : 'null')
-            if (stored) {
-                let parsed
-                try {
-                    parsed = JSON.parse(stored)
-                    logDebug('Parsed current config:', parsed.id || 'unknown', parsed.version || 'unknown')
-                } catch (parseError) {
-                    logError('JSON parse error for stored config:', parseError)
-                    return null
-                }
-
-                try {
-                    const validated = validateAndNormalizeConfigInternal(parsed)
-                    logDebug('Validated current config:', validated.id, validated.version)
-                    return validated
-                } catch (validationError) {
-                    logError('Validation error for stored config:', validationError)
-                    return null
-                }
+        const { loadConfig } = await import('./unified-storage.js')
+        const config = await loadConfig()
+        if (config) {
+            logDebug('Config loaded from unified storage:', config.id, config.version)
+            try {
+                const validated = validateAndNormalizeConfigInternal(config)
+                logDebug('Validated current config:', validated.id, validated.version)
+                return validated
+            } catch (validationError) {
+                logError('Validation error for stored config:', validationError)
+                return null
             }
         }
     } catch (e) {
-        logWarn('Failed to load current config from localStorage:', e)
+        logWarn('Failed to load current config from unified storage:', e)
+        // Fallback to localStorage for backward compatibility during transition
+        try {
+            if (typeof localStorage !== 'undefined') {
+                const stored = localStorage.getItem('current_config')
+                if (stored) {
+                    const parsed = JSON.parse(stored)
+                    const validated = validateAndNormalizeConfigInternal(parsed)
+                    logDebug('Config loaded from localStorage fallback:', validated.id, validated.version)
+                    return validated
+                }
+            }
+        } catch (fallbackError) {
+            logWarn('Failed to load from localStorage fallback:', fallbackError)
+        }
     }
     return null
 }
 
-export function clearCurrentConfig() {
+export async function clearCurrentConfig() {
     try {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(CURRENT_CONFIG_KEY)
-        }
+        const { clearConfig } = await import('./unified-storage.js')
+        await clearConfig()
+        logDebug('Config cleared from unified storage')
     } catch (e) {
-        logWarn('Failed to clear current config from localStorage:', e)
+        logWarn('Failed to clear current config from unified storage:', e)
+        // Fallback to localStorage
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('current_config')
+                logDebug('Config cleared from localStorage fallback')
+            }
+        } catch (fallbackError) {
+            logError('Both unified storage and localStorage clear failed:', fallbackError)
+        }
     }
 }
 

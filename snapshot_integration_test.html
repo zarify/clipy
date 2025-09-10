@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Snapshot Integration Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            border: 1px solid #0056b3;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+            border: 1px solid #c82333;
+        }
+
+        .mock-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border: 1px solid #ccc;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            min-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .mock-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        #output {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .snapshot-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-preview {
+            background: #f8f9fa;
+            padding: 5px;
+            margin: 5px 0;
+            font-family: monospace;
+            font-size: 11px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="test-container">
+        <h1>Snapshot Integration Test</h1>
+        <p>This page simulates the complete snapshot workflow including the History modal.</p>
+
+        <div class="test-section">
+            <h3>Environment Setup</h3>
+            <button onclick="initializeEnvironment()" class="btn-primary">Initialize Test Environment</button>
+            <button onclick="setupMockFiles()">Setup Mock Files</button>
+            <button onclick="clearAllData()" class="btn-danger">Clear All Data</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Snapshot Operations</h3>
+            <button id="save-snapshot" class="btn-primary">💾 Save Snapshot</button>
+            <button id="history" class="btn-primary">🕘 History</button>
+            <button onclick="createMultipleSnapshots()">Create Test Snapshots</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Direct Tests</h3>
+            <button onclick="testSaveSnapshotFunction()">Test Save Snapshot Function</button>
+            <button onclick="testClearStorageFunction()">Test Clear Storage Function</button>
+            <button onclick="testFileSizeCalculations()">Test File Size Calculations</button>
+        </div>
+
+        <!-- Mock snapshot modal -->
+        <div class="mock-backdrop" id="mock-backdrop"></div>
+        <div class="mock-modal" id="snapshot-modal">
+            <div class="modal-header" style="display:flex;align-items:center;gap:12px;margin-bottom:15px;">
+                <h3>Snapshots</h3>
+                <span id="snapshot-storage-summary-header">0 snaps • 0 files • 0B</span>
+                <button id="clear-storage" class="btn-danger" style="margin-left:auto;">🧺 Clear Storage</button>
+            </div>
+            <div class="modal-body">
+                <div id="snapshot-list">(loading)</div>
+                <div id="snapshot-storage-summary" style="margin-top:10px;font-size:0.9em;color:#444;">No snapshots
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top:15px;">
+                <button onclick="closeModal()">Close</button>
+            </div>
+        </div>
+
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        window.log = function (message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        // Global test state
+        let mockFiles = {};
+        let isInitialized = false;
+
+        // Setup global mocks and dependencies
+        window.initializeEnvironment = async function () {
+            try {
+                log('Initializing test environment...', 'info');
+
+                // Initialize unified storage
+                const { initUnifiedStorage } = await import('./src/js/unified-storage.js');
+                await initUnifiedStorage();
+                log('✅ Unified storage initialized', 'success');
+
+                // Setup mock functions that the snapshot system needs
+                setupMockDependencies();
+
+                // Initialize snapshot system
+                const { setupSnapshotSystem } = await import('./src/js/snapshots.js');
+                setupSnapshotSystem();
+                log('✅ Snapshot system initialized', 'success');
+
+                // Setup event handlers
+                setupEventHandlers();
+
+                isInitialized = true;
+                log('✅ Environment initialization complete', 'success');
+
+            } catch (error) {
+                log(`❌ Environment initialization failed: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function setupMockDependencies() {
+            // Mock DOM utility
+            window.$ = function (id) {
+                return document.getElementById(id) || {
+                    innerHTML: '',
+                    textContent: '',
+                    addEventListener: () => { },
+                    removeEventListener: () => { },
+                    disabled: false
+                };
+            };
+
+            // Mock VFS dependencies
+            window.getFileManager = () => ({
+                list: () => Object.keys(mockFiles),
+                read: (path) => Promise.resolve(mockFiles[path] || null),
+                write: (path, content) => { mockFiles[path] = content; }
+            });
+
+            window.getMem = () => mockFiles;
+            window.getBackendRef = () => null;
+
+            // Mock config functions
+            let currentConfig = { id: 'integration-test', version: '1.0' };
+            window.getConfig = () => currentConfig;
+            window.getConfigIdentity = () => `${currentConfig.id}@${currentConfig.version}`;
+            window.getConfigKey = () => `snapshots_${window.getConfigIdentity()}`;
+
+            // Mock UI functions
+            window.appendTerminal = (msg, type) => log(`Terminal: ${msg}`, type === 'runtime' ? 'info' : type);
+            window.activateSideTab = () => log('Terminal tab activated', 'info');
+
+            // Mock modal functions
+            window.openModal = (modal) => {
+                document.getElementById('mock-backdrop').style.display = 'block';
+                modal.style.display = 'block';
+            };
+
+            window.closeModal = () => {
+                document.getElementById('mock-backdrop').style.display = 'none';
+                document.getElementById('snapshot-modal').style.display = 'none';
+            };
+
+            window.showConfirmModal = async (title, msg) => {
+                return confirm(`${title}\n\n${msg}`);
+            };
+
+            // Mock storage manager functions  
+            window.safeSetItem = (key, value) => {
+                try {
+                    localStorage.setItem(key, value);
+                    return { success: true };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            };
+
+            window.checkStorageHealth = () => log('Storage health check completed', 'info');
+            window.showStorageInfo = () => log('Storage info displayed', 'info');
+        }
+
+        function setupEventHandlers() {
+            // Wire up the save snapshot button
+            document.getElementById('save-snapshot').addEventListener('click', async () => {
+                if (!isInitialized) {
+                    log('❌ Environment not initialized', 'error');
+                    return;
+                }
+                log('Save Snapshot button clicked', 'info');
+                await testSaveSnapshotFunction();
+            });
+
+            // Wire up the history button
+            document.getElementById('history').addEventListener('click', async () => {
+                if (!isInitialized) {
+                    log('❌ Environment not initialized', 'error');
+                    return;
+                }
+                log('History button clicked', 'info');
+                await openSnapshotModal();
+            });
+
+            // Clear storage button (in modal)
+            document.getElementById('clear-storage').addEventListener('click', async () => {
+                log('Clear Storage button clicked', 'info');
+                await testClearStorageFunction();
+            });
+        }
+
+        window.setupMockFiles = function () {
+            mockFiles = {
+                '/main.py': `#!/usr/bin/env python3
+"""
+Main application file for integration test
+"""
+import sys
+import os
+
+def main():
+    print("Integration test application")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())`,
+                '/utils.py': `"""Utility functions"""
+
+def format_bytes(size):
+    """Format byte size for display"""
+    if size < 1024:
+        return f"{size}B"
+    elif size < 1024 * 1024:
+        return f"{size/1024:.1f}KB"
+    else:
+        return f"{size/(1024*1024):.2f}MB"
+
+def helper_function():
+    return "This is a helper function"`,
+                '/config.json': `{
+    "app_name": "Integration Test",
+    "version": "1.0.0",
+    "settings": {
+        "debug": true,
+        "log_level": "info"
+    }
+}`,
+                '/README.md': `# Integration Test
+
+This is a test file for the snapshot system.
+
+## Features
+- File saving and loading
+- Snapshot creation
+- Storage management
+
+## File sizes:
+- Small files: < 1KB
+- Medium files: 1-10KB  
+- Large files: > 10KB
+`
+            };
+
+            log(`✅ Mock files created: ${Object.keys(mockFiles).length} files`, 'success');
+            Object.keys(mockFiles).forEach(path => {
+                const size = new TextEncoder().encode(mockFiles[path]).length;
+                log(`  ${path}: ${size} bytes`, 'info');
+            });
+        }
+
+        window.createMultipleSnapshots = async function () {
+            try {
+                if (!isInitialized) {
+                    await initializeEnvironment();
+                }
+
+                if (Object.keys(mockFiles).length === 0) {
+                    setupMockFiles();
+                }
+
+                log('Creating multiple test snapshots...', 'info');
+
+                const { saveSnapshots } = await import('./src/js/unified-storage.js');
+                const configId = window.getConfigIdentity();
+
+                // Create 3 snapshots with different content
+                const snapshots = [];
+
+                for (let i = 1; i <= 3; i++) {
+                    const testFiles = { ...mockFiles };
+                    testFiles['/main.py'] += `\n# Snapshot ${i} modification\nprint("Snapshot ${i}")`;
+                    testFiles[`/snapshot_${i}.txt`] = `This is unique content for snapshot ${i}\nCreated at: ${new Date().toISOString()}`;
+
+                    const snapshot = {
+                        ts: Date.now() + (i * 100), // Ensure different timestamps
+                        config: configId,
+                        metadata: {
+                            configVersion: '1.0',
+                            snapshotNumber: i,
+                            description: `Test snapshot ${i}`
+                        },
+                        files: testFiles
+                    };
+
+                    snapshots.push(snapshot);
+                    await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
+                }
+
+                await saveSnapshots(configId, snapshots);
+                log(`✅ Created ${snapshots.length} test snapshots`, 'success');
+
+            } catch (error) {
+                log(`❌ Failed to create test snapshots: ${error.message}`, 'error');
+            }
+        }
+
+        window.testSaveSnapshotFunction = async function () {
+            try {
+                if (!isInitialized) {
+                    await initializeEnvironment();
+                }
+
+                if (Object.keys(mockFiles).length === 0) {
+                    setupMockFiles();
+                }
+
+                log('Testing save snapshot function...', 'info');
+
+                const { saveSnapshots, loadSnapshots } = await import('./src/js/unified-storage.js');
+                const configId = window.getConfigIdentity();
+
+                // Create a new snapshot
+                const snapshot = {
+                    ts: Date.now(),
+                    config: configId,
+                    metadata: {
+                        configVersion: '1.0',
+                        testSnapshot: true
+                    },
+                    files: { ...mockFiles }
+                };
+
+                // Get existing snapshots and add new one
+                const existing = await loadSnapshots(configId);
+                existing.push(snapshot);
+                await saveSnapshots(configId, existing);
+
+                log('✅ Snapshot saved successfully', 'success');
+
+                // Verify the snapshot was saved
+                const verify = await loadSnapshots(configId);
+                const saved = verify.find(s => s.ts === snapshot.ts);
+
+                if (saved) {
+                    log(`✅ Snapshot verified: ${Object.keys(saved.files).length} files`, 'success');
+
+                    // Calculate and display size
+                    let totalSize = 0;
+                    Object.values(saved.files).forEach(content => {
+                        totalSize += new TextEncoder().encode(String(content)).length;
+                    });
+
+                    const sizeStr = totalSize < 1024 ? `${totalSize}B` :
+                        totalSize < 1024 * 1024 ? `${Math.round(totalSize / 1024)}KB` :
+                            `${(totalSize / (1024 * 1024)).toFixed(2)}MB`;
+
+                    log(`  Total size: ${sizeStr}`, 'info');
+                } else {
+                    log('❌ Snapshot verification failed', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Save snapshot test failed: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        window.testClearStorageFunction = async function () {
+            try {
+                if (!isInitialized) {
+                    await initializeEnvironment();
+                }
+
+                log('Testing clear storage function...', 'info');
+
+                const { getAllSnapshots, clearAllSnapshots } = await import('./src/js/unified-storage.js');
+
+                // Check what we have before
+                const beforeData = await getAllSnapshots();
+                let totalBefore = 0;
+                beforeData.forEach(data => {
+                    if (data.snapshots) totalBefore += data.snapshots.length;
+                });
+
+                log(`Found ${totalBefore} snapshots before clearing`, 'info');
+
+                if (totalBefore === 0) {
+                    log('⚠️ No snapshots to clear. Creating test snapshots first...', 'warning');
+                    await createMultipleSnapshots();
+                    return;
+                }
+
+                // Clear all snapshots
+                await clearAllSnapshots();
+                log('✅ Clear all snapshots completed', 'success');
+
+                // Verify they're gone
+                const afterData = await getAllSnapshots();
+                let totalAfter = 0;
+                afterData.forEach(data => {
+                    if (data.snapshots) totalAfter += data.snapshots.length;
+                });
+
+                if (totalAfter === 0) {
+                    log('✅ Verification passed: All snapshots cleared', 'success');
+                } else {
+                    log(`❌ Verification failed: ${totalAfter} snapshots still exist`, 'error');
+                }
+
+                // Update modal if open
+                if (document.getElementById('snapshot-modal').style.display === 'block') {
+                    await renderSnapshots();
+                }
+
+            } catch (error) {
+                log(`❌ Clear storage test failed: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        window.testFileSizeCalculations = async function () {
+            try {
+                log('Testing file size calculations...', 'info');
+
+                // Test the computeSnapshotSize function
+                function computeSnapshotSize(snap) {
+                    try {
+                        let total = 0;
+                        const files = snap.files || {};
+                        for (const k of Object.keys(files)) {
+                            const v = String(files[k] || '');
+                            total += new TextEncoder().encode(v).length;
+                        }
+                        return total;
+                    } catch (e) { return 0; }
+                }
+
+                // Create test snapshots with known sizes
+                const testCases = [
+                    { name: 'Empty', files: {} },
+                    { name: 'Small', files: { '/test.txt': 'Hello World' } },  // 11 bytes
+                    { name: 'Medium', files: { '/test.py': 'print("' + 'x'.repeat(1000) + '")' } }, // ~1KB
+                    { name: 'Large', files: { '/big.data': 'A'.repeat(50000) } } // 50KB
+                ];
+
+                for (const testCase of testCases) {
+                    const snap = { ts: Date.now(), config: 'test', files: testCase.files };
+                    const size = computeSnapshotSize(snap);
+                    const fileCount = Object.keys(testCase.files).length;
+
+                    let sizeStr;
+                    if (size < 1024) sizeStr = `${size}B`;
+                    else if (size < 1024 * 1024) sizeStr = `${Math.round(size / 1024)}KB`;
+                    else sizeStr = `${(size / (1024 * 1024)).toFixed(2)}MB`;
+
+                    log(`${testCase.name}: ${fileCount} files, ${sizeStr}`, 'info');
+                }
+
+                log('✅ File size calculation test completed', 'success');
+
+            } catch (error) {
+                log(`❌ File size test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function openSnapshotModal() {
+            try {
+                log('Opening snapshot modal...', 'info');
+
+                const modal = document.getElementById('snapshot-modal');
+                window.openModal(modal);
+
+                // Render snapshots in the modal
+                await renderSnapshots();
+
+            } catch (error) {
+                log(`❌ Failed to open snapshot modal: ${error.message}`, 'error');
+            }
+        }
+
+        async function renderSnapshots() {
+            try {
+                const { loadSnapshots, getAllSnapshots } = await import('./src/js/unified-storage.js');
+
+                const snapshotList = document.getElementById('snapshot-list');
+                const configId = window.getConfigIdentity();
+                const snaps = await loadSnapshots(configId);
+
+                if (!snaps.length) {
+                    snapshotList.innerHTML = `<div>No snapshots for ${configId}</div>`;
+                    document.getElementById('snapshot-storage-summary').textContent = 'No snapshots';
+                    document.getElementById('snapshot-storage-summary-header').textContent = '0 snaps • 0 files • 0B';
+                    return;
+                }
+
+                snapshotList.innerHTML = '';
+                let grandTotal = 0;
+                let totalFiles = 0;
+
+                snaps.forEach((snap, i) => {
+                    const div = document.createElement('div');
+                    div.className = 'snapshot-item';
+
+                    const fileCount = Object.keys(snap.files || {}).length;
+                    totalFiles += fileCount;
+
+                    let snapSize = 0;
+                    Object.values(snap.files || {}).forEach(content => {
+                        snapSize += new TextEncoder().encode(String(content)).length;
+                    });
+                    grandTotal += snapSize;
+
+                    const sizeStr = snapSize < 1024 ? `${snapSize}B` :
+                        snapSize < 1024 * 1024 ? `${Math.round(snapSize / 1024)}KB` :
+                            `${(snapSize / (1024 * 1024)).toFixed(2)}MB`;
+
+                    div.innerHTML = `
+                        <div>
+                            <strong>Snapshot ${i + 1}</strong><br>
+                            <small>${new Date(snap.ts).toLocaleString()}</small><br>
+                            <small>${fileCount} files, ${sizeStr}</small>
+                        </div>
+                        <div>
+                            <button onclick="restoreSnapshot(${i})">Restore</button>
+                        </div>
+                    `;
+
+                    snapshotList.appendChild(div);
+                });
+
+                // Update summaries
+                const grandTotalStr = grandTotal < 1024 ? `${grandTotal}B` :
+                    grandTotal < 1024 * 1024 ? `${Math.round(grandTotal / 1024)}KB` :
+                        `${(grandTotal / (1024 * 1024)).toFixed(2)}MB`;
+
+                document.getElementById('snapshot-storage-summary').textContent =
+                    `${snaps.length} snapshot(s), ${totalFiles} file(s), ${grandTotalStr} total`;
+
+                // Update header with global totals
+                const allSnapshots = await getAllSnapshots();
+                let globalSnaps = 0, globalFiles = 0, globalSize = 0;
+
+                allSnapshots.forEach(data => {
+                    if (data.snapshots) {
+                        globalSnaps += data.snapshots.length;
+                        data.snapshots.forEach(snap => {
+                            const files = snap.files || {};
+                            globalFiles += Object.keys(files).length;
+                            Object.values(files).forEach(content => {
+                                globalSize += new TextEncoder().encode(String(content)).length;
+                            });
+                        });
+                    }
+                });
+
+                const globalSizeStr = globalSize < 1024 ? `${globalSize}B` :
+                    globalSize < 1024 * 1024 ? `${Math.round(globalSize / 1024)}KB` :
+                        `${(globalSize / (1024 * 1024)).toFixed(2)}MB`;
+
+                document.getElementById('snapshot-storage-summary-header').textContent =
+                    `${globalSnaps} snaps • ${globalFiles} files • ${globalSizeStr}`;
+
+                log('✅ Snapshots rendered in modal', 'success');
+
+            } catch (error) {
+                log(`❌ Failed to render snapshots: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        window.restoreSnapshot = async function (index) {
+            log(`Restoring snapshot ${index + 1}...`, 'info');
+            // This would implement the restore logic
+            log('✅ Snapshot restore simulated', 'success');
+        }
+
+        window.clearAllData = async function () {
+            try {
+                const { clearAllSnapshots, initUnifiedStorage } = await import('./src/js/unified-storage.js');
+                await initUnifiedStorage();
+                await clearAllSnapshots();
+
+                localStorage.clear();
+                mockFiles = {};
+
+                log('✅ All data cleared', 'success');
+            } catch (error) {
+                log(`❌ Clear all data failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-initialize on page load
+        window.addEventListener('load', () => {
+            log('Snapshot integration test page loaded', 'info');
+            log('Click "Initialize Test Environment" to begin', 'info');
+        });
+    </script>
+</body>
+
+</html>
