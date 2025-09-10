@@ -370,7 +370,7 @@ async function main() {
                     if (payload.action && payload.action.type === 'open-file' && payload.action.path) {
                         try {
                             const p = payload.action.path
-                            if (window.TabManager && typeof window.TabManager.openTab === 'function') window.TabManager.openTab(p)
+                            if (window.TabManager && typeof window.TabManager.openTab === 'function') window.TabManager.openTab(p, { select: false })
                             if (window.TabManager && typeof window.TabManager.selectTab === 'function') window.TabManager.selectTab(p)
                         } catch (_e) { }
                     }

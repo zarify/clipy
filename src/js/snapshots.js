@@ -574,7 +574,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
                     } else if (window.TabManager && typeof window.TabManager.openTab === 'function') {
                         // Fallback: open each restored file explicitly
                         for (const p of restoredFiles) {
-                            try { window.TabManager.openTab(p) } catch (_e) { }
+                            try { window.TabManager.openTab(p, { select: false }) } catch (_e) { }
                         }
                     }
                 } catch (_e) { }
@@ -584,7 +584,8 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         // Open only MAIN_FILE as focused tab
         try {
             if (window.TabManager && typeof window.TabManager.openTab === 'function') {
-                window.TabManager.openTab(MAIN_FILE)
+                // Open MAIN_FILE but don't let this call change focus; select explicitly below
+                window.TabManager.openTab(MAIN_FILE, { select: false })
             }
             if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
                 window.TabManager.selectTab(MAIN_FILE)
