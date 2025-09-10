@@ -561,14 +561,29 @@ export function initAuthorFeedback() {
         body.innerHTML = ''
         body.appendChild(contentWrapper)
 
+        // small inline error area inside modal body for compatibility with tests
+        const errEdit = document.createElement('div')
+        errEdit.className = 'modal-inline-err'
+        errEdit.style.color = '#b00020'
+        errEdit.style.fontSize = '0.9em'
+        errEdit.style.marginTop = '8px'
+        contentWrapper.appendChild(errEdit)
+
+        // (inline error added above)
+
         // show modal (use shared helper so Escape closes it and focus is trapped)
         try { openModalHelper(m) } catch (_e) {
             m.setAttribute('aria-hidden', 'false')
             m.style.display = 'flex'
         }
 
-        // Clear header message when editor content changes
-        try { editor.root.addEventListener('input', () => { if (headerMessage) headerMessage.textContent = '' }) } catch (_e) { }
+        // Clear header message (and inline error) when editor content changes
+        try {
+            editor.root.addEventListener('input', () => {
+                if (headerMessage) headerMessage.textContent = ''
+                if (errEdit) errEdit.textContent = ''
+            })
+        } catch (_e) { }
 
         function validateAndSave() {
             const val = editor.get()
@@ -580,7 +595,13 @@ export function initAuthorFeedback() {
                 if (val.pattern && val.pattern.type === 'ast') {
                     const testResultEl = m && m.querySelector ? m.querySelector('.ast-rule-builder .test-result') : null
                     if (testResultEl && testResultEl.dataset && testResultEl.dataset.nonBoolean) {
-                        if (headerMessage) headerMessage.textContent = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        const msg = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        if (headerMessage) headerMessage.textContent = msg
+                        if (errEdit) errEdit.textContent = msg
+                        try { console.log('[author-feedback] block save (edit):', msg) } catch (_e) { }
+                        // Inline error node (errEdit) is present inside the
+                        // content wrapper and is sufficient for tests to find.
+                        // No additional fallback node needed.
                         return
                     }
                 }
@@ -607,20 +628,20 @@ export function initAuthorFeedback() {
                 // Accept only standard JS regex flags: g i m s u y (d is optional on newer engines)
                 const allowed = /^[gimsuyd]*$/
                 if (!allowed.test(flagsVal)) {
-                    err.textContent = 'Invalid regex flags: only the letters g, i, m, s, u, y, d are allowed.'
+                    if (errEdit) errEdit.textContent = 'Invalid regex flags: only the letters g, i, m, s, u, y, d are allowed.'
                     return
                 }
                 // disallow duplicate flags as RegExp constructor will throw
                 const uniq = new Set(flagsVal.split(''))
                 if (uniq.size !== flagsVal.length) {
-                    err.textContent = 'Invalid regex flags: duplicate flag characters detected.'
+                    if (errEdit) errEdit.textContent = 'Invalid regex flags: duplicate flag characters detected.'
                     return
                 }
                 try {
                     new RegExp(val.pattern.expression || '', flagsVal)
-                    err.textContent = ''
+                    if (errEdit) errEdit.textContent = ''
                 } catch (e) {
-                    err.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
+                    if (errEdit) errEdit.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
                     return
                 }
             }
@@ -672,14 +693,27 @@ export function initAuthorFeedback() {
         body.innerHTML = ''
         body.appendChild(contentWrapper)
 
+        // small inline error area inside modal body for compatibility with tests
+        const errNew = document.createElement('div')
+        errNew.className = 'modal-inline-err'
+        errNew.style.color = '#b00020'
+        errNew.style.fontSize = '0.9em'
+        errNew.style.marginTop = '8px'
+        contentWrapper.appendChild(errNew)
+
         // show modal (use shared helper so Escape closes it and focus is trapped)
         try { openModalHelper(m) } catch (_e) {
             m.setAttribute('aria-hidden', 'false')
             m.style.display = 'flex'
         }
 
-        // Clear header message when editor content changes
-        try { editor.root.addEventListener('input', () => { if (headerMessage) headerMessage.textContent = '' }) } catch (_e) { }
+        // Clear header message (and inline error) when editor content changes
+        try {
+            editor.root.addEventListener('input', () => {
+                if (headerMessage) headerMessage.textContent = ''
+                if (errNew) errNew.textContent = ''
+            })
+        } catch (_e) { }
 
         function validateAndSave() {
             const val = editor.get()
@@ -690,7 +724,13 @@ export function initAuthorFeedback() {
                 if (val.pattern && val.pattern.type === 'ast') {
                     const testResultEl = m && m.querySelector ? m.querySelector('.ast-rule-builder .test-result') : null
                     if (testResultEl && testResultEl.dataset && testResultEl.dataset.nonBoolean) {
-                        if (headerMessage) headerMessage.textContent = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        const msg = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
+                        if (headerMessage) headerMessage.textContent = msg
+                        if (errNew) errNew.textContent = msg
+                        try { console.log('[author-feedback] block save (new):', msg) } catch (_e) { }
+                        // Inline error node (errNew) is present inside the
+                        // content wrapper and is sufficient for tests to find.
+                        // No additional fallback node needed.
                         return
                     }
                 }
