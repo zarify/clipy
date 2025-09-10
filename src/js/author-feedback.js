@@ -598,7 +598,7 @@ export function initAuthorFeedback() {
                         const msg = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
                         if (headerMessage) headerMessage.textContent = msg
                         if (errEdit) errEdit.textContent = msg
-                        try { console.log('[author-feedback] block save (edit):', msg) } catch (_e) { }
+                        try { logWarn('[author-feedback] block save (edit):', msg) } catch (_e) { }
                         // Inline error node (errEdit) is present inside the
                         // content wrapper and is sufficient for tests to find.
                         // No additional fallback node needed.
@@ -727,7 +727,7 @@ export function initAuthorFeedback() {
                         const msg = 'Cannot save: AST matcher returned a non-boolean truthy value. Please make the matcher return true or false.'
                         if (headerMessage) headerMessage.textContent = msg
                         if (errNew) errNew.textContent = msg
-                        try { console.log('[author-feedback] block save (new):', msg) } catch (_e) { }
+                        try { logWarn('[author-feedback] block save (new):', msg) } catch (_e) { }
                         // Inline error node (errNew) is present inside the
                         // content wrapper and is sufficient for tests to find.
                         // No additional fallback node needed.

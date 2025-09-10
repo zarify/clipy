@@ -10,7 +10,6 @@ Replace this file with the list of source files lacking direct unit tests (check
 - [x] src/js/author-storage.js
 - [x] src/js/author-tests.js  (tests added: src/js/__tests__/author-tests.test.js, src/js/__tests__/author-tests.edgecases.test.js, src/js/__tests__/author-tests.expand.test.js, src/js/__tests__/author-tests.modal-editor.test.js)
 - [ ] src/js/author-verification.js
-- [ ] src/js/autosave.js
 - [x] src/js/autosave.js  (tests added: src/js/__tests__/autosave.test.js)
 - [ ] src/js/download.js
 - [x] src/js/editor.js
