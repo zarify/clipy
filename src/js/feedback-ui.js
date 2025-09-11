@@ -541,6 +541,44 @@ export function setFeedbackConfig(cfg) {
         }
     } catch (_e) { }
 
+    // Normalize legacy feedback shape: some saved configs use the legacy
+    // object form { ast: [], regex: [] } rather than the newer array form.
+    // Convert that legacy shape into the normalized array so the UI can
+    // iterate entries safely.
+    try {
+        if (normalizedCfg && normalizedCfg.feedback && !Array.isArray(normalizedCfg.feedback) && typeof normalizedCfg.feedback === 'object') {
+            const legacy = normalizedCfg.feedback || {}
+            const arr = []
+            const r = Array.isArray(legacy.regex) ? legacy.regex : []
+            for (let i = 0; i < r.length; i++) {
+                const item = r[i]
+                arr.push({
+                    id: item.id || ('legacy-regex-' + i),
+                    title: item.title || ('legacy ' + i),
+                    when: item.when || ['edit'],
+                    pattern: { type: 'regex', target: (item.target === 'output' ? 'stdout' : (item.target || 'code')), expression: item.pattern || item.expression || '' },
+                    message: item.message || '',
+                    severity: item.severity || 'info',
+                    visibleByDefault: typeof item.visibleByDefault === 'boolean' ? item.visibleByDefault : true
+                })
+            }
+            const a = Array.isArray(legacy.ast) ? legacy.ast : []
+            for (let i = 0; i < a.length; i++) {
+                const item = a[i]
+                arr.push({
+                    id: item.id || ('legacy-ast-' + i),
+                    title: item.title || ('legacy-ast ' + i),
+                    when: item.when || ['edit'],
+                    pattern: { type: 'ast', target: (item.target || 'code'), expression: item.rule || item.expression || item.pattern || '', matcher: item.matcher || '' },
+                    message: item.message || '',
+                    severity: item.severity || 'info',
+                    visibleByDefault: typeof item.visibleByDefault === 'boolean' ? item.visibleByDefault : true
+                })
+            }
+            normalizedCfg.feedback = arr
+        }
+    } catch (_e) { }
+
     try {
         if (normalizedCfg && Array.isArray(normalizedCfg.tests)) {
             normalizedCfg.tests = normalizedCfg.tests.map(t => {

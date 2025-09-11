@@ -145,8 +145,76 @@ export function createConfigManager(opts = {}) {
     }
 }
 
+// Helper to convert legacy feedback object format to modern array format
+function convertLegacyFeedbackToArray(legacyFeedback) {
+    const arr = []
+
+    // Convert regex entries
+    const regex = Array.isArray(legacyFeedback.regex) ? legacyFeedback.regex : []
+    for (let i = 0; i < regex.length; i++) {
+        const item = regex[i]
+        arr.push({
+            id: item.id || ('legacy-regex-' + i),
+            title: item.title || ('legacy ' + i),
+            when: item.when || ['edit'],
+            pattern: {
+                type: 'regex',
+                target: (item.target === 'output' ? 'stdout' : (item.target || 'code')),
+                expression: item.pattern || item.expression || ''
+            },
+            message: item.message || '',
+            severity: item.severity || 'info',
+            visibleByDefault: typeof item.visibleByDefault === 'boolean' ? item.visibleByDefault : true
+        })
+    }
+
+    // Convert AST entries
+    const ast = Array.isArray(legacyFeedback.ast) ? legacyFeedback.ast : []
+    for (let i = 0; i < ast.length; i++) {
+        const item = ast[i]
+        arr.push({
+            id: item.id || ('legacy-ast-' + i),
+            title: item.title || ('legacy-ast ' + i),
+            when: item.when || ['edit'],
+            pattern: {
+                type: 'ast',
+                target: (item.target || 'code'),
+                expression: item.rule || item.expression || item.pattern || '',
+                matcher: item.matcher || ''
+            },
+            message: item.message || '',
+            severity: item.severity || 'info',
+            visibleByDefault: typeof item.visibleByDefault === 'boolean' ? item.visibleByDefault : true
+        })
+    }
+
+    return arr
+}
+
 // Shared validation helper used by both the factory and legacy top-level API
 function validateAndNormalizeConfigInternal(rawConfig) {
+    // Parse feedback and tests if they are JSON strings (from author storage)
+    let parsedFeedback = rawConfig.feedback
+    let parsedTests = rawConfig.tests
+
+    try {
+        if (typeof rawConfig.feedback === 'string' && rawConfig.feedback.trim()) {
+            parsedFeedback = JSON.parse(rawConfig.feedback)
+        }
+    } catch (e) {
+        console.warn('Failed to parse feedback JSON string, using as-is:', e)
+        parsedFeedback = rawConfig.feedback
+    }
+
+    try {
+        if (typeof rawConfig.tests === 'string' && rawConfig.tests.trim()) {
+            parsedTests = JSON.parse(rawConfig.tests)
+        }
+    } catch (e) {
+        console.warn('Failed to parse tests JSON string, using as-is:', e)
+        parsedTests = rawConfig.tests
+    }
+
     // Ensure required fields exist
     const normalized = {
         id: rawConfig.id || 'default',
@@ -164,16 +232,15 @@ function validateAndNormalizeConfigInternal(rawConfig) {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
             maxOutputLines: Math.max(100, Math.min(10000, rawConfig.execution?.maxOutputLines || 1000))
         },
-        feedback: Array.isArray(rawConfig.feedback)
-            ? rawConfig.feedback
-            : {
-                ast: Array.isArray(rawConfig.feedback?.ast) ? rawConfig.feedback.ast : [],
-                regex: Array.isArray(rawConfig.feedback?.regex) ? rawConfig.feedback.regex : []
-            },
-        tests: Array.isArray(rawConfig.tests)
-            ? rawConfig.tests
-            : (rawConfig.tests && (rawConfig.tests.groups || rawConfig.tests.ungrouped))
-                ? rawConfig.tests
+        feedback: Array.isArray(parsedFeedback)
+            ? parsedFeedback
+            : (parsedFeedback && typeof parsedFeedback === 'object' && (parsedFeedback.ast || parsedFeedback.regex))
+                ? convertLegacyFeedbackToArray(parsedFeedback)
+                : [],
+        tests: Array.isArray(parsedTests)
+            ? parsedTests
+            : (parsedTests && (parsedTests.groups || parsedTests.ungrouped))
+                ? parsedTests
                 : [],
         files: (rawConfig && typeof rawConfig.files === 'object') ? rawConfig.files : undefined
     }
