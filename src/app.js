@@ -902,13 +902,25 @@ async function main() {
 
                             let hasConfigs = false
 
-                            // Add authoring config first if available
+                            // Add authoring config first if available (try unified storage then localStorage)
                             try {
                                 const AUTHOR_CONFIG_KEY = 'author_config'
-                                const rawJson = localStorage.getItem(AUTHOR_CONFIG_KEY)
-                                if (rawJson) {
+                                let raw = null
+                                try {
+                                    // Prefer unified-storage async API if available
+                                    const { loadSetting } = await import('./js/unified-storage.js')
+                                    raw = await loadSetting(AUTHOR_CONFIG_KEY)
+                                } catch (_e) {
+                                    // unified storage not available; do nothing (no localStorage read in production)
+                                }
+                                if (raw) {
                                     try {
-                                        const raw = JSON.parse(rawJson || 'null')
+                                        // Use `raw` directly
+                                        // Handle tests parsing
+                                        if (raw && typeof raw.tests === 'string' && raw.tests.trim()) {
+                                            const parsedTests = JSON.parse(raw.tests)
+                                            if (Array.isArray(parsedTests)) raw.tests = parsedTests
+                                        }
 
                                         // Handle tests parsing
                                         try {
@@ -958,9 +970,9 @@ async function main() {
                                             hasConfigs = true
                                         }
                                     } catch (e) {
-                                        // Malformed local author config or failed validation
-                                        logWarn('Invalid local author config in localStorage', e)
-                                        try { showConfigError('Invalid local author config in localStorage', configModal) } catch (_e) { }
+                                        // Malformed author config or failed validation
+                                        logWarn('Invalid local author config in storage', e)
+                                        try { showConfigError('Invalid local author config in storage', configModal) } catch (_e) { }
                                     }
                                 }
                             } catch (_e) { }

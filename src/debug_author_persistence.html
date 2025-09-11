@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Author Config Persistence Debug</title>
+</head>
+
+<body>
+    <h1>Author Config Persistence Debug</h1>
+
+    <div>
+        <h2>Test Actions</h2>
+        <button onclick="testSave()">Test Save Config</button>
+        <button onclick="testLoad()">Test Load Config</button>
+        <button onclick="debugStorage()">Debug Storage Contents</button>
+        <button onclick="clearStorage()">Clear All Storage</button>
+    </div>
+
+    <div>
+        <h2>Results</h2>
+        <pre id="results"></pre>
+    </div>
+
+    <script type="module">
+        import { saveSetting, loadSetting, initUnifiedStorage } from './js/unified-storage.js';
+
+        window.testSave = async function () {
+            const results = document.getElementById('results');
+            try {
+                const testConfig = {
+                    id: 'test-config-' + Date.now(),
+                    title: 'Test Configuration',
+                    version: '1.0',
+                    starter: 'print("Hello from test config")',
+                    files: {
+                        '/main.py': 'print("Hello from test config")'
+                    },
+                    description: 'Test configuration for debugging persistence'
+                };
+
+                results.textContent += '\n=== Testing Save ===\n';
+                results.textContent += 'Saving config: ' + JSON.stringify(testConfig, null, 2) + '\n';
+
+                await saveSetting('author_config', testConfig);
+                results.textContent += 'Save completed successfully\n';
+
+                // Verify by reading back
+                const readBack = await loadSetting('author_config');
+                results.textContent += 'Read back result: ' + (readBack ? JSON.stringify(readBack, null, 2) : 'null') + '\n';
+
+                const matches = JSON.stringify(testConfig) === JSON.stringify(readBack);
+                results.textContent += 'Save/Load match: ' + matches + '\n';
+
+            } catch (error) {
+                results.textContent += 'ERROR: ' + error.message + '\n';
+                console.error('Test save failed:', error);
+            }
+        };
+
+        window.testLoad = async function () {
+            const results = document.getElementById('results');
+            try {
+                results.textContent += '\n=== Testing Load ===\n';
+                const config = await loadSetting('author_config');
+                results.textContent += 'Loaded config: ' + (config ? JSON.stringify(config, null, 2) : 'null') + '\n';
+            } catch (error) {
+                results.textContent += 'ERROR: ' + error.message + '\n';
+                console.error('Test load failed:', error);
+            }
+        };
+
+        window.debugStorage = async function () {
+            const results = document.getElementById('results');
+            try {
+                results.textContent += '\n=== Debug Storage ===\n';
+                if (window.debugUnifiedStorageSettings) {
+                    const entries = await window.debugUnifiedStorageSettings();
+                    results.textContent += 'See console for detailed debug output\n';
+                } else {
+                    results.textContent += 'Debug helper not available\n';
+                }
+            } catch (error) {
+                results.textContent += 'ERROR: ' + error.message + '\n';
+                console.error('Debug failed:', error);
+            }
+        };
+
+        window.clearStorage = async function () {
+            const results = document.getElementById('results');
+            try {
+                results.textContent += '\n=== Clearing Storage ===\n';
+
+                // Clear IndexedDB
+                const db = await initUnifiedStorage();
+                const transaction = db.transaction(['settings'], 'readwrite');
+                const store = transaction.objectStore('settings');
+                await new Promise((resolve, reject) => {
+                    const request = store.clear();
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+
+                results.textContent += 'IndexedDB settings store cleared\n';
+
+                // Clear localStorage for comparison
+                if (localStorage.getItem('author_config')) {
+                    localStorage.removeItem('author_config');
+                    results.textContent += 'localStorage author_config removed\n';
+                } else {
+                    results.textContent += 'No localStorage author_config found\n';
+                }
+
+            } catch (error) {
+                results.textContent += 'ERROR: ' + error.message + '\n';
+                console.error('Clear failed:', error);
+            }
+        };
+
+        // Initialize on load
+        (async () => {
+            try {
+                await initUnifiedStorage();
+                document.getElementById('results').textContent = 'Unified storage initialized successfully\n';
+            } catch (error) {
+                document.getElementById('results').textContent = 'Failed to initialize storage: ' + error.message + '\n';
+            }
+        })();
+    </script>
+</body>
+
+</html>

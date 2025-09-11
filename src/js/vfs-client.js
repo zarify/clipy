@@ -4,6 +4,55 @@ import { appendTerminal, appendTerminalDebug } from './terminal.js'
 import { warn as logWarn, error as logError, info as logInfo } from './logger.js'
 import { safeSetItem } from './storage-manager.js'
 
+// Helper: prefer unified storage for mirror updates; fall back to localStorage
+function scheduleMirrorSave(path, content, host = window) {
+    try {
+        // If IndexedDB is available, prefer unified storage asynchronously
+        if (typeof window !== 'undefined' && window.indexedDB) {
+            import('./unified-storage.js').then(mod => {
+                try { if (mod && typeof mod.saveFile === 'function') mod.saveFile(path, content).catch(() => { }) } catch (_e) { }
+            }).catch(() => { /* ignore import failures and don't write localStorage here */ })
+            return { success: true }
+        }
+
+        // Fallback: update localStorage mirror synchronously (used in tests/older browsers)
+        try {
+            const map = JSON.parse((host.localStorage.getItem('ssg_files_v1') || '{}'))
+            map[path] = content
+            const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+            if (!result.success) logWarn('Failed to update localStorage mirror:', result.error)
+            return result
+        } catch (err) {
+            return { success: false, error: err && err.message }
+        }
+    } catch (e) {
+        return { success: false, error: e && e.message }
+    }
+}
+
+function scheduleMirrorDelete(path, host = window) {
+    try {
+        if (typeof window !== 'undefined' && window.indexedDB) {
+            import('./unified-storage.js').then(mod => {
+                try { if (mod && typeof mod.deleteFile === 'function') mod.deleteFile(path).catch(() => { }) } catch (_e) { }
+            }).catch(() => { /* ignore import failures */ })
+            return { success: true }
+        }
+
+        try {
+            const map = JSON.parse((host.localStorage.getItem('ssg_files_v1') || '{}'))
+            delete map[path]
+            const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+            if (!result.success) logWarn('Failed to update localStorage mirror:', result.error)
+            return result
+        } catch (err) {
+            return { success: false, error: err && err.message }
+        }
+    } catch (e) {
+        return { success: false, error: e && e.message }
+    }
+}
+
 // Main file path used across the app (protected, not deletable)
 export const MAIN_FILE = '/main.py'
 
@@ -86,12 +135,7 @@ function setupNotificationSystem() {
                 // update mem and localStorage mirror for tests and fallbacks (always keep mem in sync)
                 try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
                 try {
-                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                    map[n] = content
-                    const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                    if (!result.success) {
-                        logWarn('Failed to update localStorage mirror:', result.error)
-                    }
+                    scheduleMirrorSave(n, content)
                 } catch (_e) { }
 
                 // Queue the path for the UI to open later via the existing pending-tabs flow.
@@ -154,12 +198,7 @@ export function createNotificationSystem(host = window) {
 
                     try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
                     try {
-                        const map = JSON.parse(host.localStorage.getItem('ssg_files_v1') || '{}')
-                        map[n] = content
-                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                        if (!result.success) {
-                            logWarn('Failed to update localStorage mirror:', result.error)
-                        }
+                        scheduleMirrorSave(n, content, host)
                     } catch (_e) { }
 
                     try {
@@ -308,16 +347,23 @@ export async function initializeVFS(cfg) {
     // Expose the local FileManager immediately so tests and early scripts can access it
     try { window.FileManager = FileManager } catch (e) { }
 
-    // Ensure MAIN_FILE exists with starter content
-    if (!FileManager.read(MAIN_FILE)) {
-        FileManager.write(MAIN_FILE, cfg?.starter || '# main program (auto-created)\n')
-    }
+    // Expose MAIN_FILE existence will be ensured after backend init to avoid
+    // writing the legacy localStorage mirror synchronously during page load.
 
     // Try to initialize real VFS backend (IndexedDB preferred) and migrate existing local files
     try {
         const vfsMod = await import('./vfs-backend.js')
         const backend = await vfsMod.init()
         backendRef = backend
+
+        // Ensure MAIN_FILE exists using the initialized backend (so we avoid
+        // creating the legacy localStorage mirror synchronously on page load).
+        try {
+            const existingMain = await backend.read(MAIN_FILE).catch(() => null)
+            if (existingMain == null) {
+                await backend.write(MAIN_FILE, cfg?.starter || '# main program (auto-created)\n')
+            }
+        } catch (_e) { /* ignore backend write failures */ }
 
         // migrate existing localStorage-based files into backend if missing
         const localFiles = FileManager.list()
@@ -378,12 +424,7 @@ export async function initializeVFS(cfg) {
 
                     // update localStorage mirror for tests and fallbacks
                     try {
-                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                        map[n] = content
-                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                        if (!result.success) {
-                            logWarn('Failed to update localStorage mirror:', result.error)
-                        }
+                        scheduleMirrorSave(n, content)
                     } catch (_e) { }
 
                     // mark expected write so the notifier can ignore the echo
@@ -411,12 +452,7 @@ export async function initializeVFS(cfg) {
                     delete mem[n]
 
                     try {
-                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                        delete map[n]
-                        const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
-                        if (!result.success) {
-                            logWarn('Failed to update localStorage mirror:', result.error)
-                        }
+                        scheduleMirrorDelete(n)
                     } catch (_e) { }
 
                     // also attempt to remove from interpreter FS
@@ -476,16 +512,63 @@ export { settleVfsReady }
 // Create a FileManager bound to a host object (defaults to window). Useful for tests.
 export function createFileManager(host = window) {
     const KEY = 'ssg_files_v1'
-    function _load() { try { return JSON.parse(host.localStorage.getItem(KEY) || '{}') } catch (e) { return {} } }
-    function _save(m) { const result = safeSetItem(KEY, JSON.stringify(m)); if (!result.success) throw new Error(result.error || 'Storage quota exceeded') }
+
+    function _load() {
+        try {
+            // Prefer an in-memory unified-storage mirror if present (used in some tests)
+            try {
+                const memVal = (host.__ssg_unified_inmemory && host.__ssg_unified_inmemory[KEY]) || null
+                if (memVal) return memVal
+            } catch (_e) { }
+            return JSON.parse(host.localStorage.getItem(KEY) || '{}')
+        } catch (e) { return {} }
+    }
+
+    function _save(m) {
+        // In modern browsers with IndexedDB available, avoid writing the
+        // legacy localStorage mirror from this synchronous factory. The
+        // unified storage system or the async backend will persist files.
+        // Only perform localStorage writes when IndexedDB is not present
+        // (tests or very old browsers).
+        try {
+            if (typeof window !== 'undefined' && window.indexedDB) {
+                // Keep an in-memory copy for any immediate synchronous reads
+                // within the same JS context (some tests may inspect this).
+                try { host.__ssg_unified_inmemory = host.__ssg_unified_inmemory || {}; host.__ssg_unified_inmemory[KEY] = m } catch (_e) { }
+                return
+            }
+        } catch (_e) { }
+
+        const result = safeSetItem(KEY, JSON.stringify(m))
+        if (!result.success) throw new Error(result.error || 'Storage quota exceeded')
+    }
+
     function _norm(p) { if (!p) return p; return p.startsWith('/') ? p : ('/' + p) }
 
     return {
         key: KEY,
-        list() { return Object.keys(_load()).sort() },
+        list() { try { return Object.keys(_load()).sort() } catch (e) { return [] } },
         read(path) { try { const m = _load(); const v = m[_norm(path)]; return v == null ? null : v } catch (e) { return null } },
-        write(path, content) { try { const m = _load(); m[_norm(path)] = content; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } },
-        delete(path) { try { if (_norm(path) === MAIN_FILE) { try { logWarn('Attempt to delete protected main file ignored:', path) } catch (_e) { } return Promise.resolve() } const m = _load(); delete m[_norm(path)]; _save(m); return Promise.resolve() } catch (e) { return Promise.reject(e) } }
+        write(path, content) {
+            try {
+                const m = _load()
+                m[_norm(path)] = content
+                _save(m)
+                return Promise.resolve()
+            } catch (e) { return Promise.reject(e) }
+        },
+        delete(path) {
+            try {
+                if (_norm(path) === MAIN_FILE) {
+                    try { logWarn('Attempt to delete protected main file ignored:', path) } catch (_e) { }
+                    return Promise.resolve()
+                }
+                const m = _load()
+                delete m[_norm(path)]
+                _save(m)
+                return Promise.resolve()
+            } catch (e) { return Promise.reject(e) }
+        }
     }
 }
 

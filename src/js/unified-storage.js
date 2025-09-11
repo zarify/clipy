@@ -1,5 +1,5 @@
 // Unified IndexedDB-only storage system to replace localStorage/IndexedDB conflicts
-// This eliminates the dual storage problems causing page load and config reload issues
+// This eliminates the dual storage problems causing reload issues
 
 import { debug as logDebug, warn as logWarn, error as logError } from './logger.js'
 
@@ -13,6 +13,17 @@ const STORES = {
 }
 
 let dbInstance = null
+
+// Helper: determine if we're running in a test environment where
+// synchronous localStorage access is acceptable (jest/jsdom). Tests
+// may set NODE_ENV=test or set window.__SSG_ALLOW_LOCALSTORAGE to true.
+export function isTestEnvironment() {
+    try {
+        if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test') return true
+        if (typeof window !== 'undefined' && window.__SSG_ALLOW_LOCALSTORAGE) return true
+    } catch (_e) { }
+    return false
+}
 
 // In-memory fallback store used for tests or environments where mocked
 // IndexedDB doesn't persist values. This intentionally avoids writing to
@@ -39,7 +50,8 @@ export async function initUnifiedStorage() {
         const request = window.indexedDB.open(DB_NAME, 1)
 
         request.onupgradeneeded = (event) => {
-            const db = event.target.result
+            const db = (event && event.target && event.target.result) || request.result
+            if (!db) return
 
             // Create all stores if they don't exist
             if (!db.objectStoreNames.contains(STORES.CONFIG)) {
@@ -84,12 +96,37 @@ async function getFromStore(storeName, key) {
         const request = store.get(key)
 
         let settled = false
-        const finishResolve = (val) => { if (!settled) { settled = true; resolve(val) } }
-        const finishReject = (err) => { if (!settled) { settled = true; reject(err) } }
+        const finishResolve = (val) => {
+            if (!settled) {
+                settled = true
+                resolve(val)
+            }
+        }
+        const finishReject = (err) => {
+            if (!settled) {
+                settled = true
+                reject(err)
+            }
+        }
 
-        request.onsuccess = () => finishResolve(request.result)
-        request.onerror = () => finishReject(request.error)
-        setTimeout(() => { if (!settled) finishResolve(request.result) }, 0)
+        request.onsuccess = () => {
+            finishResolve(request.result)
+        }
+        request.onerror = () => {
+            finishReject(request.error)
+        }
+        setTimeout(() => {
+            if (!settled) {
+                try {
+                    const safeResult = (request && 'result' in request) ? request.result : undefined
+                    finishResolve(safeResult)
+                } catch (e) {
+                    // If the underlying IDBRequest/IDBTransaction has been closed or
+                    // becomes unusable, resolve gracefully to avoid uncaught DOMException
+                    finishResolve(undefined)
+                }
+            }
+        }, 100)
     })
 }
 
@@ -110,15 +147,57 @@ async function putToStore(storeName, data) {
         const request = store.put(data)
 
         let settled = false
-        const finishResolve = (val) => { if (!settled) { settled = true; resolve(val) } }
-        const finishReject = (err) => { if (!settled) { settled = true; reject(err) } }
+        const finishResolve = (val) => {
+            if (!settled) {
+                settled = true
+                resolve(val)
+            }
+        }
+        const finishReject = (err) => {
+            if (!settled) {
+                settled = true
+                reject(err)
+            }
+        }
+        // Resolve only after the transaction has completed to ensure the
+        // write is committed and visible to subsequent read transactions.
+        request.onsuccess = () => {
+            // no-op here; wait for transaction.oncomplete
+        }
+        request.onerror = () => {
+            finishReject(request.error)
+        }
 
-        request.onsuccess = () => finishResolve(request.result)
-        request.onerror = () => finishReject(request.error)
+        transaction.oncomplete = () => {
+            try {
+                const safeResult = (request && 'result' in request) ? request.result : undefined
+                finishResolve(safeResult)
+            } catch (e) {
+                finishResolve(undefined)
+            }
+        }
 
-        // Safety fallback: some test mocks don't call onsuccess/ onerror.
-        // If neither fires within a short tick, resolve optimistically so tests don't hang.
-        setTimeout(() => { if (!settled) finishResolve(request.result) }, 0)
+        transaction.onerror = () => {
+            finishReject(transaction.error || new Error('IndexedDB transaction error'))
+        }
+        transaction.onabort = () => {
+            finishReject(transaction.error || new Error('IndexedDB transaction aborted'))
+        }
+
+        // Safety fallback: some test mocks don't call onsuccess/onerror or
+        // transaction handlers. If neither fires within a short window, resolve
+        // optimistically so tests don't hang — but wait a bit longer to give
+        // the browser time to commit the transaction.
+        setTimeout(() => {
+            if (!settled) {
+                try {
+                    const safeResult = (request && 'result' in request) ? request.result : undefined
+                    finishResolve(safeResult)
+                } catch (e) {
+                    finishResolve(undefined)
+                }
+            }
+        }, 120)
     })
 }
 
@@ -153,7 +232,11 @@ async function deleteFromStore(storeName, key) {
 
         request.onsuccess = () => finishResolve()
         request.onerror = () => finishReject(request.error)
-        setTimeout(() => { if (!settled) finishResolve() }, 0)
+        setTimeout(() => {
+            if (!settled) {
+                try { finishResolve() } catch (e) { resolve() }
+            }
+        }, 0)
     })
 }
 
@@ -178,7 +261,16 @@ async function getAllFromStore(storeName) {
 
         request.onsuccess = () => finishResolve(request.result)
         request.onerror = () => finishReject(request.error)
-        setTimeout(() => { if (!settled) finishResolve(request.result) }, 0)
+        setTimeout(() => {
+            if (!settled) {
+                try {
+                    const safeResult = (request && 'result' in request) ? request.result : undefined
+                    finishResolve(safeResult)
+                } catch (e) {
+                    finishResolve(undefined)
+                }
+            }
+        }, 0)
     })
 }
 
@@ -248,12 +340,12 @@ export async function saveSnapshots(configIdentity, snapshots) {
 export async function loadSnapshots(configIdentity) {
     try {
         const result = await getFromStore(STORES.SNAPSHOTS, configIdentity)
-        if (result) {
+        if (result && result.snapshots && Array.isArray(result.snapshots)) {
             return result.snapshots
         }
         // Fall back to in-memory store
         const mem = await getFromInMemory(STORES.SNAPSHOTS, configIdentity)
-        if (mem && mem.snapshots) return mem.snapshots
+        if (mem && mem.snapshots && Array.isArray(mem.snapshots)) return mem.snapshots
         return []
     } catch (error) {
         logError('Failed to load snapshots:', error)
@@ -360,8 +452,84 @@ export async function listFiles() {
 // Settings storage (replaces other localStorage items like author_config, etc.)
 export async function saveSetting(key, value) {
     try {
-        await putToStore(STORES.SETTINGS, { key, value, timestamp: Date.now() })
-        persistToInMemory(STORES.SETTINGS, { key, value, timestamp: Date.now() })
+        // Attempt to convert value to plain JSON when possible so it is
+        // stored in a predictable, inspectable form in IndexedDB.
+        let storedValue = value
+        try {
+            if (value && typeof value === 'object') storedValue = JSON.parse(JSON.stringify(value))
+        } catch (_e) { /* leave original if it can't be stringified */ }
+        // Try to write to IndexedDB. In some browsing modes (private browsing)
+        // writes may not commit but the IDBRequest handlers may not fire; we
+        // therefore try to verify the write and only fall back to localStorage
+        // when a subsequent read fails to return the stored value.
+        let putError = null
+        try {
+            await putToStore(STORES.SETTINGS, { key, value: storedValue, timestamp: Date.now() })
+        } catch (err) {
+            putError = err
+            logWarn('putToStore failed for setting, will attempt fallback:', key, err)
+        }
+
+        // Persist to in-memory so same-page reads observe the write immediately.
+        try {
+            persistToInMemory(STORES.SETTINGS, { key, value: storedValue, timestamp: Date.now() })
+        } catch (_e) {
+            // In-memory persist failed, but continue with verification
+        }
+
+        // Verify the value is readable from unified storage. IDB writes can
+        // appear asynchronous relative to the resolved put promise in some
+        // environments (mocked IDB, private browsing). Retry a few short
+        // times before declaring the write unverifiable to avoid false
+        // negatives during normal async commit timing.
+        let verificationFailed = false
+        try {
+            let verify = null
+            const maxAttempts = 5
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                try {
+                    verify = await getFromStore(STORES.SETTINGS, key)
+                } catch (_e) {
+                    verify = null
+                }
+                const matches = verify && (typeof verify.value !== 'undefined') && JSON.stringify(verify.value) === JSON.stringify(storedValue)
+                if (matches) {
+                    verificationFailed = false
+                    break
+                }
+                // small backoff to allow the DB commit to become visible
+                await new Promise(r => setTimeout(r, attempt === 0 ? 20 : 50))
+                verificationFailed = true
+            }
+        } catch (e) {
+            verificationFailed = true
+        }
+
+        if (verificationFailed) {
+            // IndexedDB write couldn't be verified after retries. Do not write
+            // to localStorage as a fallback in production; keep the value in
+            // the in-memory fallback so same-page reads work. Log a warning so
+            // developers can investigate why IDB is not persisting.
+            try {
+                const memFallback = await getFromInMemory(STORES.SETTINGS, key)
+                if (memFallback) {
+                    logWarn('saveSetting: unified storage write not verifiable for key:', key, '(in-memory fallback present)')
+                } else {
+                    logWarn('saveSetting: unified storage write not verifiable for key:', key, '(no in-memory fallback)')
+                }
+            } catch (_e) {
+                logWarn('saveSetting: unified storage write not verifiable for key:', key)
+            }
+            // If there was an earlier put error, surface it for diagnostics
+            try {
+                if (typeof putError !== 'undefined' && putError) logDebug('saveSetting: putToStore error:', putError && putError.message ? putError.message : putError)
+            } catch (_e) { }
+        }
+        try {
+            // Avoid serializing huge objects in the log; provide a small preview
+            const preview = (value && typeof value === 'object') ? (value.id || value.title || '[object]') : value
+            logDebug('Saved setting to unified storage:', key, preview)
+        } catch (_e) { }
     } catch (error) {
         logError('Failed to save setting:', key, error)
         throw error
@@ -371,11 +539,19 @@ export async function saveSetting(key, value) {
 export async function loadSetting(key) {
     try {
         const result = await getFromStore(STORES.SETTINGS, key)
-        if (result) return result.value
+        if (result) {
+            return result.value
+        }
         const mem = await getFromInMemory(STORES.SETTINGS, key)
-        return mem ? mem.value : null
+        if (mem) {
+            return mem.value
+        }
+        // If unified storage returned nothing, try the in-memory fallback only.
+        return null
     } catch (error) {
         logError('Failed to load setting:', key, error)
+        // Don't consult localStorage; return null so calling code uses
+        // unified-storage's behavior (or in-memory fallback) only.
         return null
     }
 }
@@ -388,9 +564,42 @@ export async function clearSetting(key) {
     }
 }
 
+// Runtime helper for debugging: read saved author_config (if present)
+try {
+    if (typeof window !== 'undefined') {
+        window.getSavedAuthorConfig = async function () {
+            try {
+                return await loadSetting('author_config')
+            } catch (e) {
+                // In production do not consult localStorage; only allow during tests.
+                if (isTestEnvironment() && typeof localStorage !== 'undefined') {
+                    try { return JSON.parse(localStorage.getItem('author_config') || 'null') } catch (_e) { return null }
+                }
+                return null
+            }
+        }
+
+        // Expose legacy VFS cleanup helper
+        window.cleanupLegacyVfs = async function () {
+            try {
+                return await verifyAndCleanupVfsLocalStorage()
+            } catch (e) {
+                return { removed: false, reason: 'error', error: e && e.message }
+            }
+        }
+    }
+} catch (_e) { }
+
 // Migration utility to move existing localStorage data
 export async function migrateFromLocalStorage() {
-    if (!window.localStorage) return
+    // Migration is only allowed in test/dev environments. In production we
+    // avoid reading localStorage to prevent dual-storage conflicts.
+    if (!isTestEnvironment()) {
+        return
+    }
+    if (!window.localStorage) {
+        return
+    }
 
     logDebug('Starting localStorage migration to unified storage')
 
@@ -410,7 +619,7 @@ export async function migrateFromLocalStorage() {
             }
         }
 
-        // Migrate snapshots
+        // Migrate snapshots (test/dev only)
         const snapshotKeys = []
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i)
@@ -451,14 +660,18 @@ export async function migrateFromLocalStorage() {
 
         // Migrate author config
         const authorConfig = localStorage.getItem('author_config')
+        console.log('[DEBUG] checking localStorage author_config:', authorConfig ? 'found' : 'not found')
         if (authorConfig) {
             try {
                 const config = JSON.parse(authorConfig)
+                console.log('[DEBUG] migrating author_config:', config.id, config.title)
                 try { persistToInMemory(STORES.SETTINGS, { key: 'author_config', value: config, timestamp: Date.now() }) } catch (_e) { }
                 await saveSetting('author_config', config)
                 localStorage.removeItem('author_config')
+                console.log('[DEBUG] author_config migrated and removed from localStorage')
                 logDebug('Migrated author_config')
             } catch (e) {
+                console.error('[DEBUG] Failed to migrate author_config:', e)
                 logWarn('Failed to migrate author_config', e)
             }
         }
@@ -516,4 +729,49 @@ export function cleanupLocalStorage() {
 
     keysToRemove.forEach(key => localStorage.removeItem(key))
     logDebug('Cleaned up localStorage keys:', keysToRemove)
+}
+
+// Safely verify and remove legacy VFS localStorage key `ssg_files_v1`.
+// This will only remove the key if the contents have been migrated to
+// the unified FILES store (i.e., every path/value pair matches an entry
+// in the unified storage). Returns an object describing the outcome.
+export async function verifyAndCleanupVfsLocalStorage() {
+    const KEY = 'ssg_files_v1'
+    if (!window.localStorage) return { removed: false, reason: 'no_localStorage' }
+    const raw = localStorage.getItem(KEY)
+    if (!raw) return { removed: false, reason: 'missing' }
+
+    let parsed = null
+    try { parsed = JSON.parse(raw) } catch (e) { return { removed: false, reason: 'invalid_json', error: e && e.message } }
+
+    // parsed should be an object mapping path -> content
+    if (!parsed || typeof parsed !== 'object') return { removed: false, reason: 'invalid_shape' }
+
+    try {
+        // For each file, compare with unified storage's saved file content
+        const mismatches = []
+        const keys = Object.keys(parsed)
+        for (const p of keys) {
+            try {
+                const unifiedContent = await loadFile(p)
+                const legacyContent = parsed[p]
+                // Coerce both to strings for comparison (null/undefined -> '')
+                if (String(unifiedContent || '') !== String(legacyContent || '')) {
+                    mismatches.push({ path: p, legacy: String(legacyContent || ''), unified: String(unifiedContent || '') })
+                }
+            } catch (e) {
+                mismatches.push({ path: p, error: e && e.message })
+            }
+        }
+
+        if (mismatches.length === 0) {
+            // All files present and match; safe to remove legacy key
+            try { localStorage.removeItem(KEY) } catch (_e) { /* ignore */ }
+            return { removed: true, count: keys.length }
+        }
+
+        return { removed: false, reason: 'mismatches', mismatches }
+    } catch (e) {
+        return { removed: false, reason: 'error', error: e && e.message }
+    }
 }

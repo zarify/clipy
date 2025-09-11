@@ -1,6 +1,7 @@
 // Configuration loading and management
 import { $, renderMarkdown } from './utils.js'
 import { debug as logDebug, info as logInfo, warn as logWarn, error as logError } from './logger.js'
+import { isTestEnvironment } from './unified-storage.js'
 
 // Use relative path so the app works from any directory
 export const configUrl = './config/sample.json'
@@ -295,15 +296,14 @@ export async function saveCurrentConfig(cfg) {
         logDebug('Config saved via unified storage:', cfg.id, cfg.version)
     } catch (e) {
         logWarn('Failed to save current config to unified storage:', e)
-        // Fallback to localStorage for backward compatibility during transition
+        // In production we do not write to localStorage. Tests may enable a
+        // synchronous localStorage shim by setting window.__SSG_ALLOW_LOCALSTORAGE
         try {
-            if (typeof localStorage !== 'undefined') {
+            if (isTestEnvironment() && typeof localStorage !== 'undefined') {
                 localStorage.setItem('current_config', JSON.stringify(cfg))
-                logDebug('Config saved to localStorage fallback')
+                logDebug('Config saved to localStorage (test env)')
             }
-        } catch (fallbackError) {
-            logError('Both unified storage and localStorage failed:', fallbackError)
-        }
+        } catch (_e) { }
     }
 }
 
@@ -324,20 +324,18 @@ export async function loadCurrentConfig() {
         }
     } catch (e) {
         logWarn('Failed to load current config from unified storage:', e)
-        // Fallback to localStorage for backward compatibility during transition
+        // In production we do not consult localStorage. Allow reading in tests only.
         try {
-            if (typeof localStorage !== 'undefined') {
+            if (isTestEnvironment() && typeof localStorage !== 'undefined') {
                 const stored = localStorage.getItem('current_config')
                 if (stored) {
                     const parsed = JSON.parse(stored)
                     const validated = validateAndNormalizeConfigInternal(parsed)
-                    logDebug('Config loaded from localStorage fallback:', validated.id, validated.version)
+                    logDebug('Config loaded from localStorage (test env):', validated.id, validated.version)
                     return validated
                 }
             }
-        } catch (fallbackError) {
-            logWarn('Failed to load from localStorage fallback:', fallbackError)
-        }
+        } catch (_e) { }
     }
     return null
 }
@@ -349,15 +347,13 @@ export async function clearCurrentConfig() {
         logDebug('Config cleared from unified storage')
     } catch (e) {
         logWarn('Failed to clear current config from unified storage:', e)
-        // Fallback to localStorage
+        // Allow clearing localStorage in test environment only
         try {
-            if (typeof localStorage !== 'undefined') {
+            if (isTestEnvironment() && typeof localStorage !== 'undefined') {
                 localStorage.removeItem('current_config')
-                logDebug('Config cleared from localStorage fallback')
+                logDebug('Config cleared from localStorage (test env)')
             }
-        } catch (fallbackError) {
-            logError('Both unified storage and localStorage clear failed:', fallbackError)
-        }
+        } catch (_e) { }
     }
 }
 
@@ -365,22 +361,25 @@ export async function clearCurrentConfig() {
 export function debugCurrentConfig() {
     logDebug('=== Current Config Debug ===')
     try {
-        if (typeof localStorage !== 'undefined') {
-            const stored = localStorage.getItem(CURRENT_CONFIG_KEY)
-            logDebug('Stored config exists:', !!stored)
-            if (stored) {
-                logDebug('Stored config length:', stored.length)
-                logDebug('Stored config preview:', stored.substring(0, 200) + '...')
-                try {
-                    const parsed = JSON.parse(stored)
-                    logDebug('Parsed config keys:', Object.keys(parsed))
-                    logDebug('Config ID:', parsed.id)
-                    logDebug('Config version:', parsed.version)
-                } catch (e) {
-                    logError('Parse error:', e)
+        // Only inspect localStorage in test environments
+        try {
+            if (isTestEnvironment() && typeof localStorage !== 'undefined') {
+                const stored = localStorage.getItem('current_config')
+                logDebug('Stored config exists (test env):', !!stored)
+                if (stored) {
+                    logDebug('Stored config length:', stored.length)
+                    logDebug('Stored config preview:', stored.substring(0, 200) + '...')
+                    try {
+                        const parsed = JSON.parse(stored)
+                        logDebug('Parsed config keys:', Object.keys(parsed))
+                        logDebug('Config ID:', parsed.id)
+                        logDebug('Config version:', parsed.version)
+                    } catch (e) {
+                        logError('Parse error:', e)
+                    }
                 }
             }
-        }
+        } catch (_e) { }
         logDebug('In-memory config:', getConfig()?.id, getConfig()?.version)
     } catch (e) {
         logError('Debug error:', e)

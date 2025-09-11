@@ -27,6 +27,11 @@ import { getConfigKey, getConfigIdentity, getConfig } from './config.js'
 import { safeSetItem, checkStorageHealth, showStorageInfo } from './storage-manager.js'
 import { debug as logDebug, error as logError } from './logger.js'
 
+// In-memory fallback for environments without unified storage / IndexedDB.
+// This ensures we do not write to localStorage in production. Tests may
+// install their own shims if they require a synchronous storage API.
+const inMemorySnapshots = Object.create(null)
+
 export function setupSnapshotSystem() {
     const saveSnapshotBtn = $('save-snapshot')
     const historyBtn = $('history')
@@ -104,6 +109,12 @@ async function getSnapshotsForCurrentConfig() {
         const { loadSnapshots } = await import('./unified-storage.js')
         const snaps = await loadSnapshots(configIdentity)
 
+        // Ensure snaps is always an array before filtering
+        if (!Array.isArray(snaps)) {
+            logError('loadSnapshots returned non-array:', typeof snaps, snaps)
+            return []
+        }
+
         // Filter to only include snapshots that match current config identity
         return snaps.filter(snap => {
             if (!snap.config) return false // Skip legacy snapshots without config info
@@ -118,22 +129,22 @@ async function getSnapshotsForCurrentConfig() {
         })
     } catch (e) {
         logError('Failed to load snapshots from unified storage:', e)
-        // Fallback to localStorage for backward compatibility
+        // Fallback to an in-memory map for environments without IndexedDB.
         try {
-            const storageKey = `snapshots_${configIdentity}`
-            const snaps = JSON.parse(localStorage.getItem(storageKey) || '[]')
-            return snaps.filter(snap => {
+            const arr = inMemorySnapshots[configIdentity] || []
+            // Ensure the fallback is also an array
+            if (!Array.isArray(arr)) {
+                logError('In-memory snapshots is not an array:', typeof arr, arr)
+                return []
+            }
+            return arr.filter(snap => {
                 if (!snap.config) return false
-                if (typeof snap.config === 'string') {
-                    return snap.config === configIdentity
-                }
-                if (snap.config.id && snap.config.version) {
-                    return `${snap.config.id}@${snap.config.version}` === configIdentity
-                }
+                if (typeof snap.config === 'string') return snap.config === configIdentity
+                if (snap.config.id && snap.config.version) return `${snap.config.id}@${snap.config.version}` === configIdentity
                 return false
             })
         } catch (fallbackError) {
-            logError('Failed to load snapshots from localStorage fallback:', fallbackError)
+            logError('Failed to load snapshots from in-memory fallback:', fallbackError)
             return []
         }
     }
@@ -147,18 +158,13 @@ async function saveSnapshotsForCurrentConfig(snapshots) {
         logDebug('Snapshots saved to unified storage for config:', configIdentity)
     } catch (e) {
         logError('Failed to save snapshots to unified storage:', e)
-        // Fallback to localStorage using storage manager
+        // Do not write to localStorage in production. Use an in-memory
+        // fallback so the app remains functional in non-IDB environments.
         try {
-            const storageKey = `snapshots_${configIdentity}`
-            const result = safeSetItem(storageKey, JSON.stringify(snapshots))
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to save snapshots to localStorage fallback')
-            }
-            if (result.recovered) {
-                appendTerminal('Snapshots saved after storage cleanup (localStorage fallback)')
-            }
+            inMemorySnapshots[configIdentity] = Array.isArray(snapshots) ? snapshots.slice() : []
+            appendTerminal('Snapshots saved to in-memory fallback (no IndexedDB)')
         } catch (fallbackError) {
-            logError('Both unified storage and localStorage failed to save snapshots:', fallbackError)
+            logError('Failed to save snapshots to in-memory fallback:', fallbackError)
             throw fallbackError
         }
     }
@@ -202,17 +208,12 @@ async function saveSnapshot() {
                     } catch (_e) { }
                 }
             } else {
-                // fallback to localStorage mirror
-                try {
-                    const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                    for (const k of Object.keys(map)) snap.files[k] = map[k]
-                } catch (_e) { }
+                // No backend/FileManager available; avoid using localStorage.
+                // Leave snap.files empty rather than writing/reading legacy mirrors.
+                // Tests may populate window.__ssg_mem or provide a backend.
             }
         } catch (e) {
-            try {
-                const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                for (const k of Object.keys(map)) snap.files[k] = map[k]
-            } catch (_e) { }
+            // On error, avoid touching localStorage; just continue with what we have.
         }
 
         snaps.push(snap)
@@ -374,12 +375,10 @@ async function renderSnapshots() {
                     }
                 }
             } catch (unifiedError) {
-                // Fallback to localStorage scanning
-                for (let i = 0; i < localStorage.length; i++) {
+                // Unified storage not available; scan the in-memory fallback
+                for (const key of Object.keys(inMemorySnapshots)) {
                     try {
-                        const key = localStorage.key(i)
-                        if (!key || !key.startsWith('snapshots_')) continue
-                        const arr = JSON.parse(localStorage.getItem(key) || '[]')
+                        const arr = inMemorySnapshots[key] || []
                         if (!Array.isArray(arr) || !arr.length) continue
                         allSnapCount += arr.length
                         for (const s of arr) {
@@ -487,14 +486,6 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
             } catch (e) {
                 logError('Failed to update mem directly:', e)
             }
-
-            try {
-                const newMap = Object.create(null)
-                for (const k of Object.keys(mem)) newMap[k] = mem[k]
-                localStorage.setItem('ssg_files_v1', JSON.stringify(newMap))
-            } catch (e) {
-                logError('Failed to update localStorage:', e)
-            }
         }
 
         // Reconcile via FileManager to ensure mem/localStorage/backend are consistent
@@ -529,7 +520,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
                 Object.keys(mem).forEach(k => delete mem[k])
                 for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
                 try {
-                    localStorage.setItem('ssg_files_v1', JSON.stringify(mem))
+                    // Do not update legacy localStorage mirror.
                 } catch (e) {
                     logError('Final localStorage update failed:', e)
                 }
@@ -653,20 +644,15 @@ function showStorageInfoInTerminal() {
 function debugSnapshotStorage() {
     logDebug('=== Snapshot Storage Debug ===')
     try {
-        const allKeys = []
         const snapshotKeys = []
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (key) {
-                allKeys.push(key)
-                if (key.startsWith('snapshots_')) {
-                    snapshotKeys.push(key)
-                    const value = localStorage.getItem(key)
-                    logDebug(`${key}: ${value ? JSON.parse(value).length : 0} snapshots`)
-                }
-            }
+        for (const key of Object.keys(inMemorySnapshots)) {
+            try {
+                snapshotKeys.push(`snapshots_${key}`)
+                const value = inMemorySnapshots[key]
+                logDebug(`snapshots_${key}: ${value ? value.length : 0} snapshots`)
+            } catch (_e) { }
         }
-        logDebug('All localStorage keys:', allKeys)
+        logDebug('In-memory snapshot keys:', Object.keys(inMemorySnapshots))
         logDebug('Snapshot keys:', snapshotKeys)
     } catch (e) {
         logError('Debug error:', e)
@@ -752,15 +738,13 @@ async function clearStorage() {
             actuallyDeleted = totalSnapshots
             logDebug('Cleared all snapshots from unified storage')
         } catch (unifiedError) {
-            logDebug('Unified storage clear failed, trying localStorage:', unifiedError)
+            logDebug('Unified storage clear failed, using in-memory fallback:', unifiedError)
 
-            // Fallback to localStorage removal
-            for (const key of keysToDelete) {
+            // Fallback to in-memory removal
+            for (const key of Object.keys(inMemorySnapshots)) {
                 try {
-                    if (localStorage.getItem(key)) {
-                        localStorage.removeItem(key)
-                        actuallyDeleted++
-                    }
+                    actuallyDeleted += (Array.isArray(inMemorySnapshots[key]) ? inMemorySnapshots[key].length : 0)
+                    delete inMemorySnapshots[key]
                 } catch (_e) { }
             }
         }
