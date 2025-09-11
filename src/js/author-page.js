@@ -409,10 +409,10 @@ function setupHandlers() {
     })
     $('add-file').addEventListener('click', () => {
         const name = prompt('File path (e.g. /lib/util.py)')
-    logDebug('[author-page] add-file clicked, prompt ->', name)
+        logDebug('[author-page] add-file clicked, prompt ->', name)
         if (!name) return
         files[name] = ''
-    logDebug('[author-page] files after add:', Object.keys(files))
+        logDebug('[author-page] files after add:', Object.keys(files))
         renderFileList()
         openFile(name)
         debounceSave()

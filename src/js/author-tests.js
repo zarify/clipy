@@ -1407,7 +1407,7 @@ export function initAuthorTests() {
         render()
 
         // Update global config so feedback UI can see the new tests
-                try {
+        try {
             if (window.Config && window.Config.current) {
                 // Update the global config with the new tests structure
                 window.Config.current.tests = testConfig
@@ -1886,7 +1886,7 @@ export function initAuthorTests() {
         render()
 
         // Update global config when textarea is manually edited
-                try {
+        try {
             if (window.Config && window.Config.current) {
                 window.Config.current.tests = testConfig
                 logDebug('[author-tests] Updated window.Config.current.tests from textarea input', testConfig)
