@@ -346,9 +346,39 @@ async function main() {
                             // Write extra files from the config.files map
                             try {
                                 if (cfg && cfg.files && typeof cfg.files === 'object') {
-                                    for (const [p, content] of Object.entries(cfg.files)) {
-                                        try { await FileManager.write(p, String(content || '')) } catch (_e) { }
-                                    }
+                                    // When materializing files from a loaded configuration make
+                                    // sure app/system writes bypass user-level read-only guards
+                                    // so the runtime sees the files regardless of file flags.
+                                    // When materializing files from a loaded configuration make
+                                    // sure app/system writes bypass user-level read-only guards
+                                    // so the runtime sees the files regardless of file flags.
+                                    try { const { setSystemWriteMode } = await import('./js/vfs-client.js'); setSystemWriteMode(true) } catch (_e) { }
+                                    try {
+                                        for (const [p, content] of Object.entries(cfg.files)) {
+                                            try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                        }
+
+                                        // Ensure backend (IndexedDB/localStorage backend) also
+                                        // persists these files so later mounts into the runtime
+                                        // will include them. Use the backend directly if available
+                                        // to avoid any user-write guards and to force persistence.
+                                        try {
+                                            const backend = (typeof window !== 'undefined') ? window.__ssg_vfs_backend : null
+                                            if (backend && typeof backend.write === 'function') {
+                                                try { const { setSystemWriteMode } = await import('./js/vfs-client.js'); setSystemWriteMode(true) } catch (_e) { }
+                                                for (const [p, content] of Object.entries(cfg.files)) {
+                                                    try {
+                                                        const path = (p && p.startsWith('/')) ? p : ('/' + String(p).replace(/^\/+/, ''))
+                                                        await backend.write(path, String(content || ''))
+                                                        // mark expected write and notify runtime to keep mem in sync
+                                                        try { if (typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(path, String(content || '')) } catch (_e) { }
+                                                    } catch (_e) { }
+                                                }
+                                                try { const { setSystemWriteMode } = await import('./js/vfs-client.js'); setSystemWriteMode(false) } catch (_e) { }
+                                            }
+                                        } catch (_e) { }
+                                    } catch (_e) { }
+                                    try { const { setSystemWriteMode } = await import('./js/vfs-client.js'); setSystemWriteMode(false) } catch (_e) { }
                                 }
                             } catch (_e) { }
                         }

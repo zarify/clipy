@@ -120,11 +120,14 @@ async function syncVFSBeforeRun() {
             for (let attempt = 0; attempt < 3 && !mounted; attempt++) {
                 try {
                     try { window.__ssg_suppress_notifier = true } catch (_e) { }
+                    try { setSystemWriteMode(true) } catch (_e) { }
                     await backend.mountToEmscripten(fs)
+                    try { setSystemWriteMode(false) } catch (_e) { }
                     try { window.__ssg_suppress_notifier = false } catch (_e) { }
                     mounted = true
                     appendTerminalDebug('VFS mounted into MicroPython FS (pre-run)')
                 } catch (merr) {
+                    try { setSystemWriteMode(false) } catch (_e) { }
                     appendTerminalDebug('VFS pre-run mount attempt #' + (attempt + 1) + ' failed: ' + String(merr))
                     await new Promise(r => setTimeout(r, 150))
                 }
@@ -139,6 +142,12 @@ async function syncVFSBeforeRun() {
 // Sync VFS files after execution
 async function syncVFSAfterRun() {
     try {
+        // PERFORMANCE: Skip expensive sync if this was likely a read-only operation
+        if (window.__ssg_skip_sync_after_run) {
+            appendTerminalDebug('VFS sync skipped (read-only operation detected)')
+            return
+        }
+
         const backend = window.__ssg_vfs_backend
         const fs = window.__ssg_runtime_fs
 
@@ -193,6 +202,19 @@ export async function runPythonCode(code, cfg) {
 
     setExecutionRunning(true)
     appendTerminal('>>> Running...', 'runtime')
+
+    // PERFORMANCE: Detect likely read-only operations to skip expensive VFS sync
+    const codeStr = String(code || '').trim()
+    const isReadOnlyOperation = /^(import\s+os|from\s+os|os\.listdir|os\.getcwd|os\.path\.|print\s*\()/m.test(codeStr) &&
+        !/write|open\s*\(|file\s*=|with\s+open/m.test(codeStr) &&
+        codeStr.length < 200 // Only apply to short snippets
+
+    if (isReadOnlyOperation) {
+        window.__ssg_skip_sync_after_run = true
+        appendTerminalDebug('Detected read-only operation, will skip expensive sync')
+    } else {
+        window.__ssg_skip_sync_after_run = false
+    }
 
     // Initialize stdin history tracking for feedback system
     window.__ssg_stdin_history = ''

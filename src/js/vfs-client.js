@@ -133,9 +133,32 @@ function setupNotificationSystem() {
                 // notification: path written -> UI will handle enqueueing/opening
 
                 // update mem and localStorage mirror for tests and fallbacks (always keep mem in sync)
-                try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
                 try {
-                    scheduleMirrorSave(n, content)
+                    if (typeof mem !== 'undefined') {
+                        if (content == null) {
+                            try { delete mem[n] } catch (_e) { }
+                        } else {
+                            mem[n] = content
+                        }
+                    }
+                } catch (_e) { }
+                try {
+                    if (content == null) scheduleMirrorDelete(n)
+                    else scheduleMirrorSave(n, content)
+                } catch (_e) { }
+
+                // If this was a deletion, inform the TabManager to close any open tab
+                try {
+                    if (content == null) {
+                        try {
+                            if (window.TabManager && typeof window.TabManager.closeTabSilent === 'function') {
+                                try { window.TabManager.closeTabSilent(n) } catch (_e) { }
+                            }
+                            if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') {
+                                try { window.TabManager.syncWithFileManager() } catch (_e) { }
+                            }
+                        } catch (_e) { }
+                    }
                 } catch (_e) { }
 
                 // Queue the path for the UI to open later via the existing pending-tabs flow,
@@ -193,14 +216,32 @@ export function createNotificationSystem(host = window) {
 
                     // notification: path written - consumed or forwarded to UI
 
-                    try { if (typeof mem !== 'undefined') { mem[n] = content } } catch (_e) { }
                     try {
-                        scheduleMirrorSave(n, content, host)
+                        if (typeof mem !== 'undefined') {
+                            if (content == null) {
+                                try { delete mem[n] } catch (_e) { }
+                            } else {
+                                mem[n] = content
+                            }
+                        }
+                    } catch (_e) { }
+                    try {
+                        if (content == null) scheduleMirrorDelete(n, host)
+                        else scheduleMirrorSave(n, content, host)
                     } catch (_e) { }
 
+                    // If this was a deletion, instruct the TabManager on the host
+                    // to close any associated tab and sync state.
                     try {
-                        if (n !== MAIN_FILE && content != null) {
-                            try { host.__ssg_pending_tabs = (host.__ssg_pending_tabs || []).concat([n]) } catch (_e) { }
+                        if (content == null) {
+                            try {
+                                if (host && host.TabManager && typeof host.TabManager.closeTabSilent === 'function') {
+                                    try { host.TabManager.closeTabSilent(n) } catch (_e) { }
+                                }
+                                if (host && host.TabManager && typeof host.TabManager.syncWithFileManager === 'function') {
+                                    try { host.TabManager.syncWithFileManager() } catch (_e) { }
+                                }
+                            } catch (_e) { }
                         }
                     } catch (_e) { }
 

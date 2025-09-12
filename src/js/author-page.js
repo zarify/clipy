@@ -467,15 +467,11 @@ function setupHandlers() {
             try {
                 const cfg = buildCurrentConfig()
                 await saveAuthorConfigToLocalStorage(cfg)
-
-                // Also save as current config for main app to load
-                try {
-                    const { saveCurrentConfig } = await import('./config.js')
-                    await saveCurrentConfig(cfg)
-                    logDebug('Authored config saved as current config')
-                } catch (e) {
-                    logError('Failed to save authored config as current config:', e)
-                }
+                // Intentionally do NOT save this authored config as the app's
+                // current configuration here. Applying an authored config to
+                // the running app should be an explicit user action via the
+                // config modal ("Use in app"), otherwise navigating back
+                // would unexpectedly overwrite the user's current workspace.
             } catch (_e) { /* best-effort - ignore save errors and continue navigation */ }
 
             // Set flag for return detection

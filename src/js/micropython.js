@@ -1105,12 +1105,16 @@ function installRuntimeFsGuards(fs) {
                 const _origUnlink = fs.unlink.bind(fs)
                 fs.unlink = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
                         if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
                         const e = new Error('Permission denied: read-only file ' + String(path))
                         e.errno = 13
                         throw e
                     }
-                    return _origUnlink(path)
+                    const res = _origUnlink(path)
+                    // Notify host/UI that runtime removed the file so FileManager can sync
+                    try { if (typeof window !== 'undefined' && typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(path, null) } catch (_e) { }
+                    return res
                 }
             }
 
@@ -1118,12 +1122,15 @@ function installRuntimeFsGuards(fs) {
                 const _origUnlinkSync = fs.unlinkSync.bind(fs)
                 fs.unlinkSync = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
                         if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
                         const e = new Error('Permission denied: read-only file ' + String(path))
                         e.errno = 13
                         throw e
                     }
-                    return _origUnlinkSync(path)
+                    const res = _origUnlinkSync(path)
+                    try { if (typeof window !== 'undefined' && typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(path, null) } catch (_e) { }
+                    return res
                 }
             }
 
@@ -1131,6 +1138,7 @@ function installRuntimeFsGuards(fs) {
                 const _origRmdir = fs.rmdir.bind(fs)
                 fs.rmdir = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
                         if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
                         const e = new Error('Permission denied: read-only path ' + String(path))
                         e.errno = 13
@@ -1144,6 +1152,7 @@ function installRuntimeFsGuards(fs) {
                 const _origRmdirSync = fs.rmdirSync.bind(fs)
                 fs.rmdirSync = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
                         if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
                         const e = new Error('Permission denied: read-only path ' + String(path))
                         e.errno = 13
@@ -1188,8 +1197,10 @@ function installRuntimeFsGuards(fs) {
         // and emits a debug line via appendTerminalDebug. The tracer is
         // installed last so it wraps the final call-path the runtime uses
         // (including any guard wrappers installed above).
+        // PERFORMANCE: Only install tracer if explicitly enabled for debugging
         try {
-            if (!fs.__ssg_tracer_installed) {
+            const enableTracing = window.__ssg_enable_fs_tracing || window.__ssg_debug_logs
+            if (!fs.__ssg_tracer_installed && enableTracing) {
                 fs.__ssg_tracer_installed = true
 
                 // small helper to stringify args safely and keep output short

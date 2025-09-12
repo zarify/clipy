@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>OS Listdir Performance Test</title>
+</head>
+
+<body>
+    <h1>OS Listdir Performance Test</h1>
+    <button id="test-btn">Test os.listdir() Performance</button>
+    <div id="output"></div>
+    <script src="app.js"></script>
+    <script>
+        document.getElementById('test-btn').addEventListener('click', async () => {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Testing performance...</p>';
+
+            try {
+                // Add some test files to make the filesystem bigger
+                if (window.FileManager) {
+                    for (let i = 0; i < 50; i++) {
+                        await window.FileManager.write(`/test_file_${i}.txt`, `Test content ${i}`);
+                    }
+                }
+
+                const startTime = performance.now();
+
+                // Enable debug mode to see what's happening
+                window.__ssg_debug_logs = true;
+
+                // Run the problematic code
+                const result = await window.runCode(`
+import os
+files = os.listdir('/')
+print(f"Found {len(files)} files")
+print("Files:", files[:10])  # Show first 10 files
+`);
+
+                const endTime = performance.now();
+                const totalTime = endTime - startTime;
+
+                output.innerHTML = `
+                    <h3>Results:</h3>
+                    <p><strong>Total JavaScript execution time:</strong> ${totalTime.toFixed(2)}ms</p>
+                    <p><strong>Python output:</strong></p>
+                    <pre>${result.output || 'No output'}</pre>
+                    <p><strong>Errors:</strong></p>
+                    <pre>${result.error || 'No errors'}</pre>
+                `;
+
+                // Check if there are FS call logs
+                if (window.__ssg_fs_call_log) {
+                    const recentCalls = window.__ssg_fs_call_log.slice(-20);
+                    output.innerHTML += `
+                        <p><strong>Recent FS calls (last 20):</strong></p>
+                        <pre>${JSON.stringify(recentCalls, null, 2)}</pre>
+                    `;
+                }
+
+            } catch (error) {
+                output.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+
+</html>
+
+</html>
