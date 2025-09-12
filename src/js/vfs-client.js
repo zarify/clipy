@@ -7,6 +7,14 @@ import { safeSetItem } from './storage-manager.js'
 // Global flag to allow system operations to bypass read-only restrictions
 let systemWriteMode = false
 
+// Helper: normalize a path for display to the user (strip any leading slashes)
+function _displayPathForUser(path) {
+    try {
+        if (path == null) return String(path)
+        return String(path).replace(/^\/+/g, '')
+    } catch (_e) { return String(path) }
+}
+
 // Allow system operations to temporarily bypass read-only restrictions.
 // This is exported so callers (execution flows, snapshots, tests) can
 // enable system-write mode while performing controlled backend writes.
@@ -501,7 +509,7 @@ export async function initializeVFS(cfg) {
                     try {
                         if (isFileReadOnlyForUserWrite(n)) {
                             logWarn('Attempt to delete read-only file blocked:', n)
-                            const err = new Error('Permission denied: read-only file ' + n)
+                            const err = new Error('Permission denied: read-only file ' + _displayPathForUser(n))
                             err.errno = 13
                             return Promise.reject(err)
                         }
@@ -635,7 +643,7 @@ export function createFileManager(host = window) {
                 try {
                     if (isFileReadOnlyForUserWrite(n)) {
                         try { logWarn('Attempt to delete read-only file blocked:', n) } catch (_e) { }
-                        const err = new Error('Permission denied: read-only file ' + n)
+                        const err = new Error('Permission denied: read-only file ' + _displayPathForUser(n))
                         err.errno = 13
                         return Promise.reject(err)
                     }

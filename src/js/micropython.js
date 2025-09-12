@@ -6,6 +6,26 @@ import { debug as logDebug, info as logInfo, warn as logWarn, error as logError 
 
 // Global state
 let runtimeAdapter = null
+
+// Helper: normalize a path for display to the user (strip any leading slashes)
+function _displayPathForUser(path) {
+    try {
+        if (path == null) return String(path)
+        const s = String(path)
+        // remove any leading slashes so paths are reported relative to main.py
+        return s.replace(/^\/+/g, '')
+    } catch (_e) { return String(path) }
+}
+
+// Helper: throw a read-only permission error consistently. If the FS
+// provides ErrnoError, prefer throwing that to match runtime expectations.
+function _throwReadOnly(fs, path, isDir) {
+    const display = _displayPathForUser(path)
+    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
+    const e = new Error('Permission denied: read-only ' + (isDir ? 'path ' : 'file ') + display)
+    e.errno = 13
+    throw e
+}
 let executionState = {
     isRunning: false,
     currentAbortController: null,
@@ -670,8 +690,8 @@ export async function loadMicroPythonRuntime(cfg) {
                             fs.writeFile = function (path, data, opts) {
                                 try {
                                     if (_isPathReadOnlyForUser(path)) {
-                                        const msg = 'Permission denied: read-only file ' + String(path)
-                                        throw new Error(msg)
+                                        try { appendTerminalDebug('[vfs-guard] blocking writeFile to ' + _displayPathForUser(path)) } catch (_e) { }
+                                        _throwReadOnly(fs, path, false)
                                     }
                                 } catch (_e) { }
                                 return _origWriteFile(path, data, opts)
@@ -685,7 +705,8 @@ export async function loadMicroPythonRuntime(cfg) {
                                 const path = (parent === '/' ? '' : parent) + '/' + name
                                 try {
                                     if (_isPathReadOnlyForUser(path)) {
-                                        throw new Error('Permission denied: read-only file ' + path)
+                                        try { appendTerminalDebug('[vfs-guard] blocking createDataFile -> ' + _displayPathForUser(path)) } catch (_e) { }
+                                        _throwReadOnly(fs, path, false)
                                     }
                                 } catch (_e) { }
                                 return _origCreate(parent, name, data, canRead, canWrite)
@@ -700,7 +721,8 @@ export async function loadMicroPythonRuntime(cfg) {
                                     const meta = fs.__ssg_fd_map && fs.__ssg_fd_map[fd]
                                     const path = meta && meta.path ? meta.path : null
                                     if (path && _isPathReadOnlyForUser(path)) {
-                                        throw new Error('Permission denied: read-only file ' + String(path))
+                                        try { appendTerminalDebug('[vfs-guard] blocking fd write to ' + _displayPathForUser(path)) } catch (_e) { }
+                                        _throwReadOnly(fs, path, false)
                                     }
                                 } catch (_e) { }
                                 return _origWrite(fd, buffer, offset, length, position)
@@ -951,11 +973,8 @@ function installRuntimeFsGuards(fs) {
             const _orig = fs.writeFile.bind(fs)
             fs.writeFile = function (path, data, opts) {
                 if (_isPathReadOnlyForUser(path)) {
-                    try { appendTerminalDebug('[vfs-guard] blocking writeFile to ' + path) } catch (_e) { }
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + String(path))
-                    e.errno = 13
-                    throw e
+                    try { appendTerminalDebug('[vfs-guard] blocking writeFile to ' + _displayPathForUser(path)) } catch (_e) { }
+                    _throwReadOnly(fs, path, false)
                 }
                 return _orig(path, data, opts)
             }
@@ -966,11 +985,8 @@ function installRuntimeFsGuards(fs) {
             const _orig = fs.writeFileSync.bind(fs)
             fs.writeFileSync = function (path, data, opts) {
                 if (_isPathReadOnlyForUser(path)) {
-                    try { appendTerminalDebug('[vfs-guard] blocking writeFileSync to ' + path) } catch (_e) { }
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + String(path))
-                    e.errno = 13
-                    throw e
+                    try { appendTerminalDebug('[vfs-guard] blocking writeFileSync to ' + _displayPathForUser(path)) } catch (_e) { }
+                    _throwReadOnly(fs, path, false)
                 }
                 return _orig(path, data, opts)
             }
@@ -981,11 +997,8 @@ function installRuntimeFsGuards(fs) {
             fs.createDataFile = function (parent, name, data, canRead, canWrite) {
                 const path = (parent === '/' ? '' : parent) + '/' + name
                 if (_isPathReadOnlyForUser(path)) {
-                    try { appendTerminalDebug('[vfs-guard] blocking createDataFile -> ' + path) } catch (_e) { }
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + path)
-                    e.errno = 13
-                    throw e
+                    try { appendTerminalDebug('[vfs-guard] blocking createDataFile -> ' + _displayPathForUser(path)) } catch (_e) { }
+                    _throwReadOnly(fs, path, false)
                 }
                 return _orig(parent, name, data, canRead, canWrite)
             }
@@ -997,11 +1010,8 @@ function installRuntimeFsGuards(fs) {
                 const meta = fs.__ssg_fd_map && fs.__ssg_fd_map[fd]
                 const path = meta && meta.path ? meta.path : null
                 if (path && _isPathReadOnlyForUser(path)) {
-                    try { appendTerminalDebug('[vfs-guard] blocking fd write to ' + path) } catch (_e) { }
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + String(path))
-                    e.errno = 13
-                    throw e
+                    try { appendTerminalDebug('[vfs-guard] blocking fd write to ' + _displayPathForUser(path)) } catch (_e) { }
+                    _throwReadOnly(fs, path, false)
                 }
                 return _orig(fd, buffer, offset, length, position)
             }
@@ -1027,10 +1037,7 @@ function installRuntimeFsGuards(fs) {
 
                 const path = (parentPath === '/' ? '' : (parentPath || '')) + '/' + name
                 if (_isPathReadOnlyForUser(path)) {
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + path)
-                    e.errno = 13
-                    throw e
+                    _throwReadOnly(fs, path, false)
                 }
 
                 return _origCreateNode(parent, name, mode, dev)
@@ -1041,10 +1048,7 @@ function installRuntimeFsGuards(fs) {
             const _origMknod = fs.mknod.bind(fs)
             fs.mknod = function (path, mode, dev) {
                 if (_isPathReadOnlyForUser(path)) {
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + path)
-                    e.errno = 13
-                    throw e
+                    _throwReadOnly(fs, path, false)
                 }
                 return _origMknod(path, mode, dev)
             }
@@ -1071,10 +1075,7 @@ function installRuntimeFsGuards(fs) {
                 if (typeof flags === 'string' && /[wa+]/.test(flags)) writeMode = true
                 if (typeof flags === 'number' && (flags & 3) !== 0) writeMode = true
                 if (writeMode && path && _isPathReadOnlyForUser(path)) {
-                    if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                    const e = new Error('Permission denied: read-only file ' + path)
-                    e.errno = 13
-                    throw e
+                    _throwReadOnly(fs, path, false)
                 }
                 return _origCreateStream(node, flags, mode)
             }
@@ -1088,10 +1089,7 @@ function installRuntimeFsGuards(fs) {
                     let path = null
                     try { if (stream && stream.node && typeof fs.getPath === 'function') path = fs.getPath(stream.node) } catch (_e) { }
                     if (path && _isPathReadOnlyForUser(path)) {
-                        if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                        const e = new Error('Permission denied: read-only file ' + path)
-                        e.errno = 13
-                        throw e
+                        _throwReadOnly(fs, path, false)
                     }
                     return _origStreamWrite(stream, buffer, offset, length, position)
                 }
@@ -1105,11 +1103,8 @@ function installRuntimeFsGuards(fs) {
                 const _origUnlink = fs.unlink.bind(fs)
                 fs.unlink = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
-                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
-                        if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                        const e = new Error('Permission denied: read-only file ' + String(path))
-                        e.errno = 13
-                        throw e
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + _displayPathForUser(path), 'stderr') } catch (_e) { }
+                        _throwReadOnly(fs, path, false)
                     }
                     const res = _origUnlink(path)
                     // Notify host/UI that runtime removed the file so FileManager can sync
@@ -1122,11 +1117,8 @@ function installRuntimeFsGuards(fs) {
                 const _origUnlinkSync = fs.unlinkSync.bind(fs)
                 fs.unlinkSync = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
-                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
-                        if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                        const e = new Error('Permission denied: read-only file ' + String(path))
-                        e.errno = 13
-                        throw e
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + _displayPathForUser(path), 'stderr') } catch (_e) { }
+                        _throwReadOnly(fs, path, false)
                     }
                     const res = _origUnlinkSync(path)
                     try { if (typeof window !== 'undefined' && typeof window.__ssg_notify_file_written === 'function') window.__ssg_notify_file_written(path, null) } catch (_e) { }
@@ -1138,11 +1130,8 @@ function installRuntimeFsGuards(fs) {
                 const _origRmdir = fs.rmdir.bind(fs)
                 fs.rmdir = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
-                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
-                        if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                        const e = new Error('Permission denied: read-only path ' + String(path))
-                        e.errno = 13
-                        throw e
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + _displayPathForUser(path), 'stderr') } catch (_e) { }
+                        _throwReadOnly(fs, path, true)
                     }
                     return _origRmdir(path)
                 }
@@ -1152,11 +1141,8 @@ function installRuntimeFsGuards(fs) {
                 const _origRmdirSync = fs.rmdirSync.bind(fs)
                 fs.rmdirSync = function (path) {
                     if (_isPathReadOnlyForUser(path)) {
-                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + String(path), 'stderr') } catch (_e) { }
-                        if (fs && typeof fs.ErrnoError === 'function') throw new fs.ErrnoError(13)
-                        const e = new Error('Permission denied: read-only path ' + String(path))
-                        e.errno = 13
-                        throw e
+                        try { appendTerminal && appendTerminal('OSError: [Errno 13] Permission denied: ' + _displayPathForUser(path), 'stderr') } catch (_e) { }
+                        _throwReadOnly(fs, path, true)
                     }
                     return _origRmdirSync(path)
                 }
@@ -1171,8 +1157,8 @@ function installRuntimeFsGuards(fs) {
                     // If flags is a string, detect write modes like 'w', 'a', '+'
                     if (typeof flags === 'string' && /[wa+]/.test(flags)) {
                         if (_isPathReadOnlyForUser(path)) {
-                            try { appendTerminalDebug('[vfs-guard] blocking open(write) -> ' + path + ' flags:' + flags) } catch (_e) { }
-                            throw new Error('Permission denied: read-only file ' + String(path))
+                            try { appendTerminalDebug('[vfs-guard] blocking open(write) -> ' + _displayPathForUser(path) + ' flags:' + flags) } catch (_e) { }
+                            _throwReadOnly(fs, path, false)
                         }
                     }
                     // If flags is numeric, best-effort: block if common write bits set (O_WRONLY|O_RDWR)
@@ -1181,8 +1167,8 @@ function installRuntimeFsGuards(fs) {
                         const writeBits = (flags & 3)
                         if (writeBits !== 0) {
                             if (_isPathReadOnlyForUser(path)) {
-                                try { appendTerminalDebug('[vfs-guard] blocking open(write numeric) -> ' + path + ' flags:' + flags) } catch (_e) { }
-                                throw new Error('Permission denied: read-only file ' + String(path))
+                                try { appendTerminalDebug('[vfs-guard] blocking open(write numeric) -> ' + _displayPathForUser(path) + ' flags:' + flags) } catch (_e) { }
+                                _throwReadOnly(fs, path, false)
                             }
                         }
                     }
