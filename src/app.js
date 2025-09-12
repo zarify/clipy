@@ -669,7 +669,7 @@ async function main() {
                         const ok = await showConfirmModal('Reset workspace', 'Reset workspace to the loaded configuration? This will overwrite current files.')
                         if (!ok) return
 
-                        // Reload canonical config
+                        // Reload canonical config (use resetToLoadedConfig if available)
                         let newCfg = null
                         if (mod && typeof mod.resetToLoadedConfig === 'function') {
                             newCfg = await mod.resetToLoadedConfig()
@@ -677,62 +677,74 @@ async function main() {
                             newCfg = (await mod.loadConfig())
                         }
 
-                        // Replace filesystem contents with what's defined in the config.
+                        // Ensure TabManager closes any tabs for files that will be removed
                         try {
-                            const vfs = await import('./js/vfs-client.js')
-                            const getFileManager = vfs.getFileManager
-                            const MAIN_FILE = vfs.MAIN_FILE
-                            const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
-                            if (FileManager) {
-                                // Delete all files except MAIN_FILE
+                            // Close all open tabs except MAIN_FILE silently so the UI
+                            // doesn't attempt to delete files again. Also clear pending tabs
+                            // to avoid reopening stale files.
+                            if (window.TabManager && typeof window.TabManager.list === 'function') {
                                 try {
-                                    const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
-                                    for (const p of existing) {
+                                    const open = window.TabManager.list() || []
+                                    for (const p of open) {
                                         try {
-                                            if (p === MAIN_FILE) continue
-                                            if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                                            if (!p) continue
+                                            if (p === (await import('./js/vfs-client.js')).MAIN_FILE) continue
+                                            try { window.TabManager.closeTabSilent(p) } catch (_e) { }
                                         } catch (_e) { }
                                     }
                                 } catch (_e) { }
+                            }
+                            try { window.__ssg_pending_tabs = [] } catch (_e) { }
+                        } catch (_e) { }
 
-                                // Write MAIN_FILE and extra files
-                                try {
-                                    if (typeof FileManager.write === 'function') {
-                                        await FileManager.write(MAIN_FILE, newCfg?.starter || '')
-                                    }
-                                } catch (_e) { }
-
-                                try {
-                                    if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
-                                        for (const [p, content] of Object.entries(newCfg.files)) {
-                                            try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                        // Delegate the heavy lifting to the centralized helper which
+                        // applies the config to the workspace (manages FS, snapshots,
+                        // tab sync, and feedback updates).
+                        try {
+                            if (typeof applyConfigToWorkspace === 'function') {
+                                await applyConfigToWorkspace(newCfg)
+                            } else {
+                                // Fallback: attempt basic apply if helper missing
+                                const vfs = await import('./js/vfs-client.js')
+                                const getFileManager = vfs.getFileManager
+                                const MAIN_FILE = vfs.MAIN_FILE
+                                const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                                if (FileManager && typeof FileManager.write === 'function') {
+                                    try {
+                                        const { setSystemWriteMode } = await import('./js/vfs-client.js')
+                                        try {
+                                            setSystemWriteMode(true)
+                                            try { await FileManager.write(MAIN_FILE, newCfg?.starter || '') } catch (_e) { }
+                                            try {
+                                                if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                                                    for (const [p, content] of Object.entries(newCfg.files)) {
+                                                        try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                                    }
+                                                }
+                                            } catch (_e) { }
+                                        } finally {
+                                            try { setSystemWriteMode(false) } catch (_e) { }
                                         }
+                                    } catch (_e) {
+                                        // fallback without system mode
+                                        try { await FileManager.write(MAIN_FILE, newCfg?.starter || '') } catch (_e) { }
+                                        try {
+                                            if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                                                for (const [p, content] of Object.entries(newCfg.files)) {
+                                                    try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                                }
+                                            }
+                                        } catch (_e) { }
                                     }
-                                } catch (_e) { }
+                                }
+                                try { if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') await window.TabManager.syncWithFileManager() } catch (_e) { }
+                                try { if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') window.TabManager.refreshOpenTabContents() } catch (_e) { }
+                                try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
+                                try { appendTerminal('Workspace reset to loaded configuration', 'runtime') } catch (_e) { }
                             }
                         } catch (e) {
-                            try { appendTerminal('Failed to reset filesystem: ' + e, 'runtime') } catch (_e) { }
+                            try { appendTerminal('Failed to apply reset configuration: ' + e, 'runtime') } catch (_e) { }
                         }
-
-                        // Refresh tabs/editor to reflect programmatic filesystem changes
-                        try {
-                            if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') {
-                                try { await window.TabManager.syncWithFileManager() } catch (_e) { }
-                            }
-                        } catch (_e) { }
-
-                        // Force-refresh the content of the visible editor/tab
-                        try {
-                            if (window.TabManager && typeof window.TabManager.refreshOpenTabContents === 'function') {
-                                try { window.TabManager.refreshOpenTabContents() } catch (_e) { }
-                            }
-                        } catch (_e) { }
-
-                        // Update global config reference used elsewhere
-                        try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e) { }
-                        // Refresh feedback UI with new config if available
-                        try { if (typeof window.__ssg_set_feedback_config === 'function') window.__ssg_set_feedback_config(newCfg) } catch (_e) { }
-                        try { appendTerminal('Workspace reset to loaded configuration', 'runtime') } catch (_e) { }
                     } catch (e) {
                         try { appendTerminal('Failed to reset config: ' + e, 'runtime') } catch (_e) { }
                     }
@@ -803,31 +815,66 @@ async function main() {
                 const MAIN_FILE = vfs.MAIN_FILE
                 const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
                 if (FileManager) {
-                    // Delete all files except MAIN_FILE
+                    // When applying a configuration programmatically we must
+                    // bypass user-level read-only protections so system writes
+                    // and deletes succeed. Use setSystemWriteMode to allow this.
                     try {
-                        const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
-                        for (const p of existing) {
+                        const { setSystemWriteMode } = await import('./js/vfs-client.js')
+                        try {
+                            setSystemWriteMode(true)
+
+                            // Delete all files except MAIN_FILE
                             try {
-                                if (p === MAIN_FILE) continue
-                                if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                                const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                for (const p of existing) {
+                                    try {
+                                        if (p === MAIN_FILE) continue
+                                        if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                                    } catch (_e) { }
+                                }
                             } catch (_e) { }
-                        }
-                    } catch (_e) { }
 
-                    // Write MAIN_FILE and extra files
-                    try {
-                        if (typeof FileManager.write === 'function') {
-                            await FileManager.write(MAIN_FILE, newCfg?.starter || '')
-                        }
-                    } catch (_e) { }
+                            // Write MAIN_FILE and extra files
+                            try {
+                                if (typeof FileManager.write === 'function') {
+                                    await FileManager.write(MAIN_FILE, newCfg?.starter || '')
+                                }
+                            } catch (_e) { }
 
-                    try {
-                        if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
-                            for (const [p, content] of Object.entries(newCfg.files)) {
-                                try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                            try {
+                                if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                                    for (const [p, content] of Object.entries(newCfg.files)) {
+                                        try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                    }
+                                }
+                            } catch (_e) { }
+                        } finally {
+                            try { setSystemWriteMode(false) } catch (_e) { }
+                        }
+                    } catch (_e) {
+                        // If setSystemWriteMode import fails just attempt writes normally
+                        try {
+                            const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                            for (const p of existing) {
+                                try {
+                                    if (p === MAIN_FILE) continue
+                                    if (typeof FileManager.delete === 'function') await FileManager.delete(p)
+                                } catch (_e) { }
                             }
-                        }
-                    } catch (_e) { }
+                        } catch (_e) { }
+                        try {
+                            if (typeof FileManager.write === 'function') {
+                                await FileManager.write(MAIN_FILE, newCfg?.starter || '')
+                            }
+                        } catch (_e) { }
+                        try {
+                            if (newCfg && newCfg.files && typeof newCfg.files === 'object') {
+                                for (const [p, content] of Object.entries(newCfg.files)) {
+                                    try { await FileManager.write(p, String(content || '')) } catch (_e) { }
+                                }
+                            }
+                        } catch (_e) { }
+                    }
                 }
 
                 // Save this config as the current config for future sessions
@@ -854,12 +901,24 @@ async function main() {
                         const currentConfigVersion = newCfg?.version
 
                         if (isConfigCompatibleWithSnapshot(currentConfigVersion, snapshotConfigVersion)) {
-                            // Restore the snapshot files for this config
+                            // Restore the snapshot files for this config. Use system
+                            // write mode so read-only flags don't block restoration.
                             if (latestSnapshot.files && FileManager) {
-                                for (const [path, content] of Object.entries(latestSnapshot.files)) {
+                                try {
+                                    const { setSystemWriteMode } = await import('./js/vfs-client.js')
                                     try {
-                                        await FileManager.write(path, content)
-                                    } catch (_e) { }
+                                        setSystemWriteMode(true)
+                                        for (const [path, content] of Object.entries(latestSnapshot.files)) {
+                                            try { await FileManager.write(path, content) } catch (_e) { }
+                                        }
+                                    } finally {
+                                        try { setSystemWriteMode(false) } catch (_e) { }
+                                    }
+                                } catch (_e) {
+                                    // fallback: try writes without system mode
+                                    for (const [path, content] of Object.entries(latestSnapshot.files)) {
+                                        try { await FileManager.write(path, content) } catch (_e) { }
+                                    }
                                 }
                             }
                             try { appendTerminal('Restored latest snapshot for ' + (newCfg?.title || newCfg?.id || 'config'), 'runtime') } catch (_e) { }
