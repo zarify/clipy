@@ -677,25 +677,7 @@ async function main() {
                             newCfg = (await mod.loadConfig())
                         }
 
-                        // Ensure TabManager closes any tabs for files that will be removed
-                        try {
-                            // Close all open tabs except MAIN_FILE silently so the UI
-                            // doesn't attempt to delete files again. Also clear pending tabs
-                            // to avoid reopening stale files.
-                            if (window.TabManager && typeof window.TabManager.list === 'function') {
-                                try {
-                                    const open = window.TabManager.list() || []
-                                    for (const p of open) {
-                                        try {
-                                            if (!p) continue
-                                            if (p === (await import('./js/vfs-client.js')).MAIN_FILE) continue
-                                            try { window.TabManager.closeTabSilent(p) } catch (_e) { }
-                                        } catch (_e) { }
-                                    }
-                                } catch (_e) { }
-                            }
-                            try { window.__ssg_pending_tabs = [] } catch (_e) { }
-                        } catch (_e) { }
+
 
                         // Delegate the heavy lifting to the centralized helper which
                         // applies the config to the workspace (manages FS, snapshots,
@@ -810,6 +792,29 @@ async function main() {
         // Top-level helper: apply a loaded/normalized config to the workspace (rewrite FS & refresh UI)
         async function applyConfigToWorkspace(newCfg) {
             try {
+                // Close any open tabs for files that will be removed by the
+                // incoming configuration. Do this up-front so we don't rely on
+                // other callers to perform cleanup. Use closeTabSilent so the
+                // UI doesn't prompt the user or attempt to delete files again.
+                try {
+                    if (window.TabManager && typeof window.TabManager.list === 'function') {
+                        try {
+                            const open = window.TabManager.list() || []
+                            for (const p of open) {
+                                try {
+                                    if (!p) continue
+                                    // Defer MAIN_FILE handling to normal sync; skip it here
+                                    const vfs = await import('./js/vfs-client.js')
+                                    const MAIN_FILE = vfs.MAIN_FILE
+                                    if (p === MAIN_FILE) continue
+                                    try { window.TabManager.closeTabSilent(p) } catch (_e) { }
+                                } catch (_e) { }
+                            }
+                        } catch (_e) { }
+                    }
+                    try { window.__ssg_pending_tabs = [] } catch (_e) { }
+                } catch (_e) { }
+
                 const vfs = await import('./js/vfs-client.js')
                 const getFileManager = vfs.getFileManager
                 const MAIN_FILE = vfs.MAIN_FILE
