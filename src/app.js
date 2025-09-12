@@ -206,6 +206,8 @@ async function main() {
                     cfg = savedConfig
                     // Set this as the current config so helpers reflect the right identity
                     setCurrentConfig(cfg)
+                    // Make config globally available for read-only checks
+                    try { window.currentConfig = cfg } catch (_e) { }
                     logInfo('main: loaded config from unified storage:', cfg.id, cfg.version)
                 } else {
                     logInfo('main: no current config found in unified storage')
@@ -225,6 +227,8 @@ async function main() {
         // Save the loaded config as current (whether from URL, unified storage, or default)
         try {
             setCurrentConfig(cfg)
+            // Make config globally available for read-only checks
+            try { window.currentConfig = cfg } catch (_e) { }
             await saveCurrentConfig(cfg)
             // Debug what was actually saved
             logDebug('=== Config Loading Debug ===')
@@ -274,6 +278,27 @@ async function main() {
 
         // Expose TabManager globally for compatibility
         try { window.TabManager = TabManager } catch (e) { }
+
+        // Temporary debugging: surface config/read-only propagation to console
+        try {
+            // Apply config to TabManager (if present)
+            try { if (TabManager && typeof TabManager.updateConfig === 'function') TabManager.updateConfig(cfg) } catch (_e) { }
+
+            // Listen for tab-open events so we can observe what tabs are being opened
+            try {
+                window.addEventListener('ssg:tab-opened', (ev) => {
+                    try { if (typeof window !== 'undefined' && window.__SSG_DEBUG) console.info('[debug] ssg:tab-opened ->', ev && ev.detail) } catch (_e) { }
+                })
+            } catch (_e) { }
+        } catch (_e) { }
+
+        // Ensure TabManager sees the current config (read-only file statuses etc.).
+        // setCurrentConfig will notify TabManager.updateConfig if available.
+        try {
+            if (typeof setCurrentConfig === 'function' && cfg) {
+                setCurrentConfig(cfg)
+            }
+        } catch (_e) { }
 
         // Prefer sandboxed iframe-based tests by default for better isolation.
         try { if (typeof window !== 'undefined' && typeof window.__ssg_use_sandboxed_tests === 'undefined') window.__ssg_use_sandboxed_tests = true } catch (_e) { }
@@ -782,7 +807,11 @@ async function main() {
 
                 // Update global config reference BEFORE checking for snapshots
                 // This ensures getSnapshotsForCurrentConfig() uses the new config's identity
-                try { setCurrentConfig(newCfg) } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
+                try {
+                    setCurrentConfig(newCfg)
+                    // Make config globally available for read-only checks
+                    window.currentConfig = newCfg
+                } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
 
                 // Try to restore the latest snapshot for this NEW config (if compatible)
                 try {

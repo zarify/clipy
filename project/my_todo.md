@@ -3,10 +3,12 @@
 - [ ] Write author documentation
 - [ ] Make a logo
 - [ ] Make a favicon
-- [ ] Dark mode
-- [ ] Maybe switch to IndexedDB support only - check browser support - localStorage and IndexedDB seem to fight when loading the page and when the reload config button is used
+- [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
+- [ ] Reloading the workspace or loading a config should clear files before adding new ones
+- [-] We should be able to mark files in the config workspace as readonly to the user
+- [-] Maybe switch to IndexedDB support only - check browser support - localStorage and IndexedDB seem to fight when loading the page and when the reload config button is used
 - [ ] New playwrite and other tests
-- [ ] Continue with the jest tests
+- [-] Continue with the jest tests
 - [-] Add the ability to attach files to tests
 - [-] Marking code needs to send the user workspace, not just the `main.py` code. Currently trying to read a file in userspace fails because it doesn't get sent for marking
 - [-] Tests that always run vs tests that only run if previous passes

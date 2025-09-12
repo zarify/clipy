@@ -1,7 +1,7 @@
 // Python code execution engine
 import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
-import { getFileManager, MAIN_FILE, markExpectedWrite } from './vfs-client.js'
+import { getFileManager, MAIN_FILE, markExpectedWrite, setSystemWriteMode } from './vfs-client.js'
 import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor, clearAllErrorHighlights, clearAllFeedbackHighlights } from './code-transform.js'
 
 export async function executeWithTimeout(executionPromise, timeoutMs, safetyTimeoutMs = 5000) {
@@ -68,15 +68,20 @@ async function syncVFSBeforeRun() {
         // First, ensure any UI FileManager contents are pushed into the backend so mount sees them
         try {
             if (backend && typeof backend.write === 'function' && typeof FileManager?.list === 'function') {
-                const files = FileManager.list()
-                for (const p of files) {
-                    try {
-                        const c = FileManager.read(p)
-                        // suppress notifier echoes while we push UI files into backend
-                        try { window.__ssg_suppress_notifier = true } catch (_e) { }
-                        await backend.write(p, c == null ? '' : c)
-                        try { window.__ssg_suppress_notifier = false } catch (_e) { }
-                    } catch (_e) { /* ignore per-file */ }
+                try {
+                    setSystemWriteMode(true)
+                    const files = FileManager.list()
+                    for (const p of files) {
+                        try {
+                            const c = FileManager.read(p)
+                            // suppress notifier echoes while we push UI files into backend
+                            try { window.__ssg_suppress_notifier = true } catch (_e) { }
+                            await backend.write(p, c == null ? '' : c)
+                            try { window.__ssg_suppress_notifier = false } catch (_e) { }
+                        } catch (_e) { /* ignore per-file */ }
+                    }
+                } finally {
+                    setSystemWriteMode(false)
                 }
                 appendTerminalDebug('Synced UI FileManager -> backend (pre-run)')
             } else if (fs && typeof fs.writeFile === 'function' && typeof FileManager?.list === 'function') {
