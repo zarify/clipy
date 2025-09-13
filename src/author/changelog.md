@@ -1,3 +1,7 @@
+## 2025-09-13
+- Fix: Loading a config now correctly stores the current config
+- Fix: Reset of the config correctly loads the current config
+
 ## 2025-09-12
 - Feature: Files can be marked as read-only in authoring
   - Read-only files throw an OSError when user code tries to modify them or delete them
