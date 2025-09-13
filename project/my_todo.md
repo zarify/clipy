@@ -4,8 +4,11 @@
 - [ ] Make a logo
 - [ ] Make a favicon
 - [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
-- [ ] New playwrite and other tests
-- [ ] The reload config button needs to do something more obvious instead of reloading the server config
+- [ ] New playwright and other tests
+- [ ] Investigate using Pyodide as well.
+  - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
+  - https://pyodide.org/en/stable/usage/keyboard-interrupts.html
+- [-] The reload config button needs to do something more obvious instead of reloading the server config
 - [-] Reloading the workspace or loading a config should clear files before adding new ones
     - Check whether feedback and tests are being loaded/cleared correct as well, especially if the incoming config has empty arrays for these
 - [-] We should be able to mark files in the config workspace as readonly to the user
