@@ -8,6 +8,7 @@
 - [ ] Investigate using Pyodide as well.
   - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
   - https://pyodide.org/en/stable/usage/keyboard-interrupts.html
+  - Can we around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 - [-] The reload config button needs to do something more obvious instead of reloading the server config
 - [-] Reloading the workspace or loading a config should clear files before adding new ones
     - Check whether feedback and tests are being loaded/cleared correct as well, especially if the incoming config has empty arrays for these
