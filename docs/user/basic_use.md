@@ -37,7 +37,7 @@ programs, and you can not manually delete them or delete them with your code.
 
 Running your code is done by pressing the `Run` button at the bottom of the code editor.
 
-> [!INFO]
+> [!NOTE]
 > You can also use Ctrl-enter (Windows and Linux) or Cmd-enter (macOS) to run your code
 > as long as the code editor has focus (i.e. you are editing your code).
 
@@ -77,7 +77,7 @@ button under the code editor.
 
 ![The download button](img/download_button.png)
 
-> [!INFO]
+> [!NOTE]
 > If you only have `main.py` in your workspace, then a single Python file will be downloaded
 > when you use the button. The name will be a combination of the problem configuration you
 > are currently working on, its version, and the file name (which will be `main.py`)
