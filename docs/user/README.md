@@ -8,4 +8,4 @@ running code, getting feedback and testing, and loading different problem config
 - [Testing](testing.md)
 - [Loading configurations](configurations.md)
 
-Documentation for authoring configurations yourself [../author/README.md](can be found here).
+Documentation for authoring configurations yourself [can be found here](../author/README.md).
