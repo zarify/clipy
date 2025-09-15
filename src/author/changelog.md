@@ -1,3 +1,6 @@
+## 2025-09-15
+- Added validation to authoring for config ID and config version
+
 ## 2025-09-13
 - Fix: Loading a config now correctly stores the current config
 - Fix: Reset of the config correctly loads the current config

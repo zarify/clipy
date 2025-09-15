@@ -20,7 +20,8 @@ browsing mode will affect whether you can see your prior versions.
 > [!WARNING]
 > Storage is managed through IndexedDB, so will be limited by anything
 > that modifies the behaviour of that in the browser. Private browsing may
-> prevent the use of IndexedDB.
+> prevent the use of IndexedDB, and editing files will be lost when a
+> private window is closed.
 
 Saving drafts will update any previously saved draft of the same config ID
 and version. If the version is bumped then it will be saved in a new slot.
@@ -45,7 +46,12 @@ a special slot is used
 ![Configuration categories](img/authoring_data_buttons.png)
 
 ### Metadata
-Each problem configuration
+
+Each problem configuration has the following metadata stored for it:
+- Name (human friendly, used when displaying the problem)
+- ID (machine-friendly, used when saving and loading drafts and snapshots)
+- Version (major.minor semantic versioning, used by saving/loading)
+- Description (only for authors)
 
 ### Instructions
 Instructions, markdown, and the preview.
