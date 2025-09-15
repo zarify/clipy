@@ -4,6 +4,7 @@
 - [ ] Make a logo
 - [ ] Make a favicon
 - [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
+- [ ] Add exemplars for different types of feedback and tests, include with docs
 - [ ] Different options for problem loading, rather than individual config, let teachers author something equivalent to the server `index.json` file that contains an array of configs that they want to provide to students. The app then has a list of potential configurations to be able to fetch, which can be shown in a drop-down config picker, or also swapped via a URL or fragment param. So then we have a 'course lite' option, don't have a ton of URLs to add to the params, etc
 - [ ] New playwright and other tests
 - [ ] Investigate using Pyodide as well.

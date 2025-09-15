@@ -54,12 +54,63 @@ Each problem configuration has the following metadata stored for it:
 - Description (only for authors)
 
 ### Instructions
-Instructions, markdown, and the preview.
+
+Instructions for the user are written in [Common Markdown](https://commonmark.org/).
+
+Syntax highlighting is provided for code fences. Code fences are defined with triple
+backticks like this:
+
+<pre>
+```python
+print("This is some Python code")
+```
+</pre>
+
+Admonitions can also be inserted into your markdown. These are defined with tripe
+exclamation marks, along with the style of admonition like this:
+
+```txt
+!!! note title-of-the-note
+This is the body of the note.
+!!!
+```
+
+Valid admonition types are:
+- abstract
+- attention
+- bug
+- caution
+- danger
+- error
+- example
+- failure
+- hint
+- info
+- note
+- question
+- quote
+- success
+- tip
+- warning
 
 ### Code & Files
+
+Starter code for `main.py` and additional (text) file tabs can be provided here.
+Binary files can also be uploaded.
+
 [More about code and files here](code_and_files.md)
 
 ### Feedback
+
+Feedback items can be provided as formative tools to guide users towards a
+working solution (or alternatively away from undesirable techniques).
+
+Feedback can be provided at edit-time or run-time with the intention that
+it is provided with either a visible title and a hidden triggered message
+for explicit guidance, or as a hidden title and triggered message that is
+more of a just-in-time approach.
+
+Find out about creating and configuring different types of feedback here:
 
 - [Building string-based feedback](feedback_string.md)
 - [Building regular expression-based feedback](feedback_regex.md)
@@ -67,8 +118,19 @@ Instructions, markdown, and the preview.
 
 ### Tests
 
+Tests are provided as summative tools to give users a sense as to
+whether they have successfully solved the problem. 
+
+The intention is to give the user a good sense of what is being tested
+(and possibly why) with useful feedback about failures.
+
 - [Building basic tests](tests_basics.md)
 - [Conditional test runs](tests_conditional_runs.md)
 - [Building test groups](tests_groups.md)
 
 ### Verification
+
+Verification is a teacher tool rather than an author tool. It provides
+a single place for a teacher to enter a number of student ID values, and
+when different configurations are loaded the list will show the verification
+codes to expect if each of the students passes all of the tests.
