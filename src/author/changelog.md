@@ -1,5 +1,6 @@
 ## 2025-09-15
 - Added validation to authoring for config ID and config version
+- Added [admonitions extension](https://github.com/xiefucai/marked-admonition-extension) for Markdown rendering
 
 ## 2025-09-13
 - Fix: Loading a config now correctly stores the current config
