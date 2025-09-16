@@ -33,13 +33,23 @@ Config files can be imported and exported from disk.
 Exporting a config will use the config ID and version as the file name with
 the `.json` file extension: `example-config@1.0.json`
 
-Importing a config file will overwrite the current author config, so save
-a draft if necessary.
+> [!WARNING]
+> Importing a config file will overwrite the current author config, so save
+> a draft if necessary.
 
 ### The current author config
 
 When working on a problem in the authoring interface, in addition to drafts,
-a special slot is used
+a special slot is used in browser storage for the current problem config.
+
+If you go back to the main app (in author mode, so either using the
+**Back to App** button or using the `?author` URL parameter), you will see
+an option in the config window opened be clicking on the config name to
+load the `(local)` config. This will load the problem config currently
+being worked on in authoring.
+
+![The config window](img/app_config_modal.png)  
+The config window with a `(local)` authoring config available.
 
 ## Building a problem configuration
 
@@ -75,23 +85,16 @@ This is the body of the note.
 !!!
 ```
 
+![Admonition note example](img/admonition_note.png)
+
 Valid admonition types are:
-- abstract
-- attention
-- bug
-- caution
-- danger
-- error
-- example
-- failure
-- hint
-- info
-- note
-- question
-- quote
-- success
-- tip
-- warning
+
+|          |           |         |          |
+| -------- | --------- | ------- | -------- |
+| abstract | attention | bug     | caution  |
+| danger   | error     | example | failure  |
+| hint     | info      | note    | question |
+| quote    | success   | tip     | warning  |
 
 ### Code & Files
 
@@ -114,7 +117,7 @@ Find out about creating and configuring different types of feedback here:
 
 - [Building string-based feedback](feedback_string.md)
 - [Building regular expression-based feedback](feedback_regex.md)
-- [Building AST-based feedback](feedback_ast.md)
+- [Building AST-based rules](ast_rules.md)
 
 ### Tests
 
