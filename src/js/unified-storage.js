@@ -37,6 +37,21 @@ const inMemory = {
     [STORES.SETTINGS]: new Map()
 }
 
+// Expose helpers to clear the in-memory fallback for testing or cleanup.
+export function clearInMemorySnapshots() {
+    try {
+        const m = inMemory[STORES.SNAPSHOTS]
+        if (m && typeof m.clear === 'function') m.clear()
+    } catch (_e) { }
+}
+
+export function clearInMemoryFiles() {
+    try {
+        const m = inMemory[STORES.FILES]
+        if (m && typeof m.clear === 'function') m.clear()
+    } catch (_e) { }
+}
+
 // Initialize the unified storage database
 export async function initUnifiedStorage() {
     if (dbInstance) return dbInstance
@@ -400,6 +415,27 @@ export async function clearAllSnapshots() {
         })
     } catch (error) {
         logError('Failed to clear all snapshots:', error)
+        throw error
+    }
+}
+
+// Clear all files stored in the FILES store
+export async function clearAllFiles() {
+    try {
+        const db = await initUnifiedStorage()
+        const transaction = db.transaction([STORES.FILES], 'readwrite')
+        const store = transaction.objectStore(STORES.FILES)
+
+        return new Promise((resolve, reject) => {
+            const request = store.clear()
+            request.onsuccess = () => {
+                logDebug('All files cleared from unified storage')
+                resolve()
+            }
+            request.onerror = () => reject(request.error)
+        })
+    } catch (error) {
+        logError('Failed to clear all files:', error)
         throw error
     }
 }

@@ -1033,7 +1033,7 @@ async function main() {
                 // Try to restore the latest snapshot for this NEW config (if compatible)
                 try {
                     const { getSnapshotsForCurrentConfig } = await import('./js/snapshots.js')
-                    const snapshots = getSnapshotsForCurrentConfig()
+                    const snapshots = await getSnapshotsForCurrentConfig()
                     if (snapshots && snapshots.length > 0) {
                         // Get the most recent snapshot
                         const latestSnapshot = snapshots[snapshots.length - 1]
