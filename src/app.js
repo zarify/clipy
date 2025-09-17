@@ -185,60 +185,81 @@ async function main() {
                 try {
                     const params = new URLSearchParams(window.location.search)
                     const cfgParam = params.get('config')
-                    // New param: configList (takes precedence over config if present)
-                    const cfgListParam = params.get('configList')
-                    if (cfgListParam) {
+                    // Single ?config parameter: may point to either a single config JSON,
+                    // or a config-list resource (array or object with files/listName). Detect by fetching.
+                    if (cfgParam) {
                         try {
-                            // Attempt to load the config list (array of filenames or URLs)
-                            let listUrl = cfgListParam
-                            try { listUrl = decodeURIComponent(cfgListParam) } catch (_e) { }
-                            // Resolve relative to current origin/path if necessary
-                            const base = (new URL(window.location.href)).origin + (new URL(window.location.href)).pathname.replace(/\/[^/]*$/, '/')
-                            const absoluteListUrl = /^(https?:)?\/\//i.test(listUrl) ? listUrl : (listUrl.startsWith('./') || listUrl.startsWith('/')) ? new URL(listUrl, window.location.href).href : new URL('./' + listUrl, base).href
+                            let toLoad = cfgParam
+                            try { toLoad = decodeURIComponent(cfgParam) } catch (_e) { }
+                            // Resolve relative to current page
                             try {
-                                const r = await fetch(absoluteListUrl)
-                                if (r && r.ok) {
-                                    const arr = await r.json()
-                                    if (Array.isArray(arr) && arr.length) {
-                                        // store for header rendering
-                                        window.__ssg_remote_config_list = { url: absoluteListUrl, items: arr }
-                                        // Load the first item by default (resolve relative to list URL)
+                                if (!/^(https?:)?\/\//i.test(toLoad)) {
+                                    if (toLoad.startsWith('./') || toLoad.startsWith('/')) {
+                                        toLoad = new URL(toLoad, window.location.href).href
+                                    } else {
+                                        toLoad = new URL('./' + toLoad, window.location.href).href
+                                    }
+                                }
+                            } catch (_e) { }
+
+                            const r = await fetch(toLoad)
+                            if (r && r.ok) {
+                                const raw = await r.json()
+                                // Only treat as remote list if the resource is the new object shape with `files`
+                                if (raw && typeof raw === 'object' && Array.isArray(raw.files)) {
+                                    const items = raw.files
+                                    const listName = raw.listName ? String(raw.listName) : null
+                                    window.__ssg_remote_config_list = { url: toLoad, items: items, listName }
+                                    if (items && items.length > 0) {
+                                        let first = items[0]
                                         try {
-                                            let first = arr[0]
-                                            const listBase = absoluteListUrl.endsWith('/') ? absoluteListUrl : absoluteListUrl.replace(/[^/]*$/, '')
+                                            const listBase = toLoad.endsWith('/') ? toLoad : toLoad.replace(/[^/]*$/, '')
                                             if (!/^(https?:)?\/\//i.test(first)) {
                                                 first = new URL(first, listBase).href
                                             }
+                                        } catch (_e) { }
+                                        try {
                                             const normalized = await loadConfigFromStringOrUrl(first)
                                             cfg = normalized
-                                            dbg('dbg: loaded first config from ?configList')
+                                            dbg('dbg: loaded first config from ?config (list resource)')
                                         } catch (e) {
-                                            logWarn('Failed to load first config from configList:', e)
+                                            logWarn('Failed to load first config from remote list:', e)
                                             try { showConfigError('Failed to load first configuration from list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
                                         }
                                     } else {
-                                        throw new Error('Config list is empty or invalid')
+                                        throw new Error('Config list is empty')
                                     }
                                 } else {
-                                    throw new Error('Failed to fetch config list')
+                                    // Treat as single config
+                                    try {
+                                        const normalized = await loadConfigFromStringOrUrl(toLoad)
+                                        cfg = normalized
+                                        dbg('dbg: loaded config from ?config parameter')
+                                    } catch (e) {
+                                        logWarn('Failed to load config from ?config= parameter:', e)
+                                        try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                    }
                                 }
-                            } catch (e) {
-                                logWarn('Failed to load config list from ?configList=', e)
-                                try { showConfigError('Failed to load configuration list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                            } else {
+                                throw new Error('Failed to fetch: ' + (r && r.status))
                             }
-                        } catch (_e) { }
+                        } catch (e) {
+                            logWarn('Failed to load config from ?config= parameter:', e)
+                        }
                     }
-                    // If no URL param but we have a saved last_loaded_config that points to a configList, try restoring it here
-                    if (!cfgListParam && !cfg && restoredSetting && restoredSetting.type === 'list' && restoredSetting.listUrl) {
+                    // If no URL param but we have a saved last_loaded_config that points to a config list, try restoring it here
+                    if (!cfg && restoredSetting && restoredSetting.type === 'list' && restoredSetting.listUrl) {
                         try {
                             const absoluteListUrl = restoredSetting.listUrl
                             const r = await fetch(absoluteListUrl)
                             if (r && r.ok) {
-                                const arr = await r.json()
-                                if (Array.isArray(arr) && arr.length) {
-                                    window.__ssg_remote_config_list = { url: absoluteListUrl, items: arr }
-                                    const idx = typeof restoredSetting.index === 'number' && restoredSetting.index >= 0 && restoredSetting.index < arr.length ? restoredSetting.index : 0
-                                    let source = arr[idx]
+                                const raw = await r.json()
+                                const items = (raw && typeof raw === 'object' && Array.isArray(raw.files)) ? raw.files : null
+                                const listName = raw && raw.listName ? String(raw.listName) : null
+                                if (items && items.length) {
+                                    window.__ssg_remote_config_list = { url: absoluteListUrl, items: items, listName }
+                                    const idx = typeof restoredSetting.index === 'number' && restoredSetting.index >= 0 && restoredSetting.index < items.length ? restoredSetting.index : 0
+                                    let source = items[idx]
                                     try {
                                         const listBase = absoluteListUrl.endsWith('/') ? absoluteListUrl : absoluteListUrl.replace(/[^/]*$/, '')
                                         if (!/^(https?:)?\/\//i.test(source)) {
@@ -248,37 +269,17 @@ async function main() {
                                     try {
                                         const normalized = await loadConfigFromStringOrUrl(source)
                                         cfg = normalized
-                                        dbg('dbg: restored configList selection from saved setting')
+                                        dbg('dbg: restored remote config list selection from saved setting')
                                     } catch (e) {
-                                        logWarn('Failed to restore config from saved configList setting:', e)
+                                        logWarn('Failed to restore config from saved remote list setting:', e)
                                     }
                                 }
                             }
                         } catch (_e) { }
                     }
-                    if (cfgListParam == null && cfgParam) {
-                        try {
-                            // Users may provide an encoded URL; attempt decodeURIComponent safely
-                            let toLoad = cfgParam
-                            try { toLoad = decodeURIComponent(cfgParam) } catch (_e) { }
-                            cfg = await loadConfigFromStringOrUrl(toLoad)
-                            dbg('dbg: loaded config from ?config= parameter')
-                        } catch (e) {
-                            logWarn('Failed to load config from ?config= parameter:', e)
-                            // Surface the error to the user by opening the config modal
-                            try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
-                            // fall back to normal load below
-                        }
-                        // Ensure we never leave the modal stuck showing 'Loading...'
-                        try {
-                            const listContainerFinal = document.getElementById('config-server-list')
-                            if (listContainerFinal && (listContainerFinal.textContent === 'Loading...' || listContainerFinal.textContent.trim() === '')) {
-                                listContainerFinal.textContent = '(no configurations available)'
-                            }
-                        } catch (_e) { }
-                    }
+                    // cfgParam already handled above; continue
                     // If we still have no cfg and a saved single config exists, try to restore it
-                    if (!cfg && !cfgListParam && restoredSetting && restoredSetting.type === 'single' && restoredSetting.id) {
+                    if (!cfg && restoredSetting && restoredSetting.type === 'single' && restoredSetting.id) {
                         try {
                             const toLoad = restoredSetting.id
                             try {
@@ -1535,19 +1536,21 @@ async function main() {
                         } catch (_e) { /* if URL resolution fails, leave as-is and let fetch error */ }
 
                         // Fetch the provided URL first so we can detect whether the
-                        // resource is an array (config list) or a single config object.
+                        // resource is an array (config list), an object with files/listName, or a single config object.
                         const res = await fetch(resolved)
                         if (!res || !res.ok) throw new Error('Failed to fetch: ' + (res && res.status))
                         let raw
                         try { raw = await res.json() } catch (e) { throw new Error('Failed to parse JSON from ' + resolved + ': ' + e.message) }
 
-                        if (Array.isArray(raw)) {
-                            // Treat as a remote config list
-                            window.__ssg_remote_config_list = { url: resolved, items: raw }
+                        if (raw && typeof raw === 'object' && Array.isArray(raw.files)) {
+                            // Treat as a remote config list (new object shape only)
+                            const items = raw.files
+                            const listName = raw.listName ? String(raw.listName) : null
+                            window.__ssg_remote_config_list = { url: resolved, items: items, listName }
 
                             // Auto-load the first item by default (resolve relative to list URL)
-                            if (raw.length > 0) {
-                                let first = raw[0]
+                            if (items.length > 0) {
+                                let first = items[0]
                                 try {
                                     const listBase = resolved.endsWith('/') ? resolved : resolved.replace(/[^/]*$/, '')
                                     if (!/^(https?:)?\/\//i.test(first)) {
@@ -1605,14 +1608,14 @@ async function main() {
                                     optPlaceholder.value = ''
                                     optPlaceholder.textContent = 'Select configuration…'
                                     select.appendChild(optPlaceholder)
-                                    for (let i = 0; i < raw.length; i++) {
-                                        const it = String(raw[i])
+                                    for (let i = 0; i < items.length; i++) {
+                                        const it = String(items[i])
                                         const opt = document.createElement('option')
                                         opt.value = '__list::' + i
                                         opt.textContent = it
                                         select.appendChild(opt)
                                     }
-                                    if (raw.length > 0) select.value = '__list::0'
+                                    if (items.length > 0) select.value = '__list::0'
                                 }
                             } catch (_e) { }
 

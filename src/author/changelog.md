@@ -1,6 +1,6 @@
 ## 2025-09-17
-- Feature: Loading of a JSON array of configs via `?configList=` URL parameter
-- Enhancement: Load last saved config or configList on page load
+- Feature: Loading of a config list file so a problem sequence can be navigated through by the user.
+- Enhancement: Load last saved config or config list on page load
 
 ## 2025-09-15
 - Added validation to authoring for config ID and config version

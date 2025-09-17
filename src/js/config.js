@@ -24,9 +24,15 @@ export function createConfigManager(opts = {}) {
         try {
             const res = await fetchFn(configIndexUrl)
             if (!res.ok) throw new Error('Not found')
-            const list = await res.json()
-            if (!Array.isArray(list)) return []
-            return list
+            const body = await res.json()
+            // New format: either an array of filenames, or an object { listName: string, files: [...] }
+            // Expect new format: an object { listName?: string, files: [...] }
+            if (body && typeof body === 'object' && Array.isArray(body.files)) {
+                try { if (typeof window !== 'undefined') window.__ssg_remote_config_list = window.__ssg_remote_config_list || { url: configIndexUrl, items: body.files, listName: body.listName || null } } catch (_e) { }
+                return body.files
+            }
+            return []
+            return []
         } catch (e) {
             try {
                 const res = await fetchFn('./config/sample.json')
@@ -349,12 +355,16 @@ export function initializeInstructions(cfg) {
     const configTitleLine = document.querySelector('.config-title-line')
     const configTitle = $('#config-title')
     const configVersion = $('#config-version')
+    const appTitle = document.getElementById('app-title')
 
     // Set the main display line for tests
     if (configTitleLine) {
         const identity = getConfigIdentity()
         const title = cfg?.title || 'Python Playground'
-        configTitleLine.textContent = `${title} (${identity})`
+        // If a remote config list was loaded, prefer showing its listName
+        const listName = (typeof window !== 'undefined' && window.__ssg_remote_config_list && window.__ssg_remote_config_list.listName) ? window.__ssg_remote_config_list.listName : null
+        const mainTitle = listName || title
+        configTitleLine.textContent = `${mainTitle} (${identity})`
         // Note: header interactivity (dropdown/author button) is handled by app.js
     }
 
@@ -372,6 +382,16 @@ export function initializeInstructions(cfg) {
         if (cfg?.title) {
             document.title = cfg.title
         }
+        // If we have a remote list name, reflect it in the document title and the page H1 as well
+        try {
+            if (typeof window !== 'undefined' && window.__ssg_remote_config_list && window.__ssg_remote_config_list.listName) {
+                const ln = window.__ssg_remote_config_list.listName
+                if (ln) document.title = ln
+                try { if (appTitle) appTitle.textContent = ln } catch (_e) { }
+            } else {
+                try { if (appTitle) appTitle.textContent = cfg?.title || document.title || 'Client-side Python Playground' } catch (_e) { }
+            }
+        } catch (_e) { }
     } catch (_e) { }
 }
 
