@@ -9,7 +9,7 @@
 - [ ] Investigate using Pyodide as well.
   - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
   - https://pyodide.org/en/stable/usage/keyboard-interrupts.html
-  - Can we around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
+  - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
 
 # Done
