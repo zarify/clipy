@@ -185,6 +185,11 @@ async function main() {
                 try {
                     const params = new URLSearchParams(window.location.search)
                     const cfgParam = params.get('config')
+                    // Remember whether a config parameter was present in the URL.
+                    // If present, we must NOT fall back to restoring the last/saved
+                    // config selection (even if loading the URL fails) because the
+                    // user's explicit intent was to load from the provided URL.
+                    const hadConfigParam = params.has('config')
                     // Single ?config parameter: may point to either a single config JSON,
                     // or a config-list resource (array or object with files/listName). Detect by fetching.
                     if (cfgParam) {
@@ -247,8 +252,9 @@ async function main() {
                             logWarn('Failed to load config from ?config= parameter:', e)
                         }
                     }
-                    // If no URL param but we have a saved last_loaded_config that points to a config list, try restoring it here
-                    if (!cfg && restoredSetting && restoredSetting.type === 'list' && restoredSetting.listUrl) {
+                    // If no URL param and no config loaded, but we have a saved last_loaded_config
+                    // that points to a config list, try restoring it here
+                    if (!hadConfigParam && !cfg && restoredSetting && restoredSetting.type === 'list' && restoredSetting.listUrl) {
                         try {
                             const absoluteListUrl = restoredSetting.listUrl
                             const r = await fetch(absoluteListUrl)
@@ -278,8 +284,8 @@ async function main() {
                         } catch (_e) { }
                     }
                     // cfgParam already handled above; continue
-                    // If we still have no cfg and a saved single config exists, try to restore it
-                    if (!cfg && restoredSetting && restoredSetting.type === 'single' && restoredSetting.id) {
+                    // If we still have no cfg and no URL param, and a saved single config exists, try to restore it
+                    if (!hadConfigParam && !cfg && restoredSetting && restoredSetting.type === 'single' && restoredSetting.id) {
                         try {
                             const toLoad = restoredSetting.id
                             try {
@@ -294,8 +300,8 @@ async function main() {
             }
         } catch (_e) { }
 
-        // If no URL config, try loading saved current config
-        if (!cfg) {
+        // If no URL config (and no `?config=` param was present), try loading saved current config
+        if (!cfg && !(typeof hadConfigParam !== 'undefined' && hadConfigParam)) {
             try {
                 logInfo('main: attempting to load current config from unified storage')
                 const savedConfig = await loadCurrentConfig()
@@ -1342,6 +1348,54 @@ async function main() {
                             try {
                                 items = await fetchAvailableServerConfigs()
                                 listContainer.innerHTML = ''
+
+                                // If fetchAvailableServerConfigs returned no items, try a direct
+                                // fallback to ./config/index.json (handles environments where
+                                // relative resolution differs). If that file matches the new
+                                // object-with-`files` shape, populate window.__ssg_remote_config_list
+                                // and use its files.
+                                if ((!items || items.length === 0) && typeof fetch === 'function') {
+                                    // Try multiple fallback locations for index.json to handle
+                                    // different static hosting setups and relative resolution
+                                    // differences between environments.
+                                    const candidates = [
+                                        './config/index.json',
+                                        'config/index.json',
+                                        '/config/index.json',
+                                        '../config/index.json'
+                                    ]
+                                    // Also include any previously-known window.__ssg_remote_config_list.url
+                                    try {
+                                        if (window && window.__ssg_remote_config_list && window.__ssg_remote_config_list.url) {
+                                            candidates.push(window.__ssg_remote_config_list.url)
+                                        }
+                                    } catch (_e) { }
+
+                                    let found = false
+                                    for (const cand of candidates) {
+                                        try {
+                                            dbg('[app] attempting fallback fetch for config index:', cand)
+                                            const fallbackRes = await fetch(cand)
+                                            dbg('[app] fallback fetch result:', cand, fallbackRes && fallbackRes.status)
+                                            if (fallbackRes && fallbackRes.ok) {
+                                                const fallbackBody = await fallbackRes.json()
+                                                if (fallbackBody && typeof fallbackBody === 'object' && Array.isArray(fallbackBody.files)) {
+                                                    try { if (typeof window !== 'undefined') window.__ssg_remote_config_list = window.__ssg_remote_config_list || { url: cand, items: fallbackBody.files, listName: fallbackBody.listName || null } } catch (_e) { }
+                                                    items = fallbackBody.files
+                                                    found = true
+                                                    dbg('[app] fallback fetch succeeded for:', cand, 'items:', items && items.length)
+                                                    break
+                                                } else {
+                                                    dbg('[app] fallback fetch returned JSON but not object-with-files for:', cand)
+                                                }
+                                            }
+                                        } catch (err) {
+                                            dbg('[app] fallback fetch error for', cand, err && err.message)
+                                            // continue to next candidate
+                                        }
+                                    }
+                                    if (!found) dbg('[app] no fallback candidate produced a valid remote config list')
+                                }
                             } catch (e) {
                                 // Clear the loading placeholder and show an inline error, but
                                 // don't return early — continue to populate any authoring config
