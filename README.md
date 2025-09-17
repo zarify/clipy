@@ -67,3 +67,18 @@ Open http://localhost:8000/ in your browser.
 ## License
 
 See `LICENSE` in the repository root.
+
+## Change: Automatic config restore disabled
+
+The application no longer automatically restores the "last loaded" config on
+startup. Previously the app would attempt to re-load the last-selected config
+from unified storage which caused edge-case failures (404s or incorrect local
+fetches) when the stored value referenced authoring-only or off-site resources.
+
+Now the startup behavior is:
+- If a `?config=` URL parameter is provided, try to load that config (or a
+   config list referenced by that URL).
+- Otherwise, load the default server-provided sample config.
+
+Selections are still saved for convenience (so the UI can offer quick
+restore), but they will not be automatically applied on page load.

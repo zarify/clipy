@@ -171,25 +171,24 @@ async function main() {
         // 1. Load configuration
         // Priority order:
         // 1. URL ?config= parameter (overrides everything)
-        // 2. Saved current_config from unified storage
-        // 3. Default sample config
+        // 2. Default sample config
+        //
+        // NOTE: Previously the app attempted to automatically restore the "last
+        // loaded" config from unified storage (or from a saved remote config
+        // list). That automatic restore caused incorrect fetches and 404s when
+        // the saved value referenced local authoring resources or remote lists
+        // that should not be implicitly loaded. To avoid these edge cases the
+        // automatic restore behavior has been removed: the app will only load
+        // a config provided via the `?config=` URL parameter, or fall back to
+        // the default server-provided sample config. Selections are still
+        // persisted for convenience, but they are no longer auto-applied on
+        // startup.
         let cfg = null
-        // Attempt to restore last-loaded config setting if present (and not overridden by URL params)
-        let restoredSetting = null
-        try {
-            const { loadSetting } = await import('./js/unified-storage.js')
-            try { restoredSetting = await loadSetting('last_loaded_config') } catch (_e) { restoredSetting = null }
-        } catch (_e) { restoredSetting = null }
         try {
             if (typeof window !== 'undefined') {
                 try {
                     const params = new URLSearchParams(window.location.search)
                     const cfgParam = params.get('config')
-                    // Remember whether a config parameter was present in the URL.
-                    // If present, we must NOT fall back to restoring the last/saved
-                    // config selection (even if loading the URL fails) because the
-                    // user's explicit intent was to load from the provided URL.
-                    const hadConfigParam = params.has('config')
                     // Single ?config parameter: may point to either a single config JSON,
                     // or a config-list resource (array or object with files/listName). Detect by fetching.
                     if (cfgParam) {
@@ -252,79 +251,48 @@ async function main() {
                             logWarn('Failed to load config from ?config= parameter:', e)
                         }
                     }
-                    // If no URL param and no config loaded, but we have a saved last_loaded_config
-                    // that points to a config list, try restoring it here
-                    if (!hadConfigParam && !cfg && restoredSetting && restoredSetting.type === 'list' && restoredSetting.listUrl) {
-                        try {
-                            const absoluteListUrl = restoredSetting.listUrl
-                            const r = await fetch(absoluteListUrl)
-                            if (r && r.ok) {
-                                const raw = await r.json()
-                                const items = (raw && typeof raw === 'object' && Array.isArray(raw.files)) ? raw.files : null
-                                const listName = raw && raw.listName ? String(raw.listName) : null
-                                if (items && items.length) {
-                                    window.__ssg_remote_config_list = { url: absoluteListUrl, items: items, listName }
-                                    const idx = typeof restoredSetting.index === 'number' && restoredSetting.index >= 0 && restoredSetting.index < items.length ? restoredSetting.index : 0
-                                    let source = items[idx]
-                                    try {
-                                        const listBase = absoluteListUrl.endsWith('/') ? absoluteListUrl : absoluteListUrl.replace(/[^/]*$/, '')
-                                        if (!/^(https?:)?\/\//i.test(source)) {
-                                            source = new URL(source, listBase).href
-                                        }
-                                    } catch (_e) { }
-                                    try {
-                                        const normalized = await loadConfigFromStringOrUrl(source)
-                                        cfg = normalized
-                                        dbg('dbg: restored remote config list selection from saved setting')
-                                    } catch (e) {
-                                        logWarn('Failed to restore config from saved remote list setting:', e)
-                                    }
-                                }
-                            }
-                        } catch (_e) { }
-                    }
-                    // cfgParam already handled above; continue
-                    // If we still have no cfg and no URL param, and a saved single config exists, try to restore it
-                    if (!hadConfigParam && !cfg && restoredSetting && restoredSetting.type === 'single' && restoredSetting.id) {
-                        try {
-                            const toLoad = restoredSetting.id
-                            try {
-                                cfg = await loadConfigFromStringOrUrl(toLoad)
-                                dbg('dbg: restored single config from saved setting')
-                            } catch (e) {
-                                logWarn('Failed to restore single config from saved setting:', e)
-                            }
-                        } catch (_e) { }
-                    }
                 } catch (_e) { }
             }
         } catch (_e) { }
 
-        // If no URL config (and no `?config=` param was present), try loading saved current config
-        if (!cfg && !(typeof hadConfigParam !== 'undefined' && hadConfigParam)) {
+        // Fall back: try loading the server config index (config/index.json)
+        // as a config list so the default page demonstrates navigation across
+        // listed configs. If that fails, fall back to the single sample config.
+        if (!cfg) {
+            logInfo('main: no config from URL, attempting to load config index list')
             try {
-                logInfo('main: attempting to load current config from unified storage')
-                const savedConfig = await loadCurrentConfig()
-                if (savedConfig) {
-                    cfg = savedConfig
-                    // Set this as the current config so helpers reflect the right identity
-                    setCurrentConfig(cfg)
-                    // Make config globally available for read-only checks
-                    try { window.currentConfig = cfg } catch (_e) { }
-                    logInfo('main: loaded config from unified storage:', cfg.id, cfg.version)
+                const items = await fetchAvailableServerConfigs()
+                if (items && items.length > 0) {
+                    try {
+                        const indexUrl = new URL('./config/index.json', window.location.href).href
+                        window.__ssg_remote_config_list = { url: indexUrl, items: items, listName: null }
+                        let first = items[0]
+                        try {
+                            const listBase = indexUrl.endsWith('/') ? indexUrl : indexUrl.replace(/[^/]*$/, '')
+                            if (!/^(https?:)?\/\//i.test(first)) {
+                                first = new URL(first, listBase).href
+                            }
+                        } catch (_e) { }
+                        try {
+                            const normalized = await loadConfigFromStringOrUrl(first)
+                            cfg = normalized
+                            logInfo('main: loaded first config from index list:', cfg.id, cfg.version)
+                        } catch (e) {
+                            logWarn('Failed to load first config from index list:', e)
+                        }
+                    } catch (_e) { }
                 } else {
-                    logInfo('main: no current config found in unified storage')
+                    logInfo('main: config index returned no items, falling back to sample')
                 }
             } catch (e) {
-                logWarn('Failed to load current config:', e)
+                logWarn('Failed to fetch config index, falling back to sample:', e)
             }
-        }
 
-        // Fall back to default sample config
-        if (!cfg) {
-            logInfo('main: no saved config, loading default sample config')
-            cfg = await loadConfig()
-            logInfo('main: loaded default config:', cfg.id, cfg.version)
+            if (!cfg) {
+                logInfo('main: loading default sample config')
+                cfg = await loadConfig()
+                logInfo('main: loaded default config:', cfg.id, cfg.version)
+            }
         }
 
         // Save the loaded config as current (whether from URL, unified storage, or default)
