@@ -6,11 +6,20 @@
 - [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
 - [ ] Add exemplars for different types of feedback and tests, include with docs
 - [ ] New playwright and other tests
+- [ ] Make back end catch up with front end. Need to be able to load a config list there too, maybe make it local to the verification panel?
 - [ ] Investigate using Pyodide as well.
   - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
   - https://pyodide.org/en/stable/usage/keyboard-interrupts.html
   - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
+# Bug list
+- `stderr` feedback isn't working
+- When loading up the page and trying to load a previous list of configs, it's looking in the local config repository and erroring because they're not there
+
+# Feedback and testing improvements
+- [ ] Add a 'call' check for calling inbuilt or predefined functions
+- [ ] If no message is given for a feedback rule, just tick off the item, don't print a message underneath
+- [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
 - [x] The reload config button needs to do something more obvious instead of reloading the server config

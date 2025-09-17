@@ -1,6 +1,7 @@
 {
     "listName": "Authoring Demo",
     "files": [
+        "printing-press@1.0.json",
         "sample.json"
     ]
 }
