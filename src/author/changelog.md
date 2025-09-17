@@ -1,6 +1,10 @@
 ## 2025-09-17
 - Feature: Loading of a config list file so a problem sequence can be navigated through by the user.
   - When no config file or list has been loaded via the URL parameter, the previous config or list will be loaded
+  - Loaded configs show their name in the title area of the page
+  - Loaded config lists show the config list name in the title area of the page
+- Fix: Snapshot storage and clearing had a busted linkage between browser storage and the in-memory storage. Hopefully fixed it.
+- Fix: The Run tests button is now visibly disabled when there are no tests
 
 ## 2025-09-15
 - Added validation to authoring for config ID and config version
