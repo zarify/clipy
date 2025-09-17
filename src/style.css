@@ -100,6 +100,28 @@ header {
         text-decoration: underline dashed rgba(11, 92, 255, 0.18);
     }
 
+    /* Header Author button placed left of the title when authoring enabled */
+    #header-author-btn {
+        font-size: 0.9em;
+        padding: 4px 8px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text);
+        cursor: pointer;
+    }
+
+    /* Compact select for configuration switching in the header */
+    .config-select-header {
+        font-size: 0.95em;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        max-width: 100%;
+    }
+
     .author-tab .CodeMirror {
         width: 100%;
         background: var(--editor-bg);

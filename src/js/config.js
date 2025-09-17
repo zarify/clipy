@@ -355,12 +355,7 @@ export function initializeInstructions(cfg) {
         const identity = getConfigIdentity()
         const title = cfg?.title || 'Python Playground'
         configTitleLine.textContent = `${title} (${identity})`
-        // Make the header config display discoverable and interactive
-        try {
-            configTitleLine.setAttribute('role', 'button')
-            configTitleLine.setAttribute('tabindex', '0')
-            configTitleLine.setAttribute('title', 'Click to open configuration')
-        } catch (_e) { }
+        // Note: header interactivity (dropdown/author button) is handled by app.js
     }
 
     // Also set individual components for backwards compatibility

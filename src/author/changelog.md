@@ -1,3 +1,7 @@
+## 2025-09-17
+- Feature: Loading of a JSON array of configs via `?configList=` URL parameter
+- Enhancement: Load last saved config or configList on page load
+
 ## 2025-09-15
 - Added validation to authoring for config ID and config version
 - Added [admonitions extension](https://github.com/xiefucai/marked-admonition-extension) for Markdown rendering
