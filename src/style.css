@@ -397,6 +397,27 @@ textarea#code {
     font-size: 0.93rem
 }
 
+/* Disabled button styling: make it clearly non-interactive and visually muted.
+   Apply generally and add a slightly stronger rule for the run-tests control so
+   it's obvious when there are no tests. */
+.btn[disabled],
+.btn.disabled {
+    opacity: 0.6;
+    cursor: default;
+    pointer-events: none;
+    color: var(--text-disabled);
+    background: #f7f8fb;
+    border-color: #eef0f6;
+}
+
+/* Special visual tweak for the Run tests button when disabled: slightly
+   adjust spacing and reduce icon prominence so it reads as inactive. */
+#run-tests-btn[disabled] {
+    opacity: 0.55;
+    background: #fbfdff;
+    border-color: #f1f3f7;
+}
+
 .btn .icon {
     font-size: 18px;
     line-height: 1
