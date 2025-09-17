@@ -25,13 +25,11 @@ export function createConfigManager(opts = {}) {
             const res = await fetchFn(configIndexUrl)
             if (!res.ok) throw new Error('Not found')
             const body = await res.json()
-            // New format: either an array of filenames, or an object { listName: string, files: [...] }
-            // Expect new format: an object { listName?: string, files: [...] }
+            // New format: expect an object { listName?: string, files: [...] }
             if (body && typeof body === 'object' && Array.isArray(body.files)) {
                 try { if (typeof window !== 'undefined') window.__ssg_remote_config_list = window.__ssg_remote_config_list || { url: configIndexUrl, items: body.files, listName: body.listName || null } } catch (_e) { }
                 return body.files
             }
-            return []
             return []
         } catch (e) {
             try {
