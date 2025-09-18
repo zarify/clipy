@@ -130,6 +130,26 @@ header {
         border-radius: 6px;
     }
 
+    /* Ensure CodeMirror wrapping doesn't push the page horizontally */
+    .CodeMirror,
+    .cm-editor .CodeMirror {
+        max-width: 100%;
+        box-sizing: border-box;
+        /* Allow the editor to scroll vertically but not expand horizontally */
+        overflow-x: hidden;
+    }
+
+    /* When CodeMirror is configured with lineWrapping, ensure pre elements wrap */
+    .CodeMirror-wrap pre,
+    .CodeMirror pre.CodeMirror-line {
+        white-space: pre-wrap !important;
+        white-space: -moz-pre-wrap !important;
+        white-space: -pre-wrap !important;
+        white-space: -o-pre-wrap !important;
+        word-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
+    }
+
 
 
     /* Feedback modal styles (small, reused modal pattern) */

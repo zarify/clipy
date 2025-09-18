@@ -35,6 +35,8 @@ export function initializeEditor() {
             },
             indentUnit: 4,
             smartIndent: false,
+            // Wrap long lines instead of allowing horizontal scrolling/expansion
+            lineWrapping: true,
             scrollbarStyle: 'native',
             theme: 'default'
         })

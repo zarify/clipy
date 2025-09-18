@@ -84,7 +84,9 @@ function loadEditor() {
             },
             indentUnit: 4,
             smartIndent: true,
-            scrollbarStyle: 'native'
+            scrollbarStyle: 'native',
+            // Wrap long lines so the editor doesn't expand horizontally
+            lineWrapping: true
         })
         // store CM instance for tests to access if needed
         try { window.__author_code_mirror = editor } catch (_e) { }

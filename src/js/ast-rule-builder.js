@@ -550,6 +550,8 @@ class Calculator:
                 matchBrackets: true,
                 autoCloseBrackets: true,
                 scrollbarStyle: 'native',
+                // Wrap long lines to avoid expanding the editor horizontally
+                lineWrapping: true,
                 extraKeys: {
                     Tab: function (cm) {
                         if (cm.somethingSelected()) cm.indentSelection('add')

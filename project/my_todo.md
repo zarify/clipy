@@ -13,6 +13,7 @@
   - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
 # Bug list
+- [ ] Need to wrap codemirror on the main page instead of stretching the editor with long lines
 
 # Feedback and testing improvements
 - [ ] Add a 'call' check for calling inbuilt or predefined functions
