@@ -758,9 +758,15 @@ async function main() {
                         } catch (_e) { }
                         if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
                             for (const r of results) {
-                                if (!r.passed) {
-                                    try { window.Feedback.evaluateFeedbackOnRun({ stdout: r.stdout || '', stderr: r.stderr || '' }) } catch (_e) { }
-                                }
+                                // Evaluate feedback for runs that either failed or
+                                // produced stderr even when they passed (so authors
+                                // can write rules that target stderr output).
+                                try {
+                                    const hadStderr = !!(r.stderr && String(r.stderr).trim().length > 0)
+                                    if (!r.passed || hadStderr) {
+                                        try { window.Feedback.evaluateFeedbackOnRun({ stdout: r.stdout || '', stderr: r.stderr || '', stdin: r.stdin || '', filename: r.filename || '' }) } catch (_e) { }
+                                    }
+                                } catch (_e) { }
                             }
                         }
                         return
