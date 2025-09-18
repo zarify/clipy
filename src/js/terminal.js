@@ -34,7 +34,6 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
     function appendTerminal(text, kind = 'stdout') {
         try {
             const out = $('terminal-output')
-            if (!out) return
 
             const raw = (text === null || text === undefined) ? '' : String(text)
 
@@ -79,6 +78,10 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
                     } catch (_e) { }
                 }
             } catch (_e) { }
+
+            // If there's no terminal DOM element, we've already handled buffering above
+            // so just return early to avoid attempting DOM operations.
+            if (!out) return
 
             const div = (doc && doc.createElement) ? doc.createElement('div') : null
             if (!div) return

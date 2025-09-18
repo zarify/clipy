@@ -1097,6 +1097,15 @@ async function main() {
                     // Re-apply the full config to the feedback UI after resetFeedback
                     // completes so tests (and other fields) remain present in the UI.
                     try { if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg) } catch (_e) { }
+                    // Restore previous behavior: when a new config is applied programmatically
+                    // evaluate edit-time feedback immediately so feedback entries appear
+                    // without requiring a manual user edit. Use the current editor/tab
+                    // helpers to obtain content and path (best-effort fallbacks).
+                    try {
+                        const content = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+                        const path = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || '/main.py'
+                        try { if (window.Feedback && window.Feedback.evaluateFeedbackOnEdit) window.Feedback.evaluateFeedbackOnEdit(content, path) } catch (_e) { }
+                    } catch (_e) { }
                 } catch (_e) { }
                 try { appendTerminal('Workspace configured: ' + (newCfg && newCfg.title ? newCfg.title : 'loaded'), 'runtime') } catch (_e) { }
             } catch (e) {

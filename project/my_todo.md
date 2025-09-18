@@ -13,13 +13,13 @@
   - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
 # Bug list
-- `stderr` feedback isn't working
 
 # Feedback and testing improvements
 - [ ] Add a 'call' check for calling inbuilt or predefined functions
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
+- [x] `stderr` feedback isn't working
 - [x] If no message is given for a feedback rule, just tick off the item, don't print a message underneath
 - [x] When loading up the page and trying to load a previous list of configs, it's looking in the local config repository and erroring because they're not there
 - [x] The reload config button needs to do something more obvious instead of reloading the server config

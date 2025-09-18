@@ -1,3 +1,7 @@
+## 2025-09-18
+- Enhancement: Messages are now optional for feedback items, improved styling
+- Fix: `stderr` feedback rules work now
+
 ## 2025-09-17
 - Feature: Loading of a config list file so a problem sequence can be navigated through by the user.
   - Loaded configs show their name in the title area of the page
@@ -5,7 +9,6 @@
   - Loading a config list file presents individual problems in a drop-down in the top-right of the page
 - Fix: Snapshot storage and clearing had a busted linkage between browser storage and the in-memory storage. Hopefully fixed it.
 - Fix: The Run tests button is now visibly disabled when there are no tests
-- Enhancement: Messages are now option for feedback items, improved styling
 
 ## 2025-09-15
 - Added validation to authoring for config ID and config version
