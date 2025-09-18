@@ -469,6 +469,16 @@ class Calculator:
                 } catch (e) { debugErrors.push({ path: '../js/ast-analyzer.js', error: String(e) }) }
             }
 
+            if (!analyzeCode) {
+                try {
+                    const { getRegisteredAnalyzer } = await import('./analyzer-registry.js')
+                    const reg = getRegisteredAnalyzer && getRegisteredAnalyzer()
+                    if (typeof reg === 'function') analyzeCode = reg
+                } catch (_e) {
+                    // ignore registry import failures and fallback to window
+                }
+            }
+
             if (!analyzeCode && typeof window !== 'undefined' && typeof window.analyzeCode === 'function') {
                 analyzeCode = window.analyzeCode
             }

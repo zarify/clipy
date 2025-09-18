@@ -7,6 +7,7 @@ import { openModal as openModalHelper, closeModal as closeModalHelper } from './
 import { warn as logWarn, error as logError } from './logger.js'
 import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-builder.js'
 import { analyzeCode } from './ast-analyzer.js'
+import { registerAnalyzer } from './analyzer-registry.js'
 
 const VALID_PATTERN_TYPES = ['string', 'regex', 'ast']
 const VALID_TARGETS = ['code', 'filename', 'stdout', 'stderr', 'stdin']
@@ -829,6 +830,9 @@ export function initAuthorFeedback() {
 // the analyzer in runtime environments where module paths differ.
 try {
     if (typeof window !== 'undefined' && typeof analyzeCode === 'function') {
+        // Register with analyzer-registry for a cleaner API
+        try { registerAnalyzer(analyzeCode) } catch (_e) { /* ignore */ }
+        // Keep direct window exposure for legacy consumers
         window.analyzeCode = analyzeCode
     }
 } catch (_e) {
