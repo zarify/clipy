@@ -5,3 +5,4 @@ test-results/*
 test-results/.last-run.json
 .DS_Store
 tmp/
+.github/instructions/
