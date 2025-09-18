@@ -45,7 +45,15 @@ export function createConfigManager(opts = {}) {
         const trimmed = String(input).trim()
         let urlToLoad = trimmed
         try {
+            // If the input looks like an absolute or network URL, use it as-is.
             if (!/^https?:\/\//i.test(trimmed)) {
+                // For non-URL inputs, only accept plain filenames (no path
+                // separators or directory traversal). This prevents unintended
+                // access outside the `config/` directory and makes the
+                // parameter user-friendly (e.g. `?config=printing-press.json`).
+                if (/[\\/]/.test(trimmed) || trimmed.includes('..') || trimmed.startsWith('.')) {
+                    throw new Error('Invalid config name; provide a filename (no path) or a full URL')
+                }
                 urlToLoad = './config/' + encodeURIComponent(trimmed)
             }
             const res = await fetchFn(urlToLoad)

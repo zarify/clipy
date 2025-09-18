@@ -195,57 +195,100 @@ async function main() {
                         try {
                             let toLoad = cfgParam
                             try { toLoad = decodeURIComponent(cfgParam) } catch (_e) { }
-                            // Resolve relative to current page
+                            // Resolve only explicit relative paths to an absolute URL.
+                            // If the param is a plain filename (e.g. `printing-press.json`),
+                            // leave it as-is and let `loadConfigFromStringOrUrl` map it to
+                            // `./config/<name>`. This prevents treating filenames as
+                            // root-relative URLs (which caused 404s).
                             try {
                                 if (!/^(https?:)?\/\//i.test(toLoad)) {
                                     if (toLoad.startsWith('./') || toLoad.startsWith('/')) {
-                                        toLoad = new URL(toLoad, window.location.href).href
+                                        try { toLoad = new URL(toLoad, window.location.href).href } catch (_e) { }
                                     } else {
-                                        toLoad = new URL('./' + toLoad, window.location.href).href
+                                        // Plain filename: do not convert to a page-relative URL.
                                     }
                                 }
                             } catch (_e) { }
 
-                            const r = await fetch(toLoad)
-                            if (r && r.ok) {
-                                const raw = await r.json()
-                                // Only treat as remote list if the resource is the new object shape with `files`
-                                if (raw && typeof raw === 'object' && Array.isArray(raw.files)) {
-                                    const items = raw.files
-                                    const listName = raw.listName ? String(raw.listName) : null
-                                    window.__ssg_remote_config_list = { url: toLoad, items: items, listName }
-                                    if (items && items.length > 0) {
-                                        let first = items[0]
-                                        try {
-                                            const listBase = toLoad.endsWith('/') ? toLoad : toLoad.replace(/[^/]*$/, '')
-                                            if (!/^(https?:)?\/\//i.test(first)) {
-                                                first = new URL(first, listBase).href
-                                            }
-                                        } catch (_e) { }
-                                        try {
-                                            const normalized = await loadConfigFromStringOrUrl(first)
-                                            cfg = normalized
-                                            dbg('dbg: loaded first config from ?config (list resource)')
-                                        } catch (e) {
-                                            logWarn('Failed to load first config from remote list:', e)
-                                            try { showConfigError('Failed to load first configuration from list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
-                                        }
-                                    } else {
-                                        throw new Error('Config list is empty')
-                                    }
-                                } else {
-                                    // Treat as single config
-                                    try {
-                                        const normalized = await loadConfigFromStringOrUrl(toLoad)
-                                        cfg = normalized
-                                        dbg('dbg: loaded config from ?config parameter')
-                                    } catch (e) {
-                                        logWarn('Failed to load config from ?config= parameter:', e)
-                                        try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
-                                    }
+                            // If this looks like a plain filename (no URL and not an
+                            // explicit relative path), delegate to the centralized
+                            // loader which will fetch from `./config/<name>`.
+                            if (!/^(https?:)?\/\//i.test(toLoad) && !toLoad.startsWith('./') && !toLoad.startsWith('/')) {
+                                try {
+                                    const normalized = await loadConfigFromStringOrUrl(toLoad)
+                                    cfg = normalized
+                                    try { if (typeof window !== 'undefined') window.__ssg_explicit_single_config = true } catch (_e) { }
+                                    dbg('dbg: loaded config from ?config parameter (plain filename)')
+                                } catch (e) {
+                                    logWarn('Failed to load config from ?config= parameter (plain filename):', e)
+                                    try { showConfigError('Failed to load configuration: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
                                 }
                             } else {
-                                throw new Error('Failed to fetch: ' + (r && r.status))
+                                const r = await fetch(toLoad)
+                                if (r && r.ok) {
+                                    const raw = await r.json()
+                                    // Only treat as remote list if the resource is the new object shape with `files`
+                                    if (raw && typeof raw === 'object' && Array.isArray(raw.files)) {
+                                        const items = raw.files
+                                        const listName = raw.listName ? String(raw.listName) : null
+                                        window.__ssg_remote_config_list = { url: toLoad, items: items, listName }
+                                        try { if (typeof window !== 'undefined') delete window.__ssg_explicit_single_config } catch (_e) { }
+                                        if (items && items.length > 0) {
+                                            let first = items[0]
+                                            try {
+                                                const listBase = toLoad.endsWith('/') ? toLoad : toLoad.replace(/[^/]*$/, '')
+                                                const listIsRemote = /^(https?:)?\/\//i.test(toLoad)
+                                                if (!/^(https?:)?\/\//i.test(first)) {
+                                                    if (first.startsWith('./') || first.startsWith('/')) {
+                                                        first = new URL(first, listBase).href
+                                                    } else if (listIsRemote) {
+                                                        // For remote config lists, plain filenames
+                                                        // should be resolved relative to the list's
+                                                        // base URL so they are fetched from the
+                                                        // same remote host instead of from the
+                                                        // local server's `./config/` folder.
+                                                        try { first = new URL(first, listBase).href } catch (_e) { }
+                                                    } else {
+                                                        // Local list (e.g. server index): leave plain
+                                                        // filenames unchanged so centralized loader
+                                                        // can map them to `./config/<name>`.
+                                                    }
+                                                }
+                                            } catch (_e) { }
+                                            try {
+                                                const normalized = await loadConfigFromStringOrUrl(first)
+                                                cfg = normalized
+                                                // Mark that we successfully loaded the first item from
+                                                // the remote config list so the UI can reflect the
+                                                // origin and pre-select the corresponding dropdown
+                                                // entry (e.g. '__list::0').
+                                                try { window.__ssg_loaded_from_list_index = 0 } catch (_e2) { }
+                                                try {
+                                                    if (window.__ssg_remote_config_list) window.__ssg_remote_config_list.loadedIndex = 0
+                                                } catch (_e3) { }
+                                                dbg('dbg: loaded first config from ?config (list resource)')
+                                            } catch (e) {
+                                                logWarn('Failed to load first config from remote list:', e)
+                                                try { showConfigError('Failed to load first configuration from list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                            }
+                                        } else {
+                                            throw new Error('Config list is empty')
+                                        }
+                                    } else {
+                                        // Treat as single config
+                                        try {
+                                            const normalized = await loadConfigFromStringOrUrl(toLoad)
+                                            cfg = normalized
+                                            try { if (typeof window !== 'undefined') window.__ssg_explicit_single_config = true } catch (_e) { }
+                                            dbg('dbg: loaded config from ?config parameter')
+                                        } catch (e) {
+                                            logWarn('Failed to load config from ?config= parameter:', e)
+                                            try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                        }
+                                    }
+                                } else {
+                                    throw new Error('Failed to fetch: ' + (r && r.status))
+                                }
                             }
                         } catch (e) {
                             logWarn('Failed to load config from ?config= parameter:', e)
@@ -270,12 +313,25 @@ async function main() {
                         try {
                             const listBase = indexUrl.endsWith('/') ? indexUrl : indexUrl.replace(/[^/]*$/, '')
                             if (!/^(https?:)?\/\//i.test(first)) {
-                                first = new URL(first, listBase).href
+                                if (first.startsWith('./') || first.startsWith('/')) {
+                                    first = new URL(first, listBase).href
+                                } else {
+                                    // Plain filename: leave unchanged and let
+                                    // loadConfigFromStringOrUrl map to ./config/<name>
+                                }
                             }
                         } catch (_e) { }
                         try {
                             const normalized = await loadConfigFromStringOrUrl(first)
                             cfg = normalized
+                            // Mark that we successfully loaded the first item from
+                            // the remote config list so the UI can reflect the
+                            // origin and pre-select the corresponding dropdown
+                            // entry (e.g. '__list::0').
+                            try { window.__ssg_loaded_from_list_index = 0 } catch (_e2) { }
+                            try {
+                                if (window.__ssg_remote_config_list) window.__ssg_remote_config_list.loadedIndex = 0
+                            } catch (_e3) { }
                             logInfo('main: loaded first config from index list:', cfg.id, cfg.version)
                         } catch (e) {
                             logWarn('Failed to load first config from index list:', e)
@@ -958,44 +1014,9 @@ async function main() {
                     saveCurrentConfig(newCfg)
                 } catch (_e) { }
 
-                // Persist the last-loaded config selection for quick restore
-                try {
-                    (async () => {
-                        try {
-                            const { saveSetting } = await import('./js/unified-storage.js')
-                            // If we have a remote list and this config matches one of its items,
-                            // store as { type: 'list', listUrl, index }
-                            try {
-                                if (window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items)) {
-                                    const list = window.__ssg_remote_config_list.items
-                                    // Try to find by matching id/title or resolved URL; fallback to index 0
-                                    let matchedIndex = -1
-                                    for (let i = 0; i < list.length; i++) {
-                                        try {
-                                            const item = list[i]
-                                            // Resolve URLs to absolute
-                                            const listBase = window.__ssg_remote_config_list.url.endsWith('/') ? window.__ssg_remote_config_list.url : window.__ssg_remote_config_list.url.replace(/[^/]*$/, '')
-                                            const resolved = /^(https?:)?\/\//i.test(String(item)) ? String(item) : new URL(String(item), listBase).href
-                                            if (newCfg && (newCfg.id === item || newCfg.id === resolved || newCfg.title === item || newCfg.title === resolved)) {
-                                                matchedIndex = i
-                                                break
-                                            }
-                                        } catch (_e) { }
-                                    }
-                                    const toSave = { type: 'list', listUrl: window.__ssg_remote_config_list.url, index: matchedIndex >= 0 ? matchedIndex : 0 }
-                                    try { await saveSetting('last_loaded_config', toSave) } catch (_e) { }
-                                    return
-                                }
-                            } catch (_e) { }
-
-                            // Otherwise persist as a single config (store resolved URL or id)
-                            try {
-                                const single = { type: 'single', id: newCfg && newCfg.id ? newCfg.id : null }
-                                await saveSetting('last_loaded_config', single)
-                            } catch (_e) { }
-                        } catch (_e) { }
-                    })()
-                } catch (_e) { }
+                // NOTE: Persisting the last-loaded config selection has been
+                // intentionally disabled to avoid automatic restore and avoid
+                // accidental fetches of authoring/local or off-site resources.
 
                 // Update global config reference BEFORE checking for snapshots
                 // This ensures getSnapshotsForCurrentConfig() uses the new config's identity
@@ -1127,6 +1148,29 @@ async function main() {
                         // Remove any existing interactive attributes (handled elsewhere)
                         try { titleLine.removeAttribute('role'); titleLine.removeAttribute('tabindex'); titleLine.removeAttribute('title') } catch (_e) { }
 
+                        // If an explicit single config was requested via ?config=,
+                        // prefer showing its static title. If a remote config list
+                        // exists (server index or config-list resource), prefer the
+                        // dropdown so the user can navigate list items.
+                        try {
+                            const curCfgEarly = (typeof window !== 'undefined' && window.Config && window.Config.current) ? window.Config.current : null
+                            const explicitSingleEarly = (typeof window !== 'undefined' && window.__ssg_explicit_single_config)
+                            const hasRemoteListEarly = (typeof window !== 'undefined' && window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items) && window.__ssg_remote_config_list.items.length > 0)
+                            if ((explicitSingleEarly || curCfgEarly) && !hasRemoteListEarly) {
+                                try {
+                                    const existing = document.getElementById('config-select-header')
+                                    if (existing && existing.parentElement) existing.parentElement.removeChild(existing)
+                                } catch (_e) { }
+                                try {
+                                    const label = (curCfgEarly && curCfgEarly.title ? String(curCfgEarly.title) : (curCfgEarly ? String(curCfgEarly.id || 'Configuration') : 'Configuration'))
+                                    const ver = (curCfgEarly && curCfgEarly.version) ? (' (v' + String(curCfgEarly.version) + ')') : ''
+                                    titleLine.style.display = ''
+                                    titleLine.textContent = label + ver
+                                    titleLine.setAttribute && titleLine.setAttribute('title', label + ver)
+                                } catch (_e) { }
+                            }
+                        } catch (_e) { }
+
                         // If authoring is enabled, ensure an Author button exists that opens the config modal
                         if (authoringEnabled) {
                             let authorBtn = document.getElementById('header-author-btn')
@@ -1201,8 +1245,35 @@ async function main() {
                         }
 
                         // If only one config is available, auto-load it (already handled for configList case), and don't show a dropdown
+                        // Additionally: if the app already has a single loaded config (window.Config.current),
+                        // prefer showing its title/id/version in the header instead of a dropdown. This covers
+                        // cases where a single config was loaded via ?config= or the index-first-item path.
+                        try {
+                            const curCfg = (typeof window !== 'undefined' && window.Config && window.Config.current) ? window.Config.current : null
+                            // If a config is already loaded (for example via ?config= or index-first-item),
+                            // prefer showing its title in the header instead of a dropdown regardless
+                            // of how many server items exist. This ensures the single-file UX shows the
+                            // loaded config prominently and avoids confusing auto-selection.
+                            if (curCfg) {
+                                // Remove any existing select dropdown
+                                try {
+                                    const existing = document.getElementById('config-select-header')
+                                    if (existing && existing.parentElement) existing.parentElement.removeChild(existing)
+                                } catch (_e) { }
+
+                                // Show the titleLine as a static display with config title/version
+                                try {
+                                    titleLine.style.display = ''
+                                    const label = (curCfg.title ? String(curCfg.title) : String(curCfg.id || 'Configuration')) + (curCfg.version ? (' (v' + String(curCfg.version) + ')') : '')
+                                    titleLine.textContent = label
+                                    titleLine.setAttribute && titleLine.setAttribute('title', label)
+                                } catch (_e) { }
+                            }
+                        } catch (_e) { }
+
                         const singleServerItem = (serverItems && serverItems.length === 1) ? serverItems[0] : null
-                        if (singleServerItem && !window.__ssg_remote_config_list) {
+                        // Only auto-load the single server item if we do NOT already have a current config
+                        if (singleServerItem && !window.__ssg_remote_config_list && !(typeof window !== 'undefined' && window.Config && window.Config.current)) {
                             // Try to load this single server item now
                             try {
                                 let toLoad = singleServerItem.value
@@ -1214,7 +1285,13 @@ async function main() {
                             }
                         } else {
                             // If multiple items exist, create the select dropdown
-                            if (serverItems && serverItems.length > 1) {
+                            // Build the header select when either:
+                            // - there is a remote config list from the server (we want navigation), or
+                            // - there are multiple serverItems and no current config loaded
+                            const explicitSingle = (typeof window !== 'undefined' && window.__ssg_explicit_single_config)
+                            const hasRemoteList = (typeof window !== 'undefined' && window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items) && window.__ssg_remote_config_list.items.length > 0)
+                            const shouldBuildSelect = (!explicitSingle && ((hasRemoteList && serverItems && serverItems.length >= 1) || (serverItems && serverItems.length > 1 && !(typeof window !== 'undefined' && window.Config && window.Config.current))))
+                            if (shouldBuildSelect) {
                                 let select = document.getElementById('config-select-header')
                                 if (!select) {
                                     select = document.createElement('select')
@@ -1235,7 +1312,17 @@ async function main() {
                                                 try {
                                                     const listUrl = window.__ssg_remote_config_list.url
                                                     const base = listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')
-                                                    source = /^(https?:)?\/\//i.test(source) ? source : new URL(source, base).href
+                                                    const listIsRemote = /^(https?:)?\/\//i.test(listUrl)
+                                                    if (!/^(https?:)?\/\//i.test(source)) {
+                                                        if (source.startsWith('./') || source.startsWith('/')) {
+                                                            source = new URL(source, base).href
+                                                        } else if (listIsRemote) {
+                                                            // Resolve plain filenames relative to remote list URL
+                                                            source = new URL(source, base).href
+                                                        } else {
+                                                            // Leave plain filename unchanged to be processed by centralized loader
+                                                        }
+                                                    }
                                                 } catch (_e) { }
                                                 toLoad = source
                                             }
@@ -1260,16 +1347,73 @@ async function main() {
                                     opt.textContent = it.label
                                     select.appendChild(opt)
                                 }
-
-                                // If remote configList was used and we have loaded the first item by default, set the select default to the first item
+                                // If remote configList was used, select the first item visually
+                                // and ensure it's loaded into the workspace if nothing is loaded yet.
                                 try {
-                                    if (window.__ssg_remote_config_list && window.__ssg_remote_config_list.items && window.__ssg_remote_config_list.items.length > 1) {
+                                    if (hasRemoteList) {
                                         // select the first item visually but keep it user-changeable
                                         select.value = '__list::0'
+                                        // If no config is currently loaded, auto-load the first list item
+                                        if (!(typeof window !== 'undefined' && window.Config && window.Config.current)) {
+                                            try {
+                                                const idx = 0
+                                                let source = window.__ssg_remote_config_list.items[idx]
+                                                try {
+                                                    const listUrl = window.__ssg_remote_config_list.url
+                                                    const base = listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')
+                                                    const listIsRemote = /^(https?:)?\/\//i.test(listUrl)
+                                                    if (!/^(https?:)?\/\//i.test(source)) {
+                                                        if (source.startsWith('./') || source.startsWith('/')) {
+                                                            source = new URL(source, base).href
+                                                        } else if (listIsRemote) {
+                                                            source = new URL(source, base).href
+                                                        } else {
+                                                            // let centralized loader handle plain filenames for local lists
+                                                        }
+                                                    }
+                                                } catch (_e) { }
+                                                const normalized = await loadConfigFromStringOrUrl(source)
+                                                await applyConfigToWorkspace(normalized)
+                                            } catch (_e) {
+                                                // If loading the first item fails, leave the select visible so user can try others
+                                                dbg('dbg: failed to auto-load first remote list item', _e)
+                                            }
+                                        }
                                     }
                                 } catch (_e) { }
                             }
                         }
+                    }
+                } catch (_e) { }
+                // Final safeguard: if a config is already loaded, ensure the
+                // header shows the static title and remove any select dropdown
+                // that might have been created by earlier logic (handles timing
+                // races where the select was inserted despite a loaded config).
+                try {
+                    const curCfgFinal = (typeof window !== 'undefined' && window.Config && window.Config.current) ? window.Config.current : null
+                    const hasRemoteListFinal = (typeof window !== 'undefined' && window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items) && window.__ssg_remote_config_list.items.length > 0)
+                    if (curCfgFinal && !hasRemoteListFinal) {
+                        try {
+                            // Remove any select elements inside the container to cover
+                            // cases where a select was inserted without the expected id.
+                            if (container && container.querySelectorAll) {
+                                const selects = Array.from(container.querySelectorAll('select, .config-select-header'))
+                                for (const s of selects) {
+                                    try { if (s && s.parentElement) s.parentElement.removeChild(s) } catch (_e) { }
+                                }
+                            }
+                            // Also remove any global element with the id just in case
+                            const existing = document.getElementById('config-select-header')
+                            if (existing && existing.parentElement) existing.parentElement.removeChild(existing)
+                        } catch (_e) { }
+                        try {
+                            const label = (curCfgFinal.title ? String(curCfgFinal.title) : String(curCfgFinal.id || 'Configuration')) + (curCfgFinal.version ? (' (v' + String(curCfgFinal.version) + ')') : '')
+                            if (titleLine) {
+                                titleLine.style.display = ''
+                                titleLine.textContent = label
+                                titleLine.setAttribute && titleLine.setAttribute('title', label)
+                            }
+                        } catch (_e) { }
                     }
                 } catch (_e) { }
 
@@ -1434,6 +1578,7 @@ async function main() {
                                                     if (clean.setup === null) delete clean.setup
                                                     if (clean.stdin === null) delete clean.stdin
                                                     if (!clean.id) clean.id = ('t-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7))
+
                                                     return clean
                                                 })
                                             }
