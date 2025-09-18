@@ -1,3 +1,6 @@
+## 2025-09-19
+- Enhancement: Added `function_calls` AST rule, covering things like builtin function calls
+
 ## 2025-09-18
 - Enhancement: Messages are now optional for feedback items, improved styling
 - Fix: `stderr` feedback rules work now

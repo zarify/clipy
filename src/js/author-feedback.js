@@ -6,6 +6,7 @@
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
 import { warn as logWarn, error as logError } from './logger.js'
 import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-builder.js'
+import { analyzeCode } from './ast-analyzer.js'
 
 const VALID_PATTERN_TYPES = ['string', 'regex', 'ast']
 const VALID_TARGETS = ['code', 'filename', 'stdout', 'stderr', 'stdin']
@@ -821,6 +822,17 @@ export function initAuthorFeedback() {
     // initial render and populate read-only view
     try { jsonView.textContent = JSON.stringify(items, null, 2) } catch (_e) { jsonView.textContent = '' }
     render()
+}
+
+// Expose analyzeCode on window as a compatibility shim so the
+// AST rule builder's dynamic import/fallback can reliably access
+// the analyzer in runtime environments where module paths differ.
+try {
+    if (typeof window !== 'undefined' && typeof analyzeCode === 'function') {
+        window.analyzeCode = analyzeCode
+    }
+} catch (_e) {
+    // ignore - best-effort exposure only
 }
 
 export { parseFeedbackFromTextarea, writeFeedbackToTextarea, getValidTargetsForWhen }
