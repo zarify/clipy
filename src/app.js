@@ -183,6 +183,35 @@ async function main() {
         // the default server-provided sample config. Selections are still
         // persisted for convenience, but they are no longer auto-applied on
         // startup.
+        // Helper: resolve a list item path relative to a list URL.
+        // Behavior:
+        // - If `item` is an absolute URL (starts with http or //), return it unchanged.
+        // - If `item` starts with './' or '/' resolve it against the list URL's base.
+        // - If the list URL is remote (http/https) and `item` is a plain filename,
+        //   resolve it relative to the list URL so remote lists fetch from the
+        //   originating host. If the list URL is local, leave plain filenames
+        //   unchanged so the centralized loader can treat them as local names.
+        function resolveListItemPath(item, listUrl) {
+            try {
+                if (!item) return item
+                const s = String(item)
+                if (/^(https?:)?\/\//i.test(s)) return s
+                if (!listUrl) return s
+                const base = listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')
+                const listIsRemote = /^(https?:)?\/\//i.test(listUrl)
+                if (s.startsWith('./') || s.startsWith('/')) {
+                    try { return new URL(s, base).href } catch (_e) { return s }
+                }
+                if (listIsRemote) {
+                    try { return new URL(s, base).href } catch (_e) { return s }
+                }
+                // Local list and plain filename: return unchanged and let centralized loader handle it
+                return s
+            } catch (_e) {
+                return item
+            }
+        }
+
         let cfg = null
         try {
             if (typeof window !== 'undefined') {
@@ -236,24 +265,7 @@ async function main() {
                                         if (items && items.length > 0) {
                                             let first = items[0]
                                             try {
-                                                const listBase = toLoad.endsWith('/') ? toLoad : toLoad.replace(/[^/]*$/, '')
-                                                const listIsRemote = /^(https?:)?\/\//i.test(toLoad)
-                                                if (!/^(https?:)?\/\//i.test(first)) {
-                                                    if (first.startsWith('./') || first.startsWith('/')) {
-                                                        first = new URL(first, listBase).href
-                                                    } else if (listIsRemote) {
-                                                        // For remote config lists, plain filenames
-                                                        // should be resolved relative to the list's
-                                                        // base URL so they are fetched from the
-                                                        // same remote host instead of from the
-                                                        // local server's `./config/` folder.
-                                                        try { first = new URL(first, listBase).href } catch (_e) { }
-                                                    } else {
-                                                        // Local list (e.g. server index): leave plain
-                                                        // filenames unchanged so centralized loader
-                                                        // can map them to `./config/<name>`.
-                                                    }
-                                                }
+                                                first = resolveListItemPath(first, toLoad)
                                             } catch (_e) { }
                                             try {
                                                 const normalized = await loadConfigFromStringOrUrl(first)
@@ -310,17 +322,7 @@ async function main() {
                         const indexUrl = new URL('./config/index.json', window.location.href).href
                         window.__ssg_remote_config_list = { url: indexUrl, items: items, listName: null }
                         let first = items[0]
-                        try {
-                            const listBase = indexUrl.endsWith('/') ? indexUrl : indexUrl.replace(/[^/]*$/, '')
-                            if (!/^(https?:)?\/\//i.test(first)) {
-                                if (first.startsWith('./') || first.startsWith('/')) {
-                                    first = new URL(first, listBase).href
-                                } else {
-                                    // Plain filename: leave unchanged and let
-                                    // loadConfigFromStringOrUrl map to ./config/<name>
-                                }
-                            }
-                        } catch (_e) { }
+                        try { first = resolveListItemPath(first, indexUrl) } catch (_e) { }
                         try {
                             const normalized = await loadConfigFromStringOrUrl(first)
                             cfg = normalized
@@ -1358,20 +1360,7 @@ async function main() {
                                             try {
                                                 const idx = 0
                                                 let source = window.__ssg_remote_config_list.items[idx]
-                                                try {
-                                                    const listUrl = window.__ssg_remote_config_list.url
-                                                    const base = listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')
-                                                    const listIsRemote = /^(https?:)?\/\//i.test(listUrl)
-                                                    if (!/^(https?:)?\/\//i.test(source)) {
-                                                        if (source.startsWith('./') || source.startsWith('/')) {
-                                                            source = new URL(source, base).href
-                                                        } else if (listIsRemote) {
-                                                            source = new URL(source, base).href
-                                                        } else {
-                                                            // let centralized loader handle plain filenames for local lists
-                                                        }
-                                                    }
-                                                } catch (_e) { }
+                                                try { source = resolveListItemPath(source, window.__ssg_remote_config_list && window.__ssg_remote_config_list.url) } catch (_e) { }
                                                 const normalized = await loadConfigFromStringOrUrl(source)
                                                 await applyConfigToWorkspace(normalized)
                                             } catch (_e) {

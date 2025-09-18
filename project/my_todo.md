@@ -14,7 +14,6 @@
 
 # Bug list
 - `stderr` feedback isn't working
-- When loading up the page and trying to load a previous list of configs, it's looking in the local config repository and erroring because they're not there
 
 # Feedback and testing improvements
 - [ ] Add a 'call' check for calling inbuilt or predefined functions
@@ -22,6 +21,7 @@
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
+- [x] When loading up the page and trying to load a previous list of configs, it's looking in the local config repository and erroring because they're not there
 - [x] The reload config button needs to do something more obvious instead of reloading the server config
 - [x] Reloading the workspace or loading a config should clear files before adding new ones
     - Check whether feedback and tests are being loaded/cleared correct as well, especially if the incoming config has empty arrays for these
