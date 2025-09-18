@@ -5,6 +5,7 @@
   - Loading a config list file presents individual problems in a drop-down in the top-right of the page
 - Fix: Snapshot storage and clearing had a busted linkage between browser storage and the in-memory storage. Hopefully fixed it.
 - Fix: The Run tests button is now visibly disabled when there are no tests
+- Enhancement: Messages are now option for feedback items, improved styling
 
 ## 2025-09-15
 - Added validation to authoring for config ID and config version
