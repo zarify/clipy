@@ -10,7 +10,7 @@ import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-build
 const VALID_PATTERN_TYPES = ['string', 'regex', 'ast']
 const VALID_TARGETS = ['code', 'filename', 'stdout', 'stderr', 'stdin']
 const VALID_WHEN = ['edit', 'run']
-const VALID_SEVERITIES = ['success', 'info', 'warning', 'error']
+const VALID_SEVERITIES = ['success', 'hint', 'info', 'warning', 'error']
 
 // Target restrictions based on when the feedback runs
 const EDIT_TARGETS = ['code', 'filename']
@@ -363,7 +363,7 @@ function buildEditorForm(existing) {
     root.appendChild(exprRow)
     root.appendChild(flagsRow)
     root.appendChild(labeled('Message', message, 'Message shown to the author when the feedback triggers. Use plain text or simple markdown.'))
-    root.appendChild(labeled('Style', severity, 'The visual style for the feedback: info, warning, or error.'))
+    root.appendChild(labeled('Style', severity, 'The visual style for the feedback: success, hint, info, warning, or error.'))
 
     // Initialize field visibility based on current pattern type
     updatePatternFields()
@@ -395,7 +395,7 @@ function buildEditorForm(existing) {
                 when: when.length ? when : ['run'], // Default to 'run' if none selected
                 pattern: pattern,
                 message: message.value || '',
-                severity: severity.value || 'success',
+                severity: severity.value || 'info',
                 visibleByDefault: !!visible.checked
             }
         }
