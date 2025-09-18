@@ -460,8 +460,8 @@ function renderList() {
                 indicatorEl = document.createElement('div')
                 indicatorEl.className = 'feedback-match-indicator matched-' + sev
                 // Plain unicode glyphs (non-emoji) — use requested symbols
-                if (sev === 'hint') indicatorEl.textContent = '✏' // pencil
-                else if (sev === 'info') indicatorEl.textContent = '\u24D8' // circled info ⓘ (decimal 9432)
+                if (sev === 'hint') indicatorEl.textContent = '\u270E' // pencil
+                else if (sev === 'info') indicatorEl.textContent = 'i'
                 else if (sev === 'warning') indicatorEl.textContent = '!'
                 else if (sev === 'error') indicatorEl.textContent = '×'
                 else /* success and fallback */ indicatorEl.textContent = '✓'
