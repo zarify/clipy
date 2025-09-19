@@ -807,6 +807,11 @@ async function main() {
                         // Reload canonical config (use resetToLoadedConfig if available)
                         let newCfg = null
                         if (mod && typeof mod.resetToLoadedConfig === 'function') {
+                            // When invoked from the Reset button we want to force the
+                            // workspace to the canonical config files and NOT restore
+                            // any existing snapshots for that config (users expect a
+                            // true reset to defaults). Pass a marker via opts to
+                            // applyConfigToWorkspace below.
                             newCfg = await mod.resetToLoadedConfig()
                         } else {
                             newCfg = (await mod.loadConfig())
@@ -819,7 +824,10 @@ async function main() {
                         // tab sync, and feedback updates).
                         try {
                             if (typeof applyConfigToWorkspace === 'function') {
-                                await applyConfigToWorkspace(newCfg)
+                                // In the context of the explicit Reset button click
+                                // we must ensure snapshots are NOT auto-restored so
+                                // the workspace is returned to the config defaults.
+                                await applyConfigToWorkspace(newCfg, { skipSnapshotRestore: true })
                             } else {
                                 // Fallback: attempt basic apply if helper missing
                                 const vfs = await import('./js/vfs-client.js')
@@ -925,7 +933,10 @@ async function main() {
         } catch (_e) { }
 
         // Top-level helper: apply a loaded/normalized config to the workspace (rewrite FS & refresh UI)
-        async function applyConfigToWorkspace(newCfg) {
+        // `opts` supports:
+        // - skipSnapshotRestore: when true, do not attempt to restore saved snapshots for the config
+        async function applyConfigToWorkspace(newCfg, opts = {}) {
+            const skipSnapshotRestore = !!(opts && opts.skipSnapshotRestore)
             try {
                 // Close any open tabs for files that will be removed by the
                 // incoming configuration. Do this up-front so we don't rely on
@@ -954,6 +965,10 @@ async function main() {
                 const getFileManager = vfs.getFileManager
                 const MAIN_FILE = vfs.MAIN_FILE
                 const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                // Suppress autosave while we perform programmatic filesystem
+                // operations so the editor's debounced autosave doesn't overwrite
+                // the freshly-applied files (notably /main.py).
+                try { if (typeof window !== 'undefined') window.__ssg_suppress_autosave = true } catch (_e) { }
                 if (FileManager) {
                     // When applying a configuration programmatically we must
                     // bypass user-level read-only protections so system writes
@@ -1016,7 +1031,8 @@ async function main() {
                         } catch (_e) { }
                     }
                 }
-
+                // Re-enable autosave after we've synchronized tabs/editor with FileManager
+                try { if (typeof window !== 'undefined') window.__ssg_suppress_autosave = false } catch (_e) { }
                 // Save this config as the current config for future sessions
                 try {
                     saveCurrentConfig(newCfg)
@@ -1034,45 +1050,51 @@ async function main() {
                     window.currentConfig = newCfg
                 } catch (_e) { try { window.Config = window.Config || {}; window.Config.current = newCfg } catch (_e2) { } }
 
-                // Try to restore the latest snapshot for this NEW config (if compatible)
-                try {
-                    const { getSnapshotsForCurrentConfig } = await import('./js/snapshots.js')
-                    const snapshots = await getSnapshotsForCurrentConfig()
-                    if (snapshots && snapshots.length > 0) {
-                        // Get the most recent snapshot
-                        const latestSnapshot = snapshots[snapshots.length - 1]
-                        const snapshotConfigVersion = latestSnapshot.metadata?.configVersion
-                        const currentConfigVersion = newCfg?.version
+                // Try to restore the latest snapshot for this NEW config (if compatible).
+                // For explicit Reset operations we skip restoring snapshots so the
+                // workspace reflects the config defaults. Other flows (loading a
+                // config via UI) keep the existing behavior and may restore a
+                // latest snapshot if available.
+                if (!skipSnapshotRestore) {
+                    try {
+                        const { getSnapshotsForCurrentConfig } = await import('./js/snapshots.js')
+                        const snapshots = await getSnapshotsForCurrentConfig()
+                        if (snapshots && snapshots.length > 0) {
+                            // Get the most recent snapshot
+                            const latestSnapshot = snapshots[snapshots.length - 1]
+                            const snapshotConfigVersion = latestSnapshot.metadata?.configVersion
+                            const currentConfigVersion = newCfg?.version
 
-                        if (isConfigCompatibleWithSnapshot(currentConfigVersion, snapshotConfigVersion)) {
-                            // Restore the snapshot files for this config. Use system
-                            // write mode so read-only flags don't block restoration.
-                            if (latestSnapshot.files && FileManager) {
-                                try {
-                                    const { setSystemWriteMode } = await import('./js/vfs-client.js')
+                            if (isConfigCompatibleWithSnapshot(currentConfigVersion, snapshotConfigVersion)) {
+                                // Restore the snapshot files for this config. Use system
+                                // write mode so read-only flags don't block restoration.
+                                if (latestSnapshot.files && FileManager) {
                                     try {
-                                        setSystemWriteMode(true)
+                                        const { setSystemWriteMode } = await import('./js/vfs-client.js')
+                                        try {
+                                            setSystemWriteMode(true)
+                                            for (const [path, content] of Object.entries(latestSnapshot.files)) {
+                                                try { await FileManager.write(path, content) } catch (_e) { }
+                                            }
+                                        } finally {
+                                            try { setSystemWriteMode(false) } catch (_e) { }
+                                        }
+                                    } catch (_e) {
+                                        // fallback: try writes without system mode
                                         for (const [path, content] of Object.entries(latestSnapshot.files)) {
                                             try { await FileManager.write(path, content) } catch (_e) { }
                                         }
-                                    } finally {
-                                        try { setSystemWriteMode(false) } catch (_e) { }
-                                    }
-                                } catch (_e) {
-                                    // fallback: try writes without system mode
-                                    for (const [path, content] of Object.entries(latestSnapshot.files)) {
-                                        try { await FileManager.write(path, content) } catch (_e) { }
                                     }
                                 }
+                                try { appendTerminal('Restored latest snapshot for ' + (newCfg?.title || newCfg?.id || 'config'), 'runtime') } catch (_e) { }
+                            } else {
+                                try { appendTerminal('Config version changed - using default files instead of snapshot', 'runtime') } catch (_e) { }
                             }
-                            try { appendTerminal('Restored latest snapshot for ' + (newCfg?.title || newCfg?.id || 'config'), 'runtime') } catch (_e) { }
                         } else {
-                            try { appendTerminal('Config version changed - using default files instead of snapshot', 'runtime') } catch (_e) { }
+                            try { appendTerminal('No snapshots found for ' + (newCfg?.title || newCfg?.id || 'config') + ' - using default files', 'runtime') } catch (_e) { }
                         }
-                    } else {
-                        try { appendTerminal('No snapshots found for ' + (newCfg?.title || newCfg?.id || 'config') + ' - using default files', 'runtime') } catch (_e) { }
-                    }
-                } catch (_e) { }
+                    } catch (_e) { }
+                }
 
                 // Refresh tabs/editor and ensure MAIN_FILE remains selected
                 try { if (window.TabManager && typeof window.TabManager.syncWithFileManager === 'function') await window.TabManager.syncWithFileManager() } catch (_e) { }

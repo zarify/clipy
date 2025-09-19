@@ -3,6 +3,7 @@
 - Feature: Added dependencies for feedback rules
   - Other feedback rule must match
   - Other feedback rule must not match
+- Fix: The reset config button should now... reset the config
 
 ## 2025-09-18
 - Enhancement: Messages are now optional for feedback items, improved styling
