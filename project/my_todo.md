@@ -6,6 +6,7 @@
 - [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
 - [ ] Add exemplars for different types of feedback and tests, include with docs
 - [ ] New playwright and other tests
+- [ ] Some persistence of test suite passes for config/version. More useful with lists of configs to keep track of what has been passed and what hasn't.
 - [ ] Make back end catch up with front end. Need to be able to load a config list there too, maybe make it local to the verification panel?
 - [ ] Investigate using Pyodide as well.
   - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
