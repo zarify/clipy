@@ -3,6 +3,10 @@
 - Feature: Added dependencies for feedback rules
   - Other feedback rule must match
   - Other feedback rule must not match
+- Feature: Success indicators for problem configs
+  - Snapshot history shows when problem was last solved
+  - Indicator in page header to show solve state
+  - Drop-down menu in config lists show solve state
 - Fix: The reset config button should now... reset the config
 
 ## 2025-09-18

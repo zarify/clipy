@@ -122,6 +122,18 @@ header {
         max-width: 100%;
     }
 
+    /* Success indicators */
+    .success-indicator {
+        color: #2e7d32;
+        font-weight: 700;
+        margin-left: 6px;
+    }
+
+    .snapshot-success-item {
+        background: linear-gradient(90deg, rgba(46, 125, 50, 0.04), rgba(46, 125, 50, 0.02));
+        border-left: 4px solid #2e7d32;
+    }
+
     .author-tab .CodeMirror {
         width: 100%;
         background: var(--editor-bg);

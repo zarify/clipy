@@ -1,5 +1,5 @@
 // Exported for use in autosave.js
-export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig, debugSnapshotStorage, renderSnapshots, restoreSnapshot, clearStorage }
+export { getSnapshotsForCurrentConfig, saveSnapshotsForCurrentConfig, debugSnapshotStorage, renderSnapshots, restoreSnapshot, clearStorage, getSuccessSnapshotForCurrentConfig, saveSuccessSnapshotForCurrentConfig, clearSuccessSnapshotForCurrentConfig, getSuccessSnapshotForConfig }
 
 // Restore from the special 'current' snapshot if it exists
 export async function restoreCurrentSnapshotIfExists() {
@@ -95,6 +95,80 @@ export function setupSnapshotSystem() {
 
     // Check storage health on startup
     setTimeout(() => checkStorageHealth(), 1000)
+}
+
+// Success snapshot wrappers for current config
+async function getSuccessSnapshotForCurrentConfig() {
+    const configIdentity = getConfigIdentity()
+    try {
+        const { loadSuccessSnapshot } = await import('./unified-storage.js')
+        return await loadSuccessSnapshot(configIdentity)
+    } catch (e) {
+        logError('Failed to load success snapshot from unified storage:', e)
+        // Fallback: try in-memory cache used by this module (no-op)
+        try {
+            const arr = inMemorySnapshots[configIdentity] || []
+            // Look for special success id stored as object with id key
+            for (const s of arr) {
+                if (s && s.id === '__success__') return s
+            }
+        } catch (_e) { }
+        return null
+    }
+}
+
+async function saveSuccessSnapshotForCurrentConfig(snapshot) {
+    const configIdentity = getConfigIdentity()
+    try {
+        const { saveSuccessSnapshot } = await import('./unified-storage.js')
+        await saveSuccessSnapshot(configIdentity, snapshot)
+    } catch (e) {
+        logError('Failed to save success snapshot to unified storage:', e)
+        // Fallback: stash in in-memory snapshots under a special id
+        try {
+            inMemorySnapshots[configIdentity] = inMemorySnapshots[configIdentity] || []
+            // Remove any existing success placeholder
+            inMemorySnapshots[configIdentity] = inMemorySnapshots[configIdentity].filter(s => !(s && s.id === '__success__'))
+            inMemorySnapshots[configIdentity].push(Object.assign({ id: '__success__', ts: Date.now() }, snapshot || {}))
+        } catch (_e) { }
+    }
+    try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ssg:success-saved', { detail: { config: configIdentity } })) } catch (_e) { }
+}
+
+async function clearSuccessSnapshotForCurrentConfig() {
+    const configIdentity = getConfigIdentity()
+    try {
+        const { clearSuccessSnapshot } = await import('./unified-storage.js')
+        await clearSuccessSnapshot(configIdentity)
+    } catch (e) {
+        logError('Failed to clear success snapshot from unified storage:', e)
+        try {
+            if (inMemorySnapshots[configIdentity]) {
+                inMemorySnapshots[configIdentity] = inMemorySnapshots[configIdentity].filter(s => !(s && s.id === '__success__'))
+            }
+        } catch (_e) { }
+    }
+    try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ssg:success-cleared', { detail: { config: configIdentity } })) } catch (_e) { }
+}
+
+// Check success snapshot for any arbitrary config identity (string like "id@version").
+// Returns the snapshot object or null. Uses unified-storage when available and
+// falls back to this module's in-memory cache.
+async function getSuccessSnapshotForConfig(configIdentity) {
+    if (!configIdentity) return null
+    try {
+        const { loadSuccessSnapshot } = await import('./unified-storage.js')
+        return await loadSuccessSnapshot(configIdentity)
+    } catch (e) {
+        logError('Failed to load success snapshot from unified storage (config):', configIdentity, e)
+        try {
+            const arr = inMemorySnapshots[configIdentity] || []
+            for (const s of arr) {
+                if (s && s.id === '__success__') return s
+            }
+        } catch (_e) { }
+        return null
+    }
 }
 
 function getSnapshotStorageKey() {
@@ -242,6 +316,9 @@ async function renderSnapshots() {
     // Always fetch current snapshots; even if the modal isn't open we still
     // want to update header/footer summaries so the UI reflects cleared state.
     const snaps = await getSnapshotsForCurrentConfig()
+    // Also check for a special 'success' snapshot for this config/version
+    let successSnap = null
+    try { successSnap = await getSuccessSnapshotForCurrentConfig() } catch (_e) { successSnap = null }
     if (!snapshotList && (!snaps || snaps.length === 0)) {
         // If there's no modal list in DOM and no snapshots, still update
         // header/footer below. Return early after header/footer update.
@@ -256,7 +333,58 @@ async function renderSnapshots() {
         if (snapshotList) snapshotList.innerHTML = ''
     }
 
-    snapshotList.innerHTML = ''
+    // Clear list
+    if (snapshotList) snapshotList.innerHTML = ''
+
+    // If a success snapshot exists, render it at the top with a distinctive style
+    if (successSnap && snapshotList) {
+        try {
+            const div = document.createElement('div')
+            div.className = 'snapshot-item snapshot-success-item'
+            div.style.display = 'flex'
+            div.style.alignItems = 'center'
+            div.style.justifyContent = 'space-between'
+            div.style.padding = '6px 4px'
+
+            const mid = document.createElement('div')
+            mid.style.flex = '1'
+            mid.style.padding = '0 8px'
+            mid.style.display = 'flex'
+            mid.style.alignItems = 'center'
+            mid.style.justifyContent = 'flex-start'
+            mid.style.gap = '8px'
+            const star = document.createElement('span')
+            star.textContent = '★'
+            star.style.color = '#2e7d32'
+            star.style.fontSize = '1.2em'
+            star.style.marginRight = '6px'
+            mid.appendChild(star)
+            const txt = document.createElement('div')
+            txt.textContent = `Solved on ${new Date(successSnap.ts || Date.now()).toLocaleString()}`
+            mid.appendChild(txt)
+
+            const actions = document.createElement('div')
+            actions.style.display = 'inline-flex'
+            actions.style.gap = '8px'
+            const clearBtn = document.createElement('button')
+            clearBtn.className = 'btn btn-small btn-danger'
+            clearBtn.textContent = 'Clear success'
+            clearBtn.addEventListener('click', async () => {
+                const ok = await showConfirmModal('Clear success marker', 'Clear the solved status for this configuration?')
+                if (!ok) return
+                try {
+                    await clearSuccessSnapshotForCurrentConfig()
+                    await renderSnapshots()
+                    appendTerminal('Cleared success marker', 'runtime')
+                } catch (e) { appendTerminal('Failed to clear success marker: ' + e, 'runtime') }
+            })
+            actions.appendChild(clearBtn)
+
+            div.appendChild(mid)
+            div.appendChild(actions)
+            snapshotList.appendChild(div)
+        } catch (_e) { }
+    }
     // Helper to compute approximate byte size of snapshot
     function computeSnapshotSize(snap) {
         try {
@@ -726,6 +854,10 @@ async function clearStorage() {
                 try { clearInMemoryFiles() } catch (_e) { }
             } catch (_e) { }
             // If nothing measured but we expect something cleared, fall back to totalSnapshots
+            try {
+                const { clearSuccessSnapshot } = await import('./unified-storage.js')
+                await clearSuccessSnapshot(getConfigIdentity())
+            } catch (_e) { }
             if (actuallyDeleted === 0 && preCount === 0 && totalSnapshots > 0) actuallyDeleted = totalSnapshots
             logDebug('Cleared all snapshots from unified storage')
         } catch (unifiedError) {

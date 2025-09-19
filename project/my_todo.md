@@ -6,7 +6,6 @@
 - [ ] Dark mode (pretty damned involved - get the agent to build a list of every hard coded colour style first)
 - [ ] Add exemplars for different types of feedback and tests, include with docs
 - [ ] New playwright and other tests
-- [ ] Some persistence of test suite passes for config/version. More useful with lists of configs to keep track of what has been passed and what hasn't.
 - [ ] Make back end catch up with front end. Need to be able to load a config list there too, maybe make it local to the verification panel?
 - [ ] Investigate using Pyodide as well.
   - See https://pyodide.org/en/stable/usage/faq.html for some of the issues we've seen here
@@ -19,6 +18,7 @@
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
+- [x] Some persistence of test suite passes for config/version. More useful with lists of configs to keep track of what has been passed and what hasn't.
 - [x] Add a 'call' check for calling inbuilt or predefined functions
 - [x] Add feedback item dependencies. Choose a list of other feedback items that need to trigger before this one.
 - [x] Need to wrap codemirror on the main page instead of stretching the editor with long lines

@@ -4,7 +4,6 @@
 // Core utilities and configuration
 import { loadConfig, initializeInstructions, getConfig, getConfigIdentity, getConfigKey, validateAndNormalizeConfig, fetchAvailableServerConfigs, loadConfigFromStringOrUrl, loadConfigFromFile, setCurrentConfig, saveCurrentConfig, loadCurrentConfig, clearCurrentConfig, isConfigCompatibleWithSnapshot, debugCurrentConfig } from './js/config.js'
 import { $ } from './js/utils.js'
-
 // Zero-knowledge verification system
 import { getStudentIdentifier, setStudentIdentifier } from './js/zero-knowledge-verification.js'
 
@@ -35,29 +34,6 @@ import { debug as logDebug, info as logInfo, warn as logWarn, error as logError,
 // Code transformation 
 import { transformAndWrap, highlightMappedTracebackInEditor, highlightFeedbackLine, clearAllErrorHighlights, clearAllFeedbackHighlights } from './js/code-transform.js'
 
-// Quiet specific tagged debug messages unless window.__SSG_DEBUG is true.
-// This wrapper filters console.debug calls whose first argument is a
-// string starting with [app], [runner], or [sandbox]. Other debug calls
-// are passed through unchanged.
-try {
-    (function () {
-        if (typeof console === 'undefined' || typeof console.debug !== 'function') return
-        const _origDebug = console.debug.bind(console)
-        console.debug = function (...args) {
-            try {
-                const first = args && args.length ? args[0] : null
-                if (typeof first === 'string' && (first.startsWith('[app]') || first.startsWith('[runner]') || first.startsWith('[sandbox]'))) {
-                    if (typeof window !== 'undefined' && window.__SSG_DEBUG) {
-                        return _origDebug(...args)
-                    }
-                    return
-                }
-            } catch (_e) { }
-            return _origDebug(...args)
-        }
-    })()
-} catch (_e) { }
-
 // Additional features
 import { setupSnapshotSystem } from './js/snapshots.js'
 import { setupDownloadSystem } from './js/download.js'
@@ -65,70 +41,36 @@ import { showStorageInfo } from './js/storage-manager.js'
 import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
 import { initializeFeedbackUI, setFeedbackMatches, setFeedbackConfig } from './js/feedback-ui.js'
 
-// Check if authoring mode is enabled via URL parameter
-function isAuthoringEnabled() {
-    try {
-        const params = new URLSearchParams(window.location.search)
-        // Check for various authoring parameter formats
-        const hasAuthorParam = params.has('author') ||
-            params.get('authoring') === 'true' ||
-            params.get('author') === 'true' ||
-            params.has('authoring')
-
-        // Also check if returning from authoring page
-        const returningFromAuthor = sessionStorage.getItem('returningFromAuthor') === 'true'
-
-        return hasAuthorParam || returningFromAuthor
-    } catch (e) {
-        return false
-    }
-}
-
-// Add author flag to URL if not present when authoring is enabled
-function ensureAuthorFlag() {
-    try {
-        if (isAuthoringEnabled()) {
-            const params = new URLSearchParams(window.location.search)
-            if (!params.has('author') && !params.has('authoring')) {
-                // Add author flag to current URL
-                params.set('author', 'true')
-                const newUrl = window.location.pathname + '?' + params.toString()
-                window.history.replaceState({}, '', newUrl)
-            }
-        }
-    } catch (e) {
-        logWarn('Failed to ensure author flag:', e)
-    }
-}
-
-// Expose global functions for tests and debugging
-try {
-    window.__ssg_transform = transformAndWrap
-    // Expose Config object for tests
-    window.Config = {
-        current: null,
-        getConfigIdentity,
-        getConfigKey,
-        validateAndNormalizeConfig
-    }
-    // Expose storage info for debugging
-    window.showStorageInfo = showStorageInfo
-    // Expose config debug helper
-    window.debugCurrentConfig = debugCurrentConfig
-    // Expose snapshot storage debug helper
-    try {
-        const { debugSnapshotStorage } = await import('./js/snapshots.js')
-        window.debugSnapshotStorage = debugSnapshotStorage
-    } catch (_e) { }
-    // Expose highlight helpers for tests/debugging
-    try { window.highlightMappedTracebackInEditor = highlightMappedTracebackInEditor } catch (_e) { }
-    try { window.highlightFeedbackLine = highlightFeedbackLine } catch (_e) { }
-} catch (_e) { }
-
 // Startup debug helper - enable by setting `window.__ssg_debug_startup = true`
 try {
     if (typeof window !== 'undefined') {
         window.__ssg_debug_startup = window.__ssg_debug_startup || false
+    }
+} catch (_e) { }
+
+// Watcher: if a remote config list is assigned later at runtime, ensure we
+// create the header select. This handles the case where other startup code
+// sets `window.__ssg_remote_config_list` after this module evaluated.
+try {
+    if (typeof window !== 'undefined') {
+        let watchAttempts = 0
+        const maxWatchAttempts = 60 // ~6s
+        const watchInterval = setInterval(() => {
+            try {
+                watchAttempts++
+                const remote = window.__ssg_remote_config_list
+                const existing = document.getElementById('config-select-header')
+                if (remote && Array.isArray(remote.items) && !existing) {
+                    const serverItems = remote.items.map((it, i) => ({ label: typeof it === 'string' ? it : (it.label || String(it)), value: '__list::' + i }))
+                    try { createOrUpdateHeaderSelect(serverItems, true) } catch (_e) { }
+                    clearInterval(watchInterval)
+                    return
+                }
+                if (watchAttempts >= maxWatchAttempts) clearInterval(watchInterval)
+            } catch (_e) {
+                try { clearInterval(watchInterval) } catch (_err) { }
+            }
+        }, 100)
     }
 } catch (_e) { }
 
@@ -368,6 +310,9 @@ async function main() {
         }
 
         initializeInstructions(cfg)
+
+        // Update success indicators initially (may be updated later when snapshots load)
+        try { updateSuccessIndicators() } catch (_e) { }
 
         // Expose current config globally for tests
         try { window.Config.current = cfg } catch (_e) { }
@@ -755,6 +700,33 @@ async function main() {
                             }
                             // Explicitly open/refresh the modal now that results exist
                             try { if (typeof window.__ssg_show_test_results === 'function') window.__ssg_show_test_results(results) } catch (_e) { }
+                            // If every test passed, save a special success snapshot for this config/version
+                            try {
+                                const allPassed = Array.isArray(results) && results.length > 0 && results.every(r => !!r.passed)
+                                if (allPassed) {
+                                    try {
+                                        const { getFileManager } = await import('./js/vfs-client.js')
+                                        const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                                        const snap = { ts: Date.now(), files: {}, config: (window.Config && window.Config.current) ? `${window.Config.current.id}@${window.Config.current.version}` : null, metadata: { configVersion: (window.Config && window.Config.current) ? window.Config.current.version : null } }
+                                        if (FileManager && typeof FileManager.list === 'function') {
+                                            try {
+                                                const names = FileManager.list()
+                                                for (const n of names) {
+                                                    try { const v = await Promise.resolve(FileManager.read(n)); if (v != null) snap.files[n] = v } catch (_e) { }
+                                                }
+                                            } catch (_e) { }
+                                        }
+                                        try {
+                                            const { saveSuccessSnapshotForCurrentConfig } = await import('./js/snapshots.js')
+                                            await saveSuccessSnapshotForCurrentConfig(snap)
+                                            appendTerminal('Success snapshot saved for ' + (snap.config || ''), 'runtime')
+                                        } catch (e) {
+                                            // Non-fatal: log and continue
+                                            try { appendTerminal('Failed to save success snapshot: ' + e, 'runtime') } catch (_e) { }
+                                        }
+                                    } catch (e) { try { appendTerminal('Failed to create success snapshot: ' + e, 'runtime') } catch (_e) { } }
+                                }
+                            } catch (_e) { }
                         } catch (_e) { }
                         if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnRun === 'function') {
                             for (const r of results) {
@@ -1130,10 +1102,21 @@ async function main() {
                     } catch (_e) { }
                 } catch (_e) { }
                 try { appendTerminal('Workspace configured: ' + (newCfg && newCfg.title ? newCfg.title : 'loaded'), 'runtime') } catch (_e) { }
+                try { updateSuccessIndicators() } catch (_e) { }
             } catch (e) {
                 try { appendTerminal('Failed to apply configuration: ' + e, 'runtime') } catch (_e) { }
             }
         }
+
+        // Expose applyConfigToWorkspace on `window` so dynamically-attached handlers
+        // (created in other scopes or before module evaluation completes) can safely
+        // reference it. This is a safe, non-invasive export that avoids scoping
+        // surprises in browsers while keeping the internal function intact.
+        try {
+            if (typeof window !== 'undefined' && typeof applyConfigToWorkspace === 'function') {
+                try { window.applyConfigToWorkspace = applyConfigToWorkspace } catch (_e) { }
+            }
+        } catch (_e) { }
 
         // Helper to surface config errors in the config modal (inline) and terminal
         function showConfigError(message, openModalEl) {
@@ -1162,8 +1145,55 @@ async function main() {
             const configModal = document.getElementById('config-modal')
             if (configInfoEl && configModal) {
                 // Handle authoring mode setup
-                ensureAuthorFlag()
-                const authoringEnabled = isAuthoringEnabled()
+                // Ensure authoring flag helpers exist. These helpers are defensive
+                // and check the URL, sessionStorage, and a global override so tests
+                // and different embed contexts can enable authoring reliably.
+                try {
+                    // Define helpers if they aren't already present (for tests or other modules)
+                    if (typeof window !== 'undefined') {
+                        if (typeof window.ensureAuthorFlag !== 'function') {
+                            window.ensureAuthorFlag = function ensureAuthorFlag() {
+                                try {
+                                    // If query string contains ?author or ?author=true set a session flag
+                                    try {
+                                        const params = new URLSearchParams(window.location.search)
+                                        if (params.has('author')) {
+                                            sessionStorage.setItem('ssg_author', '1')
+                                        }
+                                    } catch (_e) { }
+
+                                    // If a global override is present, respect it
+                                    if (typeof window.__ssg_force_author !== 'undefined') {
+                                        if (window.__ssg_force_author) sessionStorage.setItem('ssg_author', '1')
+                                        else sessionStorage.removeItem('ssg_author')
+                                    }
+                                } catch (_e) { }
+                            }
+                        }
+
+                        if (typeof window.isAuthoringEnabled !== 'function') {
+                            window.isAuthoringEnabled = function isAuthoringEnabled() {
+                                try {
+                                    // Order of precedence: explicit global override -> session flag -> URL param (best-effort)
+                                    if (typeof window.__ssg_force_author !== 'undefined') return !!window.__ssg_force_author
+                                    try {
+                                        if (sessionStorage.getItem('ssg_author') === '1') return true
+                                    } catch (_e) { }
+                                    try {
+                                        const params = new URLSearchParams(window.location.search)
+                                        if (params.has('author')) return true
+                                    } catch (_e) { }
+                                } catch (_e) { }
+                                return false
+                            }
+                        }
+                    }
+                } catch (_e) { }
+
+                // Ensure any URL-based flag is materialized into session storage
+                try { if (typeof window !== 'undefined' && typeof window.ensureAuthorFlag === 'function') window.ensureAuthorFlag() } catch (_e) { }
+
+                const authoringEnabled = (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function') ? window.isAuthoringEnabled() : false
 
                 // Log authoring mode status
                 if (authoringEnabled) {
@@ -1227,7 +1257,10 @@ async function main() {
                                         }
                                     } catch (e) { logError('Failed to open config modal via header Author button:', e) }
                                 })
-                                container.insertBefore(authorBtn, titleLine)
+                                // Insert the author button before the header select if it already exists
+                                // so the DOM order is deterministic regardless of initialization timing.
+                                const reference = container.querySelector('#config-select-header') || titleLine
+                                container.insertBefore(authorBtn, reference)
                             }
                         } else {
                             // Ensure no header-author-btn remains when not authoring
@@ -1289,11 +1322,12 @@ async function main() {
                         // cases where a single config was loaded via ?config= or the index-first-item path.
                         try {
                             const curCfg = (typeof window !== 'undefined' && window.Config && window.Config.current) ? window.Config.current : null
+                            const hasRemoteList = (typeof window !== 'undefined' && window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items) && window.__ssg_remote_config_list.items.length > 0)
                             // If a config is already loaded (for example via ?config= or index-first-item),
-                            // prefer showing its title in the header instead of a dropdown regardless
-                            // of how many server items exist. This ensures the single-file UX shows the
-                            // loaded config prominently and avoids confusing auto-selection.
-                            if (curCfg) {
+                            // prefer showing its title in the header instead of a dropdown only when
+                            // there is NOT an available remote config list. If a remote list exists we
+                            // want to keep the dropdown so users can navigate other items in the list.
+                            if (curCfg && !hasRemoteList) {
                                 // Remove any existing select dropdown
                                 try {
                                     const existing = document.getElementById('config-select-header')
@@ -1380,12 +1414,45 @@ async function main() {
                                 optPlaceholder.value = ''
                                 optPlaceholder.textContent = 'Select configuration…'
                                 select.appendChild(optPlaceholder)
+                                // Cache to avoid duplicate storage reads while populating
+                                const successCache = new Map()
+                                async function labelWithSuccess(label, value) {
+                                    try {
+                                        // Value may be '__list::idx' for remote lists; we only
+                                        // decorate when the option corresponds to a concrete
+                                        // config identity like 'id@version' or a filename that
+                                        // will resolve to a config; for server items we try
+                                        // a best-effort match using the label or value.
+                                        const { getSuccessSnapshotForConfig } = await import('./js/snapshots.js')
+                                        let identity = null
+                                        // If value looks like id@version, use directly
+                                        if (typeof value === 'string' && value.includes('@')) identity = value
+                                        // If label contains '(vX)' try to synthesize id@version using value
+                                        if (!identity && typeof value === 'string' && value && !value.startsWith('__list::')) {
+                                            // Use value as config id or path; try to load metadata in modal population phase
+                                            identity = value
+                                        }
+                                        if (!identity) return label
+                                        if (successCache.has(identity)) {
+                                            return successCache.get(identity) ? (label + ' ★') : label
+                                        }
+                                        const snap = await getSuccessSnapshotForConfig(identity)
+                                        const has = !!snap
+                                        successCache.set(identity, has)
+                                        return has ? (label + ' ★') : label
+                                    } catch (_e) { return label }
+                                }
+
+                                // Populate options synchronously; decorations will be
+                                // applied asynchronously by `refreshConfigSelectBadges`
                                 for (const it of serverItems) {
                                     const opt = document.createElement('option')
                                     opt.value = it.value
                                     opt.textContent = it.label
                                     select.appendChild(opt)
                                 }
+                                // Apply badges asynchronously (non-blocking)
+                                try { setTimeout(() => { try { refreshConfigSelectBadges() } catch (_e) { } }, 0) } catch (_e) { }
                                 // If remote configList was used, select the first item visually
                                 // and ensure it's loaded into the workspace if nothing is loaded yet.
                                 try {
@@ -1670,6 +1737,25 @@ async function main() {
                                         btn.style.textAlign = 'left'
                                         btn.style.marginBottom = '4px'
                                         btn.textContent = label
+                                            // Best-effort: asynchronously check if this config has a success snapshot
+                                            ; (async () => {
+                                                try {
+                                                    const { getSuccessSnapshotForConfig } = await import('./js/snapshots.js')
+                                                    // Construct a likely identity: prefer meta.id@meta.version if available,
+                                                    // otherwise use the raw name source which is passed into the click handler.
+                                                    let identity = null
+                                                    if (meta && meta.id && meta.version) identity = `${meta.id}@${meta.version}`
+                                                    if (!identity) identity = name
+                                                    const snap = await getSuccessSnapshotForConfig(identity)
+                                                    if (snap) {
+                                                        const star = document.createElement('span')
+                                                        star.textContent = ' ★'
+                                                        star.style.color = '#2e7d32'
+                                                        star.style.marginLeft = '6px'
+                                                        btn.appendChild(star)
+                                                    }
+                                                } catch (_e) { }
+                                            })()
                                         // keep original filename/identifier available for click handler
                                         btn.dataset.configSource = name
                                         btn.addEventListener('click', async () => {
@@ -1942,6 +2028,356 @@ async function main() {
         }
     }
 }
+
+// Update DOM indicators for solved status: app title, config title line, and config list entries
+async function updateSuccessIndicators() {
+    try {
+        const { getSuccessSnapshotForCurrentConfig } = await import('./js/snapshots.js')
+        const success = !!(await getSuccessSnapshotForCurrentConfig())
+
+        const appTitle = document.getElementById('app-title')
+        const configTitleLine = document.querySelector('.config-title-line')
+
+        function ensureIndicator(host) {
+            if (!host) return
+            let el = host.querySelector('.success-indicator')
+            if (success) {
+                if (!el) {
+                    el = document.createElement('span')
+                    el.className = 'success-indicator'
+                    el.textContent = ' ★'
+                    el.style.color = '#2e7d32'
+                    el.style.fontWeight = '700'
+                    el.style.marginLeft = '6px'
+                    host.appendChild(el)
+                }
+            } else {
+                if (el) try { el.parentElement && el.parentElement.removeChild(el) } catch (_e) { }
+            }
+        }
+
+        ensureIndicator(appTitle)
+        ensureIndicator(configTitleLine)
+
+        // For config-select-header options, add a star to option labels when success
+        try {
+            const select = document.getElementById('config-select-header')
+            if (select) {
+                // If current config is a single loaded config, the select may be removed; ignore
+                for (const opt of Array.from(select.options || [])) {
+                    // Do not mutate placeholder option
+                    if (!opt.value) continue
+                    try {
+                        const cur = (window.Config && window.Config.current) ? `${window.Config.current.id}@${window.Config.current.version}` : null
+                        // Prefer attached identity when available
+                        const optIdentity = (opt.dataset && opt.dataset.identity) ? opt.dataset.identity : (typeof opt.value === 'string' ? opt.value : null)
+                        if (cur && optIdentity && optIdentity === cur && success) {
+                            if (!opt.text.includes('★')) opt.text = opt.text + ' ★'
+                        } else {
+                            opt.text = opt.text.replace(/\s*★\s*$/, '')
+                        }
+                    } catch (_e) { }
+                }
+            }
+        } catch (_e) { }
+    } catch (e) {
+        try { console.warn('updateSuccessIndicators failed', e) } catch (_e) { }
+    }
+}
+
+// Helper to create or update the header select dropdown from a serverItems array
+function createOrUpdateHeaderSelect(serverItems, hasRemoteList) {
+    try {
+        if (!serverItems || !Array.isArray(serverItems)) serverItems = []
+        let select = document.getElementById('config-select-header')
+        const titleLine = document.querySelector('.config-title-line')
+        const container = titleLine && titleLine.parentElement ? titleLine.parentElement : null
+        if (!container) return
+        if (!select) {
+            select = document.createElement('select')
+            select.id = 'config-select-header'
+            select.className = 'config-select-header'
+            container.insertBefore(select, titleLine)
+            if (titleLine) titleLine.style.display = 'none'
+            select.addEventListener('change', async (ev) => {
+                try {
+                    // Debug: capture select state and remote list summary
+                    const val = select.value
+                    const optsDbg = Array.from(select.options || []).map(o => ({ value: o.value, text: o.text, identity: (o.dataset && o.dataset.identity) ? o.dataset.identity : null }))
+                    const remoteList = (window.__ssg_remote_config_list && Array.isArray(window.__ssg_remote_config_list.items)) ? { url: window.__ssg_remote_config_list.url, length: window.__ssg_remote_config_list.items.length } : null
+                    // debug logs removed
+
+                    if (!val) return
+                    let toLoad = val
+                    if (val.startsWith('__list::') && window.__ssg_remote_config_list) {
+                        const idx = parseInt(val.split('::')[1], 10)
+                        let source = window.__ssg_remote_config_list.items[idx]
+                        if (!source) return
+                        try {
+                            const listUrl = window.__ssg_remote_config_list.url
+                            const base = listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')
+                            if (!/^(https?:)?\/\//i.test(source)) {
+                                if (source.startsWith('./') || source.startsWith('/')) {
+                                    source = new URL(source, base).href
+                                } else if (/^(https?:)?\/\//i.test(listUrl)) {
+                                    source = new URL(source, base).href
+                                }
+                            }
+                        } catch (err) { /* ignore resolution errors */ }
+                        toLoad = source
+                    }
+
+                    // Attempt to load and apply the selected config, logging any load errors
+                    try {
+                        // attempting to load selected config
+                        const normalized = await loadConfigFromStringOrUrl(toLoad)
+                        await applyConfigToWorkspace(normalized)
+                    } catch (err) {
+                        throw err
+                    }
+                } catch (e) {
+                    const msg = 'Failed to load selected configuration: ' + (e && e.message ? e.message : e)
+                    try { showConfigError(msg, document.getElementById('config-modal')) } catch (_e) { }
+                }
+            })
+        }
+
+        // Populate options synchronously
+        select.innerHTML = ''
+        const optPlaceholder = document.createElement('option')
+        optPlaceholder.value = ''
+        optPlaceholder.textContent = 'Select configuration…'
+        select.appendChild(optPlaceholder)
+
+        for (const it of serverItems) {
+            const opt = document.createElement('option')
+            if (typeof it === 'string') {
+                opt.value = it
+                opt.textContent = it
+            } else {
+                // expected shape: { label, value }
+                opt.value = it.value || String(it)
+                opt.textContent = it.label || String(it.value || it)
+            }
+            select.appendChild(opt)
+        }
+
+        try {
+            // Debug: report options and their identities after population
+            const postOpts = Array.from(select.options || []).map(o => ({ value: o.value, text: o.text, identity: (o.dataset && o.dataset.identity) ? o.dataset.identity : null }))
+            // header select created
+        } catch (_e) { }
+
+        // If remote list, select first visually
+        try {
+            if (hasRemoteList && serverItems && serverItems.length > 0) {
+                // serverItems for remote lists use '__list::idx' values
+                select.value = '__list::0'
+            }
+        } catch (_e) { }
+
+        // Attach best-effort identities to options synchronously and
+        // trigger a single badge refresh. This keeps decoration simple:
+        // - derive a stable identity for each option immediately (best-effort)
+        // - store it in `data-identity` so future updates can match quickly
+        // - perform badge decoration via `refreshConfigSelectBadges()` which
+        //   already handles snapshot lookups and star toggling.
+        try {
+            const opts = Array.from(select.options || [])
+            for (const opt of opts) {
+                try {
+                    if (!opt.value) continue
+                    let identity = ''
+                    if (typeof opt.value === 'string' && opt.value.indexOf('__list::') === 0 && window.__ssg_remote_config_list) {
+                        const idx = parseInt(opt.value.split('::')[1], 10)
+                        let source = window.__ssg_remote_config_list.items[idx]
+                        if (!source) {
+                            identity = opt.value
+                        } else {
+                            // Resolve relative to list URL when appropriate (best-effort)
+                            try {
+                                const listUrl = window.__ssg_remote_config_list.url
+                                if (typeof source === 'string' && listUrl && /^(https?:)?\/\//i.test(listUrl) && !/^(https?:)?\/\//i.test(source)) {
+                                    source = new URL(source, listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')).href
+                                }
+                            } catch (_e) { }
+                            identity = typeof source === 'string' ? source : String(source)
+                        }
+                    } else {
+                        identity = typeof opt.value === 'string' ? opt.value : String(opt.value)
+                    }
+                    opt.dataset.identity = identity
+                } catch (_e) { /* ignore individual option failures */ }
+            }
+            // Single async refresh to decorate stars based on current snapshot data
+            try { setTimeout(() => { try { refreshConfigSelectBadges() } catch (_e) { } }, 0) } catch (_e) { }
+        } catch (_e) { }
+    } catch (e) {
+        try { console.warn('createOrUpdateHeaderSelect failed', e) } catch (_e) { }
+    }
+}
+
+// Listen for success snapshot changes to update UI
+try {
+    window.addEventListener && window.addEventListener('ssg:success-saved', (ev) => { try { const cfg = ev && ev.detail ? ev.detail.config : null; updateSuccessIndicators(); refreshConfigSelectBadges(cfg); refreshModalConfigListBadges(cfg) } catch (_e) { } })
+    window.addEventListener && window.addEventListener('ssg:success-cleared', (ev) => { try { const cfg = ev && ev.detail ? ev.detail.config : null; updateSuccessIndicators(); refreshConfigSelectBadges(cfg); refreshModalConfigListBadges(cfg) } catch (_e) { } })
+} catch (_e) { }
+
+// Refresh just the header select option badges by re-checking success snapshots
+async function refreshConfigSelectBadges(changedConfigIdentity) {
+    try {
+        const select = document.getElementById('config-select-header')
+        if (!select) return
+        const { getSuccessSnapshotForConfig } = await import('./js/snapshots.js')
+        for (const opt of Array.from(select.options || [])) {
+            try {
+                if (!opt.value) continue
+
+                // Derive a best-effort identity for this option. Prefer an
+                // attached dataset.identity, otherwise resolve __list::idx -> source.
+                let identity = (opt.dataset && opt.dataset.identity) ? opt.dataset.identity : null
+                if (!identity) {
+                    try {
+                        if (typeof opt.value === 'string' && opt.value.indexOf('__list::') === 0 && window.__ssg_remote_config_list) {
+                            const idx = parseInt(opt.value.split('::')[1], 10)
+                            let source = window.__ssg_remote_config_list.items[idx]
+                            if (source) {
+                                try {
+                                    const listUrl = window.__ssg_remote_config_list.url
+                                    if (typeof source === 'string' && listUrl && /^(https?:)?\/\//i.test(listUrl) && !/^(https?:)?\/\//i.test(source)) {
+                                        source = new URL(source, listUrl.endsWith('/') ? listUrl : listUrl.replace(/[^/]*$/, '')).href
+                                    }
+                                } catch (_e) { }
+                                identity = typeof source === 'string' ? source : String(source)
+                                opt.dataset.identity = identity
+                            } else {
+                                identity = opt.value
+                                opt.dataset.identity = identity
+                            }
+                        } else {
+                            identity = typeof opt.value === 'string' ? opt.value : String(opt.value)
+                            opt.dataset.identity = identity
+                        }
+                    } catch (_e) {
+                        identity = typeof opt.value === 'string' ? opt.value : String(opt.value)
+                        try { opt.dataset.identity = identity } catch (_e2) { }
+                    }
+                }
+
+                // If a snapshot exists under the derived identity, decorate now.
+                let snap = null
+                try {
+                    snap = identity ? await getSuccessSnapshotForConfig(identity) : null
+                } catch (_e) { snap = null }
+
+                // If no snapshot found and identity looks like a remote URL, try
+                // a best-effort fetch to obtain a canonical `id@version` identity
+                // and re-check. This is background-only and won't block the UI.
+                if (!snap && identity && /^(https?:)?\/\//i.test(String(identity))) {
+                    (async () => {
+                        try {
+                            const r = await fetch(String(identity))
+                            if (r && r.ok) {
+                                try {
+                                    const parsed = await r.json()
+                                    if (parsed && parsed.id && parsed.version) {
+                                        const canonical = `${parsed.id}@${parsed.version}`
+                                        try { opt.dataset.identity = canonical } catch (_e) { }
+                                        const snap2 = await getSuccessSnapshotForConfig(canonical)
+                                        if (snap2) {
+                                            if (!opt.text.includes('★')) opt.text = opt.text + ' ★'
+                                            return
+                                        }
+                                    }
+                                } catch (_e) { }
+                            }
+                        } catch (_e) { }
+                    })()
+                }
+
+                // Apply or remove star based on snapshot check
+                if (snap) {
+                    if (!opt.text.includes('★')) opt.text = opt.text + ' ★'
+                } else {
+                    opt.text = opt.text.replace(/\s*★\s*$/, '')
+                }
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+}
+
+// Refresh the modal config-server-list buttons to add/remove stars
+async function refreshModalConfigListBadges(changedConfigIdentity) {
+    try {
+        const listContainer = document.getElementById('config-server-list')
+        if (!listContainer) return
+        const { getSuccessSnapshotForConfig } = await import('./js/snapshots.js')
+        const buttons = Array.from(listContainer.querySelectorAll('button.btn'))
+        for (const btn of buttons) {
+            try {
+                // Determine candidate identity: prefer dataset.configSource or button text
+                const source = btn.dataset && btn.dataset.configSource ? btn.dataset.configSource : null
+                let identity = null
+                if (source) identity = source
+                else {
+                    // Try to extract id@version from button text (best-effort)
+                    const txt = (btn.textContent || '').trim()
+                    // Remove any existing star
+                    const normalized = txt.replace(/\s*★\s*$/, '')
+                    identity = normalized
+                }
+                if (!identity) continue
+                if (changedConfigIdentity && !identity.includes(changedConfigIdentity) && identity !== changedConfigIdentity) {
+                    // remove star if present
+                    btn.textContent = (btn.textContent || '').replace(/\s*★\s*$/, '')
+                    continue
+                }
+                const snap = await getSuccessSnapshotForConfig(identity)
+                // Remove existing star nodes
+                btn.textContent = (btn.textContent || '').replace(/\s*★\s*$/, '')
+                if (snap) {
+                    const star = document.createElement('span')
+                    star.textContent = ' ★'
+                    star.style.color = '#2e7d32'
+                    star.style.marginLeft = '6px'
+                    btn.appendChild(star)
+                }
+            } catch (_e) { }
+        }
+    } catch (_e) { }
+}
+
+// Safety: ensure header select exists when a remote config list is present but
+// the dropdown was not inserted due to a timing race. Use short polling to
+// wait for the header title container (`.config-title-line`) to be available
+// and then create the select; try a few times then give up to avoid leaks.
+try {
+    if (typeof window !== 'undefined') {
+        const remote = window.__ssg_remote_config_list
+        if (remote && Array.isArray(remote.items) && !document.getElementById('config-select-header')) {
+            let attempts = 0
+            const maxAttempts = 20
+            const interval = setInterval(() => {
+                try {
+                    attempts++
+                    const titleLine = document.querySelector('.config-title-line')
+                    if (titleLine) {
+                        // Build serverItems with friendly labels and call the shared creator
+                        const serverItems = remote.items.map((it, i) => ({ label: typeof it === 'string' ? it : (it.label || String(it)), value: '__list::' + i }))
+                        try { createOrUpdateHeaderSelect(serverItems, true) } catch (_e) { }
+                        clearInterval(interval)
+                        return
+                    }
+                    if (attempts >= maxAttempts) {
+                        clearInterval(interval)
+                    }
+                } catch (_e) {
+                    try { clearInterval(interval) } catch (_err) { }
+                }
+            }, 50)
+        }
+    }
+} catch (_e) { }
 
 // Initialize the student identifier input field
 function initializeStudentIdentifier() {

@@ -377,6 +377,48 @@ export async function clearSnapshots(configIdentity) {
     }
 }
 
+// ----- Success snapshot helpers -----
+// We store a single special-purpose success snapshot alongside regular
+// snapshots in the SNAPSHOTS store. It is identified by the key
+// `${configIdentity}__success__` so it is kept separate from history and
+// can be overwritten/cleared without affecting the snapshot array.
+export async function loadSuccessSnapshot(configIdentity) {
+    try {
+        const key = `${configIdentity}__success__`
+        const result = await getFromStore(STORES.SNAPSHOTS, key)
+        if (result && result.snapshot) return result.snapshot
+        const mem = await getFromInMemory(STORES.SNAPSHOTS, key)
+        if (mem && mem.snapshot) return mem.snapshot
+        return null
+    } catch (error) {
+        logError('Failed to load success snapshot:', error)
+        return null
+    }
+}
+
+export async function saveSuccessSnapshot(configIdentity, snapshot) {
+    try {
+        const key = `${configIdentity}__success__`
+        await putToStore(STORES.SNAPSHOTS, { id: key, snapshot, timestamp: Date.now() })
+        persistToInMemory(STORES.SNAPSHOTS, { id: key, snapshot, timestamp: Date.now() })
+        logDebug('Success snapshot saved for config:', configIdentity)
+    } catch (error) {
+        logError('Failed to save success snapshot:', error)
+        throw error
+    }
+}
+
+export async function clearSuccessSnapshot(configIdentity) {
+    try {
+        const key = `${configIdentity}__success__`
+        await deleteFromStore(STORES.SNAPSHOTS, key)
+        deleteFromInMemory(STORES.SNAPSHOTS, key)
+        logDebug('Success snapshot cleared for config:', configIdentity)
+    } catch (error) {
+        logError('Failed to clear success snapshot:', error)
+    }
+}
+
 export async function getAllSnapshotConfigs() {
     try {
         const results = await getAllFromStore(STORES.SNAPSHOTS)
