@@ -15,10 +15,11 @@
 # Bug list
 
 # Feedback and testing improvements
-- [ ] Add a 'call' check for calling inbuilt or predefined functions
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
+- [x] Add a 'call' check for calling inbuilt or predefined functions
+- [x] Add feedback item dependencies. Choose a list of other feedback items that need to trigger before this one.
 - [x] Need to wrap codemirror on the main page instead of stretching the editor with long lines
 - [x] `stderr` feedback isn't working
 - [x] If no message is given for a feedback rule, just tick off the item, don't print a message underneath

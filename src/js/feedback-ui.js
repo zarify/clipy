@@ -636,6 +636,58 @@ export function setFeedbackMatches(matches) {
     } catch (_e) { }
 
     _matches = newMatches
+
+    // Enforce dependencies: support both legacy string ids and the new
+    // object shape { id, requiresMatched } where requiresMatched === false
+    // indicates the dependency requires the other rule NOT to be matched.
+    try {
+        const presentIds = new Set()
+        for (const m of _matches) {
+            try { if (m && m.id != null) presentIds.add(String(m.id)) } catch (_e) { }
+        }
+
+        // Build a map of config entries by id for dependency lookup
+        const cfgMap = new Map()
+        try {
+            if (_config && Array.isArray(_config.feedback)) {
+                for (const e of _config.feedback) {
+                    if (e && e.id != null) cfgMap.set(String(e.id), e)
+                }
+            }
+        } catch (_e) { }
+
+        // Filter matches to only those that satisfy dependency predicates
+        const filtered = []
+        for (const m of _matches) {
+            if (!m || m.id == null) continue
+            const id = String(m.id)
+            const cfg = cfgMap.get(id)
+            if (!cfg || !cfg.dependencies) {
+                filtered.push(m)
+                continue
+            }
+
+            const depsRaw = Array.isArray(cfg.dependencies) ? cfg.dependencies : []
+            let ok = true
+            for (const dep of depsRaw) {
+                // Expect dependencies to be objects: { id, requiresMatched }
+                if (!dep || typeof dep !== 'object') continue
+                const depId = dep.id || null
+                const requiresMatched = (dep.requiresMatched === undefined) ? true : !!dep.requiresMatched
+                if (!depId) continue
+                if (requiresMatched) {
+                    if (!presentIds.has(String(depId))) { ok = false; break }
+                } else {
+                    if (presentIds.has(String(depId))) { ok = false; break }
+                }
+            }
+            if (ok) filtered.push(m)
+        }
+
+        // replace _matches with filtered effective matches for UI rendering
+        _matches = filtered
+    } catch (_e) { }
+
     renderList()
     try {
         const fbBtn = document.getElementById('tab-btn-feedback')

@@ -176,6 +176,26 @@
     </div>
   </div>
 
+  <!-- Dependency deletion block modal: lists dependent feedback items and offers actions -->
+  <div id="dependency-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="dependency-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="dependency-modal-title">Cannot delete feedback</h3>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <button id="dependency-close" class="btn modal-close-btn">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="dependency-modal-message">This feedback item is required by other feedback entries.</div>
+        <div id="dependency-modal-list" style="margin-top:8px"></div>
+        <div style="margin-top:12px" class="modal-actions">
+          <button id="dependency-show" class="btn">Show dependents</button>
+          <button id="dependency-cancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Configuration modal -->
   <div id="config-modal" class="modal" role="dialog" aria-hidden="true" aria-labelledby="config-modal-title">
     <div class="modal-content">

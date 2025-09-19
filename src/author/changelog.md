@@ -1,5 +1,8 @@
 ## 2025-09-19
 - Enhancement: Added `function_calls` AST rule, covering things like builtin function calls
+- Feature: Added dependencies for feedback rules
+  - Other feedback rule must match
+  - Other feedback rule must not match
 
 ## 2025-09-18
 - Enhancement: Messages are now optional for feedback items, improved styling
