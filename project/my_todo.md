@@ -13,6 +13,8 @@
   - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
 # Bug list
+- [ ] Moving the author button permanently enabled it *sigh*
+- [ ] Page title should be the configlist name when in list mode
 
 # Feedback and testing improvements
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.

@@ -109,6 +109,8 @@ header {
         border-radius: 4px;
         color: var(--text);
         cursor: pointer;
+        display: none;
+        /* hidden by default; JS will show when authoring is enabled */
     }
 
     /* Compact select for configuration switching in the header */

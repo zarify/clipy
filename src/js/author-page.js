@@ -540,11 +540,11 @@ function setupHandlers() {
             // Set flag for return detection
             sessionStorage.setItem('returningFromAuthor', 'true')
             // Navigate back to main app
-            window.location.href = '../index.html'
+            window.location.href = '../index.html?author'
         } catch (e) {
             logError('Failed to navigate back to app:', e)
             // Fallback navigation
-            window.location.href = '../index.html'
+            window.location.href = '../index.html?author'
         }
     })
 
