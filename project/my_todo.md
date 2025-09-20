@@ -13,13 +13,13 @@
   - Can we get around some of the issues with interrupts and async input by running the VM in an iframe like we did the test runner?
 
 # Bug list
-- [ ] Moving the author button permanently enabled it *sigh*
 - [ ] Page title should be the configlist name when in list mode
 
 # Feedback and testing improvements
 - [ ] Check for any XSS issues from program output rendering in the `actual` output part of tests.
 
 # Done
+- [x] Moving the author button permanently enabled it *sigh*
 - [x] Some persistence of test suite passes for config/version. More useful with lists of configs to keep track of what has been passed and what hasn't.
 - [x] Add a 'call' check for calling inbuilt or predefined functions
 - [x] Add feedback item dependencies. Choose a list of other feedback items that need to trigger before this one.
