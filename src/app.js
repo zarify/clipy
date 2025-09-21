@@ -262,7 +262,11 @@ async function main() {
                 if (items && items.length > 0) {
                     try {
                         const indexUrl = new URL('./config/index.json', window.location.href).href
-                        window.__ssg_remote_config_list = { url: indexUrl, items: items, listName: null }
+                        // Preserve any existing listName that may have been set by
+                        // `fetchAvailableServerConfigs()` (it fetches the index.json
+                        // and may attach a listName). Avoid clobbering it with null.
+                        const existingName = (typeof window !== 'undefined' && window.__ssg_remote_config_list && window.__ssg_remote_config_list.listName) ? window.__ssg_remote_config_list.listName : null
+                        window.__ssg_remote_config_list = { url: indexUrl, items: items, listName: existingName }
                         let first = items[0]
                         try { first = resolveListItemPath(first, indexUrl) } catch (_e) { }
                         try {
