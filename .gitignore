@@ -9,3 +9,4 @@ tmp/
 project/
 micropython-asyncify/
 release/
+scripts/
