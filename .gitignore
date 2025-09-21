@@ -8,3 +8,4 @@ tmp/
 .github/instructions/
 project/
 micropython-asyncify/
+release/
