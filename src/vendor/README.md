@@ -7,3 +7,4 @@ License information for each of the libraries here can be found below and/or in 
 - [DOMPurify](https://github.com/cure53/DOMPurify/blob/main/LICENSE) (Apache 2.0)
 - [highlight.js](https://github.com/highlightjs/highlight.js/blob/main/LICENSE) (BSD 3-Clause license)
 - [MicroPython](https://docs.micropython.org/en/latest/license.html) (MIT)
+- [py-ast](https://github.com/kriss-u/py-ast/blob/master/LICENSE) (MIT)
