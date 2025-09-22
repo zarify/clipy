@@ -69,4 +69,6 @@ Users and authors can also export their work to files on their own computer as n
 
 ## License
 
-See [`LICENSE` in the repository root](LICENSE).
+See [LICENSE in the repository root](LICENSE).
+
+Libraries are used in accordance with [their various licenses](src/vendor/README.md)
