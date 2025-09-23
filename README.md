@@ -2,6 +2,8 @@
 
 Clipy is a browser-hosted environment for writing and running Python code. It combines an editor, an in-browser MicroPython runtime, a terminal UI for stdin/stdout, and authoring tools for tests and automated feedback.
 
+[I have a somewhat up-to-date version of Clipy running here if you want to try it out](https://headtilt.me/clipy?author)
+
 > [!IMPORTANT]
 > Clipy is still very much a work in progress. Features aren't finished. There are still bugs.
 > Docs aren't complete. Examples are thin on the ground.
