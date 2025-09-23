@@ -16,16 +16,18 @@ to keep my involvement to direction.
 >
 > It's little, so loading the page for running and testing code is faster. Also the runtime has a few
 > hacks to make `input` talk to the JS front-end properly and let the front-end break into blocking
-> code. I figured it'd be easy to compile support for that into MicroPython rather than tackling
+> code. I figured it'd be easier to compile support for that into MicroPython rather than tackling
 > something like Pyodide. Pyodide has support for doing some of these things through web workers, but
 > web workers break my requirement for basic web hosting only.
 >
 > MicroPython does come with some trade-offs, notably a dramatically reduced version of "batteries
 > included" when it comes to standard libraries (and in the details of what some exceptions look like).
+>
+> [You can read a more detailed justification and description of the what and why here.](docs/author/README.md)
 
 This document gives a basic overview of the objectives and technology. You can find documentation here:
 - [User documentation](docs/user/README.md)
-- [Author documentation](docs/author/README.md)
+- [Author documentation](docs/author/basic_interface.md)
 
 ## Hosting
 

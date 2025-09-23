@@ -35,8 +35,8 @@ will appear again if you are no longer on the tab.
 
 ## Why feedback?
 
-Sometimes we need a bit of a nudge, either towards something or away from someone. Feedback
-gives problem authors a way of giving *formative* advice as a program is written.
+Sometimes we need a bit of a nudge, either towards something or away from something. Feedback
+gives problem authors a way of giving formative advice *as a program is written*.
 
 ### Types of feedback
 
