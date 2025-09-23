@@ -52,6 +52,5 @@ See [this page in the MicroPython docs](https://docs.micropython.org/en/latest/g
 for information on other implementation differences with builtin types that may
 or may not affect you.
 
-
 You can find out more about the technical differences between MicroPython
 and CPython in [the MicroPython docs](https://docs.micropython.org/en/latest/genrst/index.html).
