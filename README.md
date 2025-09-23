@@ -31,7 +31,7 @@ This document gives a basic overview of the objectives and technology. You can f
 
 ## Hosting
 
-Clipy is a static web app. [Grab a release](releases) and serve it with any simple static file server and open it in a modern browser. I host it through GitHub Pages but any basic web host should work. Host it on your own computer,
+Clipy is a static web app. [Grab a release](https://github.com/zarify/clipy/releases) and serve it with any simple static file server and open it in a modern browser. I host it through GitHub Pages but any basic web host should work. Host it on your own computer,
 host it on your school web server, etc.
 
 One of the fundamental design intentions for Clipy was that it **must not require anything fancy**. No
