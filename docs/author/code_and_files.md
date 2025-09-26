@@ -18,5 +18,5 @@ Files can be marked read-only, preventing them from being modified (or deleted) 
 the student via the UI or their code. Attempting to write to or delete a file that
 is read-only will raise an `OSError` with an error number of `13`.
 
-> [!INFO]
+> [!NOTE]
 > At this point you can't rename files after you have added them.
