@@ -1,6 +1,12 @@
 # Clipy
 
 Clipy is a browser-hosted environment for writing and running Python code. It combines an editor, an in-browser MicroPython runtime, a terminal UI for stdin/stdout, and authoring tools for tests and automated feedback.
+The intention for Clipy is to be a place for students to practice Python in environments where they
+might not be able to install a Python distro or bundled IDE, or where a teacher wants to be able to
+provide students with integrated problems for students to solve.
+
+One of the fundamental design intentions for Clipy is that it **must not require anything fancy**. No
+Python or JS back-end, no databases. If you can put files on a web server, you can run Clipy.
 
 [I have a somewhat up-to-date version of Clipy running here if you want to try it out](https://headtilt.me/clipy?author)
 
@@ -33,21 +39,12 @@ This document gives a basic overview of the objectives and technology. You can f
 
 ## Hosting
 
-Clipy is a static web app. [Grab a release](https://github.com/zarify/clipy/releases) and serve it with any simple static file server and open it in a modern browser. I host it through GitHub Pages but any basic web host should work. Host it on your own computer,
+Serve it with any simple static file server and open it in a modern browser. I host it through GitHub Pages but any basic web host should work. Host it on your own computer,
 host it on your school web server, etc.
-
-One of the fundamental design intentions for Clipy was that it **must not require anything fancy**. No
-Python or JS back-end, no databases. If you can run a web server, you can run Clipy.
-
-## Browser & platform notes
-
-The intention for Clipy is to be a place for students to practice Python in environments where they
-might not be able to install a Python distro or bundled IDE, or where a teacher wants to be able to
-provide students with integrated problems for students to solve.
-
-- Requires a modern browser with ES module and WebAssembly support (Chrome, Firefox, Edge, Safari).
-- No server-side runtime is required; the app runs entirely client-side.
-- The repository includes a WebAssembly MicroPython runtime in `src/vendor/` used to execute user code in the browser.
+- [Grab a release](https://github.com/zarify/clipy/releases).
+- Unzip it
+- Spin up a web server (e.g. `python -m http.server 8000`)
+- Point a web browser at the server and off you go!
 
 ## Configuration & authoring
 
