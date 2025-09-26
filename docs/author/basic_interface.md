@@ -113,6 +113,8 @@ it is provided with either a visible title and a hidden triggered message
 for explicit guidance, or as a hidden title and triggered message that is
 more of a just-in-time approach.
 
+[Read a broad overview of feedback and how it works here](feedback_overview.md)
+
 Find out about creating and configuring different types of feedback here:
 
 - [Building string-based feedback](feedback_string.md)
