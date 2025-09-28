@@ -31,8 +31,8 @@ A more complex example that involves different test types could be:
 | Test files | Optional workspace files that will override the user workspace files. |
 | Failure Message | Optional message to the user on test failure. |
 | Hide Actual vs Expected | Non-regex tests will default to showing what the program output vs what the test expected. This hides this behaviour, making it suitable for test cases where the output comparison is not helpful or designed to be more difficult. |
-| Run Conditions | Whether this test should only run if the previous test runs, or whether it should always run. |
-| Assign to Group | Put this test into a [test group](tests_groups.md) |
+| [Run Conditions](tests_conditional_runs.md) | Whether this test should only run if the previous test runs, or whether it should always run. |
+| [Assign to Group](tests_groups.md) | Put this test into a test group |
 
 > [!WARNING]
 > Currently the first test **must** be set to `Always run this test` otherwise the test suite
