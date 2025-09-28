@@ -1,3 +1,6 @@
+## 2025-09-29
+- Fix: Runtime reset between runs is now more robust
+
 ## 2025-09-22
 - Fix: Page header now correctly shows config list name with config name
 - Feature: Verification tab in authoring can now load lists of configs
