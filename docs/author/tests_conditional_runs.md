@@ -7,6 +7,11 @@
 Tests and test groups can be set to either always run, or to only run if the
 previous test or group passes.
 
+Tests that are set to always run have a visual indicator (red `!` after the test description)
+in the test list:
+
+![Always run indicator](img/test_always_runs.png)
+
 ## Tests
 
 ![Conditional test runs](img/tests_conditional_run.png)
