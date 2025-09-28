@@ -12,7 +12,11 @@ along with a matching system to determine what has been written. It isn't as
 flexible as writing custom rules yourself, but is significantly easier to work
 with.
 
-## AST Rules
+To use AST rules it is helpful to have:
+- a basic understanding of terse JavaScript expressions
+- some basic Python code to help you develop and test your rule
+
+## AST Rule Types
 
 | Rule name | Rule Description |
 | --------- | ---------------- |
@@ -30,6 +34,17 @@ with.
 | Comprehensions | Identify different types of comprehensions, where they are used, and how (e.g. with an `if`) |
 
 ## Using the Rule Builder
+
+AST rules are available for feedback and tests using the same rule builder card.
+
+When developing a new rule:
+1. Choose the analysis type
+2. If your problem is prescriptive (e.g. user must implement a particular function name) choose a target. While testing it might be helpful to no set a target.
+3. Write some Python code to help you test
+4. [Optional] If you are unsure about what the result being returned is, use the `Test Rule` button to show the results for your sample code
+5. Write your Result Matcher expression (JS syntax - see the Matcher examples section)
+
+**The Rule Builder interface:**
 
 ![](img/author_feedback_ast_1.png)
 
