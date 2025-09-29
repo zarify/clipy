@@ -1,5 +1,6 @@
 ## 2025-09-29
 - Fix: Runtime reset between runs is now more robust
+- Enhancement: First test, first test group, and first-test-in-test-group run when it makes sense to do so, even if they are not marked to always run
 - Enhancement: File tab manager improved
   - Added ability to rename files
   - Additional files are hidden in an overflow button
