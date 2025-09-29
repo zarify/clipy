@@ -285,7 +285,8 @@ async function runGroupedTests(testConfig, options = {}) {
 
         // Process groups
         if (testConfig.groups) {
-            for (const group of testConfig.groups) {
+            for (let groupIdx = 0; groupIdx < testConfig.groups.length; groupIdx++) {
+                const group = testConfig.groups[groupIdx]
                 const groupResult = {
                     id: group.id,
                     name: group.name,
@@ -298,8 +299,14 @@ async function runGroupedTests(testConfig, options = {}) {
                     testsSkipped: 0
                 }
 
-                // Check if group should run
-                const groupCheck = shouldRun(group, flatResults)
+                // Check if group should run. Override: first group always runs at runtime.
+                let groupCheck
+                if (groupIdx === 0) {
+                    // First group must run regardless of its conditional settings
+                    groupCheck = { shouldRun: true, reason: null }
+                } else {
+                    groupCheck = shouldRun(group, flatResults)
+                }
                 if (!groupCheck.shouldRun) {
                     groupResult.skipped = true
                     groupResult.skipReason = groupCheck.reason
@@ -334,11 +341,12 @@ async function runGroupedTests(testConfig, options = {}) {
 
                 for (let testIdx = 0; testIdx < group.tests.length; testIdx++) {
                     const test = group.tests[testIdx]
-
-                    // First test in group should always run (unless explicitly set otherwise)
+                    // If the group is running, only the first test in the group should
+                    // be forced to run unconditionally. Other tests still respect their
+                    // per-test conditional settings so chaining semantics remain intact.
                     let testCheck
-                    if (testIdx === 0 && test.conditional?.runIf === 'previous_passed') {
-                        // Override: first test in group runs automatically
+                    if (groupCheck.shouldRun && testIdx === 0) {
+                        // Force first test in a running group to execute regardless of its conditional
                         testCheck = { shouldRun: true, reason: null }
                     } else {
                         // Use the combined previous results (flatResults includes earlier groups
@@ -391,8 +399,16 @@ async function runGroupedTests(testConfig, options = {}) {
 
         // Process ungrouped tests
         if (testConfig.ungrouped) {
-            for (const test of testConfig.ungrouped) {
-                const testCheck = shouldRun(test, flatResults)
+            for (let idx = 0; idx < testConfig.ungrouped.length; idx++) {
+                const test = testConfig.ungrouped[idx]
+                // Override: first ungrouped test always runs regardless of its conditional
+                let testCheck
+                if (idx === 0) {
+                    testCheck = { shouldRun: true, reason: null }
+                } else {
+                    testCheck = shouldRun(test, flatResults)
+                }
+
                 if (!testCheck.shouldRun) {
                     const testResult = {
                         id: test.id,

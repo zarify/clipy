@@ -143,6 +143,56 @@ describe('test-runner extra behaviors', () => {
         expect(t2_2.skipped).toBeFalsy()
     })
 
+    test('first group always runs regardless of its conditional settings', async () => {
+        const mod = await import('../test-runner.js')
+        const { runGroupedTests } = mod
+
+        // First group would normally be skipped via previous_group_passed, but
+        // runtime override should force the first group to run.
+        const fakeRun = async (t) => ({ stdout: 'ok', stderr: '', durationMs: 1 })
+        const cfg = {
+            groups: [
+                { id: 'g1', name: 'G1', tests: [{ id: 'g1t1', expected_stdout: 'ok' }], conditional: { runIf: 'previous_group_passed' } },
+                { id: 'g2', name: 'G2', tests: [{ id: 'g2t1', expected_stdout: 'ok' }], conditional: { runIf: 'previous_group_passed' } }
+            ]
+        }
+
+        const out = await runGroupedTests(cfg, { runFn: fakeRun })
+        const g1 = out.groupResults.find(g => g.id === 'g1')
+        expect(g1).toBeDefined()
+        // First group should not be skipped by its own conditional at runtime
+        expect(g1.skipped).toBe(false)
+    })
+
+    test('only first test in a running group is forced to run; subsequent tests respect their conditionals', async () => {
+        const mod = await import('../test-runner.js')
+        const { runGroupedTests } = mod
+
+        // t1 fails; t2 has previous_passed and should be skipped
+        const fakeRunFail = async (t) => ({ stdout: t.id === 't1' ? 'bad' : 'ok', stderr: '', durationMs: 1 })
+        const cfg = {
+            groups: [
+                {
+                    id: 'g1', name: 'G1', tests: [
+                        { id: 't1', expected_stdout: 'ok' },
+                        { id: 't2', expected_stdout: 'ok', conditional: { runIf: 'previous_passed' } }
+                    ]
+                }
+            ]
+        }
+
+        const out = await runGroupedTests(cfg, { runFn: fakeRunFail })
+        const t1 = out.flatResults.find(r => r.id === 't1')
+        const t2 = out.flatResults.find(r => r.id === 't2')
+        expect(t1).toBeDefined()
+        expect(t2).toBeDefined()
+        // t1 was forced to run (first in group) but failed
+        expect(t1.passed).toBe(false)
+        // t2 should be skipped due to previous_passed conditional
+        expect(t2.skipped).toBe(true)
+        expect(t2.skipReason).toBe('previous_test_failed')
+    })
+
     test('runGroupedTests respects previous_group_passed conditional', async () => {
         const mod = await import('../test-runner.js')
         const { runGroupedTests } = mod
@@ -203,6 +253,27 @@ describe('test-runner extra behaviors', () => {
         expect(u2.skipReason).toBe('previous_test_failed')
     })
 
+    test('first ungrouped test always runs regardless of conditional settings', async () => {
+        const mod = await import('../test-runner.js')
+        const { runGroupedTests } = mod
+
+        // First ungrouped test has previous_passed but should run anyway.
+        const fakeRun = async (t) => ({ stdout: 'ok', stderr: '', durationMs: 1 })
+        const cfg = {
+            ungrouped: [
+                { id: 'u1', expected_stdout: 'ok', conditional: { runIf: 'previous_passed' } },
+                { id: 'u2', expected_stdout: 'ok', conditional: { runIf: 'previous_passed' } }
+            ]
+        }
+
+        const out = await runGroupedTests(cfg, { runFn: fakeRun })
+        const u1 = out.flatResults.find(r => r.id === 'u1')
+        expect(u1).toBeDefined()
+        // First ungrouped test should run despite conditional
+        expect(u1.skipped === true).toBe(false)
+        expect(u1.passed).toBe(true)
+    })
+
     test('ungrouped tests respect previous_group_passed conditional', async () => {
         const mod = await import('../test-runner.js')
         const { runGroupedTests } = mod
@@ -217,8 +288,9 @@ describe('test-runner extra behaviors', () => {
         const out = await runGroupedTests(cfg, { runFn: fakeRun })
         const u3 = out.flatResults.find(r => r.id === 'u3')
         expect(u3).toBeDefined()
-        expect(u3.skipped).toBe(true)
-        expect(u3.skipReason).toBe('previous_group_failed')
+        // Runtime override: first ungrouped test always runs regardless of its conditional
+        expect(u3.skipped === true).toBe(false)
+        expect(u3.passed).toBe(true)
     })
 
     test('ungrouped alwaysRun override causes test to run even if conditional would skip', async () => {
