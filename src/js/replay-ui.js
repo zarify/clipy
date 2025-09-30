@@ -21,9 +21,39 @@ export class ReplayLineDecorator {
         }
 
         try {
-            // Create HTML element for variable display
-            const variableDisplay = this.formatVariablesForDisplay(variables)
+            // Get the source text for the given line to filter variables to only those
+            // referenced on the line. Use a word-boundary regex for matching.
+            let lineText = ''
+            try {
+                lineText = this.codemirror.getLine(lineNumber - 1) || ''
+            } catch (e) {
+                lineText = ''
+            }
 
+            // Filter variables to those that appear in the line text
+            const filteredVars = new Map()
+            for (const [name, value] of variables) {
+                try {
+                    const re = new RegExp(`\\b${this.escapeForRegex(name)}\\b`)
+                    if (re.test(lineText)) {
+                        filteredVars.set(name, value)
+                    }
+                } catch (e) {
+                    // If regex fails for some reason, fall back to substring check
+                    if (lineText.includes(name)) {
+                        filteredVars.set(name, value)
+                    }
+                }
+            }
+
+            if (filteredVars.size === 0) {
+                return
+            }
+
+            // Create HTML element for variable display (each variable on its own row)
+            const variableDisplay = this.formatVariablesForDisplay(filteredVars)
+
+            // Ensure value text doesn't overflow a reasonable width — cap to editor width
             // Add line widget below the specified line
             const widget = this.codemirror.addLineWidget(lineNumber - 1, variableDisplay, {
                 coverGutter: false,
@@ -67,46 +97,133 @@ export class ReplayLineDecorator {
         const container = document.createElement('div')
         container.className = 'variable-display'
 
-        let variableText = ''
-        let count = 0
+        // limit number of variables shown to avoid huge widgets
         const maxDisplay = 10
+        let count = 0
+
+        // attempt to compute pixel widths so we can truncate values to fit
+        let containerMaxPx = 400
+        try {
+            const editorWrapper = this.codemirror.getWrapperElement()
+            if (editorWrapper && editorWrapper.clientWidth) {
+                containerMaxPx = Math.max(200, Math.min(600, editorWrapper.clientWidth - 100))
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        // helper to measure text width in current page fonts
+        const measureTextWidth = (text, className) => {
+            const s = document.createElement('span')
+            s.style.visibility = 'hidden'
+            s.style.position = 'absolute'
+            s.style.whiteSpace = 'nowrap'
+            if (className) s.className = className
+            s.textContent = text
+            document.body.appendChild(s)
+            const w = s.offsetWidth || 0
+            document.body.removeChild(s)
+            return w
+        }
+
+        const approxCharPx = Math.max(6, measureTextWidth('0', 'variable-value'))
 
         for (const [name, value] of variables) {
             if (count >= maxDisplay) {
-                variableText += `... and ${variables.size - maxDisplay} more variables`
+                const more = document.createElement('div')
+                more.className = 'variable-row variable-more'
+                more.textContent = `... and ${variables.size - maxDisplay} more variables`
+                container.appendChild(more)
                 break
             }
 
-            const formattedValue = this.formatValue(value)
-            variableText += `${name} = ${formattedValue}${count < variables.size - 1 ? ', ' : ''}`
+            const row = document.createElement('div')
+            row.className = 'variable-row'
+
+            const nameEl = document.createElement('span')
+            nameEl.className = 'variable-name'
+            nameEl.textContent = name + ' = '
+
+            const valueEl = document.createElement('span')
+            valueEl.className = 'variable-value'
+            // measure name width and compute available chars for the value
+            const namePx = measureTextWidth(nameEl.textContent, 'variable-name')
+            const availablePx = Math.max(50, containerMaxPx - namePx - 24)
+            const maxChars = Math.max(8, Math.floor(availablePx / approxCharPx))
+            valueEl.textContent = this.formatValue(value, maxChars)
+
+            row.appendChild(nameEl)
+            row.appendChild(valueEl)
+            container.appendChild(row)
             count++
         }
 
-        container.textContent = variableText
+        // Add minimal inline styles to prevent horizontal overflow if editor width known
+        try {
+            const editorWrapper = this.codemirror.getWrapperElement()
+            if (editorWrapper && editorWrapper.clientWidth) {
+                container.style.maxWidth = Math.max(200, Math.min(600, editorWrapper.clientWidth - 100)) + 'px'
+            }
+        } catch (e) {
+            // ignore
+        }
+
         return container
     }
 
     /**
      * Format a single value for display
      */
-    formatValue(value) {
+    formatValue(value, maxChars = 80) {
         if (value === null) return 'None'
         if (value === undefined) return 'undefined'
+        // Strings: DO NOT add quotes — display raw/truncated string value as-is.
         if (typeof value === 'string') {
-            return `"${value}"`
+            return this.truncateString(value, maxChars)
         }
         if (typeof value === 'number' || typeof value === 'boolean') {
             return String(value)
         }
         if (Array.isArray(value)) {
-            return `[${value.map(v => this.formatValue(v)).join(', ')}]`
+            // Format inner values, then truncate the joined representation preserving brackets
+            const inner = value.map(v => this.formatValue(v, Math.max(8, Math.floor(maxChars / Math.max(1, value.length))))).join(', ')
+            return this.truncateWrapped(inner, '[', ']', maxChars)
         }
         if (typeof value === 'object') {
             const entries = Object.entries(value).slice(0, 3)
-            const formatted = entries.map(([k, v]) => `${k}: ${this.formatValue(v)}`).join(', ')
-            return `{${formatted}${Object.keys(value).length > 3 ? ', ...' : ''}}`
+            const formatted = entries.map(([k, v]) => `${k}: ${this.formatValue(v, Math.max(8, Math.floor(maxChars / Math.max(1, entries.length))))}`).join(', ')
+            const body = `${formatted}${Object.keys(value).length > 3 ? ', ...' : ''}`
+            return this.truncateWrapped(body, '{', '}', maxChars)
         }
         return String(value)
+    }
+
+    /**
+     * Truncate a plain string with ellipses if too long. Do not add quotes.
+     */
+    truncateString(s, max = 80) {
+        if (s.length <= max) return s
+        return `${s.slice(0, max - 3)}...`
+    }
+
+    /**
+     * Truncate content that is displayed inside opening/closing wrappers (like [ ... ] or { ... })
+     * and preserve the wrappers while placing ellipses before the closing wrapper if truncated.
+     */
+    truncateWrapped(content, open, close, max = 80) {
+        const full = `${open}${content}${close}`
+        if (full.length <= max) return full
+        // keep the opening and the close, but shorten content and add ellipses before close
+        const spaceForContent = max - open.length - close.length - 3 // for '...'
+        const shortened = content.slice(0, Math.max(0, spaceForContent))
+        return `${open}${shortened}...${close}`
+    }
+
+    /**
+     * Escape a string for safe insertion into a regex pattern
+     */
+    escapeForRegex(str) {
+        return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     }
 
     /**

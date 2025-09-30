@@ -26,6 +26,7 @@
     margin-top: 0.5rem;
     padding: 0.5rem;
     background-color: var(--replay-bg);
+
     border-radius: 0.25rem;
     border: 1px solid var(--replay-border);
 }
@@ -37,6 +38,7 @@
 }
 
 .execution-current {
+
     background-color: var(--replay-bg) !important;
     /* Use an inset box-shadow instead of border-left so adding the
        decoration doesn't change element width or cause horizontal
@@ -47,15 +49,18 @@
     box-sizing: border-box;
 }
 
+
 .variable-display {
     font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
     font-size: 0.85em;
+
     background-color: #e9ecef;
     padding: 0.25rem 0.5rem;
     margin: 0.25rem 0;
     border-radius: 0.125rem;
     color: #495057;
     /* Use inset box-shadow instead of border-left so the element doesn't
+
        change layout width when added as a line widget. Also constrain
        width and allow wrapping so long variable strings don't force
        wider editor widths. */
