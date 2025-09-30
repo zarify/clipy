@@ -568,11 +568,29 @@ except Exception:
                         codeToRun = instrResult.code
                         // accumulate headerLines so mapping subtracts the right offset
                         const instrumentationHeaders = Number(instrResult.headerLines) || 0
+                        // Preserve the headerLines value that came from transformAndWrap
+                        const transformWrapperHeaderLines = Number(headerLines || 0)
                         headerLines = (headerLines || 0) + instrumentationHeaders
-                        // If the instrumentor provided an explicit line map, store it
-                        // globally so the traceback mapper can use it to compute
-                        // exact reverse mappings.
-                        try { window.__ssg_instrumented_line_map = instrResult.lineMap || null } catch (_e) { }
+                        // If the instrumentor provided an explicit line map, adjust
+                        // its values so they refer to the original user source line
+                        // numbers (subtract the transform wrapper header lines).
+                        try {
+                            if (instrResult.lineMap && typeof instrResult.lineMap === 'object') {
+                                const adjusted = {}
+                                for (const [k, v] of Object.entries(instrResult.lineMap || {})) {
+                                    try {
+                                        const orig = Number(v) || 0
+                                        // Subtract the transform wrapper header lines so
+                                        // the resulting map values correspond to the
+                                        // user's original source lines.
+                                        adjusted[String(k)] = Math.max(1, orig - transformWrapperHeaderLines)
+                                    } catch (_e) { adjusted[String(k)] = Number(v) }
+                                }
+                                window.__ssg_instrumented_line_map = adjusted
+                            } else {
+                                window.__ssg_instrumented_line_map = null
+                            }
+                        } catch (_e) { try { window.__ssg_instrumented_line_map = instrResult.lineMap || null } catch (__e) { } }
                         appendTerminalDebug(`HeaderLines updated: base=${headerLines - instrumentationHeaders}, instrumentation=${instrumentationHeaders}, total=${headerLines}`)
                     } else if (typeof instrResult === 'string') {
                         // Backwards compatibility: plugin returned string

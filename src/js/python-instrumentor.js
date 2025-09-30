@@ -103,10 +103,12 @@ export class PythonInstrumentor {
 
             // Find where the first user line actually appears in the instrumented code
             for (let i = headerLinesBeforeUserCode; i < instrumentedCodeLines.length; i++) {
-                if (instrumentedCodeLines[i] === firstUserLine) {
-                    actualHeaderLines = i
-                    break
-                }
+                try {
+                    if (instrumentedCodeLines[i].trim() === String(firstUserLine).trim()) {
+                        actualHeaderLines = i
+                        break
+                    }
+                } catch (_e) { }
             }
 
             // Build an explicit instrumented-line -> original-line mapping so
@@ -114,12 +116,21 @@ export class PythonInstrumentor {
             // even when instrumentation inserts extra lines between user lines.
             const instrumentedToOriginal = {}
             try {
-                let origIdx = 0
-                for (let i = 0; i < instrumentedCodeLines.length && origIdx < lines.length; i++) {
-                    if (instrumentedCodeLines[i] === lines[origIdx]) {
-                        // record 1-based line numbers
-                        instrumentedToOriginal[i + 1] = origIdx + 1
-                        origIdx++
+                // More robust mapping: search for the trimmed original line text
+                // within the instrumented code lines. This handles indentation
+                // and wrapper/header differences that change leading whitespace.
+                let searchPos = 0
+                for (let origIdx = 0; origIdx < lines.length; origIdx++) {
+                    const target = String(lines[origIdx] || '').trim()
+                    if (!target) continue // skip blank original lines
+                    for (let i = searchPos; i < instrumentedCodeLines.length; i++) {
+                        try {
+                            if (String(instrumentedCodeLines[i] || '').trim() === target) {
+                                instrumentedToOriginal[i + 1] = origIdx + 1
+                                searchPos = i + 1
+                                break
+                            }
+                        } catch (_e) { }
                     }
                 }
             } catch (_e) { /* best-effort; ignore mapping failures */ }

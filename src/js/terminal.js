@@ -245,10 +245,19 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
 
                                 let mapped = null
                                 try {
-                                    mapped = mapTracebackAndShow(joined, headerLines, (host && host.MAIN_FILE) ? host.MAIN_FILE : '/main.py')
+                                    // Prefer a host-provided mapping function (useful for tests)
+                                    const mapper = (host && typeof host.mapTracebackAndShow === 'function') ? host.mapTracebackAndShow : mapTracebackAndShow
+                                    mapped = mapper(joined, headerLines, (host && host.MAIN_FILE) ? host.MAIN_FILE : '/main.py')
                                     try { host.__ssg_terminal_event_log = host.__ssg_terminal_event_log || []; host.__ssg_terminal_event_log.push({ when: Date.now(), action: 'terminal_direct_mapping', headerLines, joined: joined.slice(0, 200), mapped: (mapped || '').slice(0, 200) }) } catch (_e) { }
                                 } catch (_e) { mapped = null }
-                                try { replaceBufferedStderr(mapped) } catch (_e) { }
+                                try {
+                                    // Allow a host override for replaceBufferedStderr (tests may mock)
+                                    if (host && typeof host.replaceBufferedStderr === 'function') {
+                                        host.replaceBufferedStderr(mapped)
+                                    } else {
+                                        replaceBufferedStderr(mapped)
+                                    }
+                                } catch (_e) { }
                             } catch (_e) { }
                             try { host.__ssg_mapping_in_progress = false } catch (_e) { }
                         }, 0)

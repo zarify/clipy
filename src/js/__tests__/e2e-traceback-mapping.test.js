@@ -8,10 +8,26 @@
 describe('E2E Traceback Mapping', () => {
     let terminalModule;
 
+    // Helper to support environments where `jest` may not be a top-level
+    // binding (ESM/VM modules). Prefer the real `jest` when available;
+    // otherwise provide a tiny mock that records calls on `.mock.calls` so
+    // the tests can still assert how many times a mock was invoked.
+    const _jest = (typeof jest !== 'undefined') ? jest : {
+        fn: (impl) => {
+            const f = (...args) => {
+                try { f.mock.calls.push(args) } catch (_e) { }
+                if (typeof impl === 'function') return impl(...args)
+            }
+            f.mock = { calls: [] }
+            return f
+        }
+    }
+
     beforeAll(async () => {
         // Set up DOM environment to match the actual app
         document.body.innerHTML = `
             <div id="terminal-output"></div>
+            <div id="terminal"></div>
             <textarea id="code-editor"></textarea>
             <button id="run">Run</button>
             <button id="stop">Stop</button>
@@ -64,7 +80,7 @@ describe('E2E Traceback Mapping', () => {
         const terminalInstance = terminalModule.createTerminal(window);
 
         // Set up mock functions for dependencies
-        window.mapTracebackAndShow = jest.fn((text, headerLines) => {
+        window.mapTracebackAndShow = _jest.fn((text, headerLines) => {
             console.log(`🗺️  mapTracebackAndShow called with headerLines=${headerLines}`);
             console.log(`📝 Original text: ${text}`);
 
@@ -75,7 +91,7 @@ describe('E2E Traceback Mapping', () => {
         });
 
         // Mock replaceBufferedStderr
-        window.replaceBufferedStderr = jest.fn((mappedText) => {
+        window.replaceBufferedStderr = _jest.fn((mappedText) => {
             console.log(`🔄 replaceBufferedStderr called with: ${mappedText}`);
 
             // Simulate replacing content in the terminal
@@ -161,36 +177,17 @@ NameError: name 'z' is not defined`;
         window.__ssg_terminal_event_log = [];
 
         // Load terminal module to get appendTerminal function
-        const terminalModule = require('../terminal.js');
+        const terminalModule = await import('../terminal.js');
 
-        // Set up mock functions
-        window.appendTerminal = jest.fn((text, type) => {
-            const terminal = document.getElementById('terminal');
-            if (terminal) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                div.className = type || 'stdout';
-                terminal.appendChild(div);
-            }
-            console.log(`Terminal append: [${type || 'stdout'}] ${text}`);
-        });
-
-        window.appendTerminalDebug = jest.fn((text) => {
-            console.log(`Debug: ${text}`);
-        });
-
-        window.getTerminalInnerHTML = jest.fn(() => {
-            const terminal = document.getElementById('terminal');
-            return terminal ? terminal.innerHTML : '';
-        });
-
-        window.setTerminalInnerHTML = jest.fn((html) => {
-            const terminal = document.getElementById('terminal');
-            if (terminal) terminal.innerHTML = html;
-        });
+        // Mirror module exports onto the global host so code that calls
+        // global appendTerminal still triggers the terminal module logic.
+        window.appendTerminal = terminalModule.appendTerminal
+        window.appendTerminalDebug = terminalModule.appendTerminalDebug
+        window.getTerminalInnerHTML = terminalModule.getTerminalInnerHTML
+        window.setTerminalInnerHTML = terminalModule.setTerminalInnerHTML
 
         // Mock the mapping function
-        window.mapTracebackAndShow = jest.fn((text, headerLines) => {
+        window.mapTracebackAndShow = _jest.fn((text, headerLines) => {
             console.log(`🗺️  mapTracebackAndShow called with headerLines=${headerLines}`);
             console.log(`📝 Original text: ${text}`);
 
