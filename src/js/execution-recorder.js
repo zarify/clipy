@@ -255,6 +255,57 @@ export class ExecutionRecorder {
             },
             onExecutionError: (error) => {
                 appendTerminalDebug('Execution error during recording: ' + error)
+
+                // CRITICAL FIX: Also display the error in the terminal, not just debug logs
+                // The error contains the traceback that the user needs to see
+                if (error && typeof error === 'object' && error.message) {
+                    // For Error objects, try to extract and map the traceback
+                    const errorMessage = error.message || String(error)
+                    if (errorMessage.includes('Traceback') || errorMessage.includes('Error:')) {
+                        // This looks like a Python error that should be mapped and displayed
+                        try {
+                            // Import the mapping function and terminal utilities
+                            import('./terminal.js').then(terminalModule => {
+                                const { appendTerminal } = terminalModule
+                                import('./code-transform.js').then(transformModule => {
+                                    const { mapTracebackAndShow } = transformModule
+                                    // Get the header lines from the last execution context
+                                    const headerLines = (window.__ssg_last_mapped_event && window.__ssg_last_mapped_event.headerLines) || 0
+                                    appendTerminalDebug(`Mapping error with headerLines: ${headerLines}`)
+                                    const mapped = mapTracebackAndShow(errorMessage, headerLines, '/main.py')
+                                    if (mapped) {
+                                        appendTerminal(mapped, 'stderr')
+                                    } else {
+                                        appendTerminal(errorMessage, 'stderr')
+                                    }
+                                }).catch(() => {
+                                    // Fallback: just display the raw error
+                                    appendTerminal(errorMessage, 'stderr')
+                                })
+                            }).catch(() => {
+                                // Fallback: display raw error if imports fail
+                                console.error('Recording error:', error)
+                            })
+                        } catch (e) {
+                            // Last resort: console log
+                            console.error('Failed to display recording error:', error)
+                        }
+                    }
+                } else {
+                    // For string errors, display them directly
+                    const errorStr = String(error)
+                    if (errorStr.includes('Traceback') || errorStr.includes('Error:')) {
+                        try {
+                            import('./terminal.js').then(terminalModule => {
+                                const { appendTerminal } = terminalModule
+                                appendTerminal(errorStr, 'stderr')
+                            })
+                        } catch (e) {
+                            console.error('Recording error display failed:', error)
+                        }
+                    }
+                }
+
                 this.finalizeRecording()
             }
         }

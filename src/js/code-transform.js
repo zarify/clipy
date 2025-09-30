@@ -413,8 +413,8 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     // Replace occurrences like: File "<stdin>", line N[, column C]
     // Match patterns like: File "<stdin>", line 1, in <module>
     // Accept single or double quotes, optional extra ", in <module>" suffix,
-    // and be flexible about whitespace. We only need the filename and line.
-    const mapped = rawText.replace(/\s*File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/g, (m, fname, ln) => {
+    // Preserve whitespace structure from original traceback
+    const mapped = rawText.replace(/(\s*)File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/g, (m, whitespace, fname, ln) => {
         // If the runtime reports <stdin> or <string> as the filename, replace
         // it with the user's main file path when the caller provided one.
         // The third argument to this function is sometimes a path (e.g. MAIN_FILE)
@@ -429,9 +429,34 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
                 }
             }
         } catch (_e) { outFname = fname }
-        const mappedLn = Math.max(1, Number(ln) - headerLines)
+
+        // IMPROVED: Better line mapping for instrumented code
+        let mappedLn = Number(ln)
+
+        // For instrumented code with tracing, the structure is:
+        // - Lines 1-21: Header/setup code  
+        // - Line 22: User line 1
+        // - Lines 23-26: Tracing code (4 lines)
+        // - Line 27: User line 2  ← Error occurs here (should map to line 2)
+        // - Lines 28-31: Tracing code (4 lines)
+
+        if (headerLines > 0 && mappedLn > headerLines) {
+            const lineAfterHeaders = mappedLn - headerLines
+
+            // Pattern: User line N is at position (N-1)*5 + 1 after headers
+            // Line 1 after headers (22) → Original line 1
+            // Line 6 after headers (27) → Original line 2  
+            // Reverse: Original line = ceil(lineAfterHeaders / 5)
+
+            mappedLn = Math.ceil(lineAfterHeaders / 5)
+        } else {
+            // Simple case: subtract header offset
+            mappedLn = Math.max(1, mappedLn - headerLines)
+        }
+
+        mappedLn = Math.max(1, mappedLn)
         highlightMappedTracebackInEditor(outFname, mappedLn);
-        return `File "${outFname}", line ${mappedLn}`
+        return `${whitespace}File "${outFname}", line ${mappedLn}`
     })
 
     // Do not append the mapped traceback directly here. The execution path
@@ -443,57 +468,19 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapped_debug', mappedPreview: (mapped == null) ? null : String(mapped).slice(0, 200), inputHeaderLines: headerLines, inputUserCode: (typeof userCode === 'string' ? userCode.slice(0, 50) : userCode), inputRawText: (rawText || '').slice(0, 100) }) } catch (_e) { }
     try { window.__ssg_last_mapped_event = { when: Date.now(), mapped: String(mapped || '') } } catch (_e) { }
 
-    // DIRECT FIX: Ensure the correctly mapped text reaches the terminal
-    // This bypasses the complex replacement mechanism and directly updates the terminal
+    // CRITICAL FIX: Ensure the traceback actually reaches the terminal
+    // The complex replacement mechanism often fails, so append directly if mapping produced a result
     if (mapped && typeof mapped === 'string' && mapped !== rawText) {
         try {
-            const out = document.getElementById('terminal-output')
-            if (out) {
-                // Try full terminal content replacement first
-                if (out.textContent && out.textContent.includes('<stdin>') && rawText && rawText.includes('line ')) {
-                    const newContent = out.textContent.replace(rawText, mapped)
-                    if (newContent !== out.textContent) {
-                        out.textContent = newContent
-                        try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_terminal_content_fix', success: true }) } catch (_e) { }
-                        return mapped // Return early since we fixed it
-                    }
-                }
-
-                // Try targeted line number replacement in terminal content
-                const rawLineMatch = rawText.match(/line (\d+)/)
-                const mappedLineMatch = mapped.match(/line (\d+)/)
-                if (rawLineMatch && mappedLineMatch && rawLineMatch[1] !== mappedLineMatch[1]) {
-                    if (out.textContent && out.textContent.includes(`line ${rawLineMatch[1]}`)) {
-                        out.textContent = out.textContent.replace(`line ${rawLineMatch[1]}`, `line ${mappedLineMatch[1]}`)
-                        try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_line_number_fix', oldLine: rawLineMatch[1], newLine: mappedLineMatch[1], success: true }) } catch (_e) { }
-                        return mapped
-                    }
-                }
-
-                // Try replacing in child elements if main element failed
-                const children = Array.from(out.children || [])
-                for (const child of children) {
-                    if (child.textContent && child.textContent.includes('<stdin>') && child.textContent.includes('line ')) {
-                        const newText = child.textContent.replace(rawText, mapped)
-                        if (newText !== child.textContent) {
-                            child.textContent = newText
-                            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_child_fix', success: true }) } catch (_e) { }
-                            return mapped
-                        }
-                    }
-
-                    // Try line number replacement on children
-                    if (rawLineMatch && mappedLineMatch && rawLineMatch[1] !== mappedLineMatch[1]) {
-                        if (child.textContent && child.textContent.includes(`line ${rawLineMatch[1]}`)) {
-                            child.textContent = child.textContent.replace(`line ${rawLineMatch[1]}`, `line ${mappedLineMatch[1]}`)
-                            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_child_line_fix', success: true }) } catch (_e) { }
-                            return mapped
-                        }
-                    }
-                }
+            // Import appendTerminal function 
+            if (typeof window !== 'undefined' && window.appendTerminal && typeof window.appendTerminal === 'function') {
+                // Directly append the mapped traceback to ensure it's visible
+                window.appendTerminal(mapped, 'stderr')
+                try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_append_mapped_traceback', mappedPreview: mapped.slice(0, 200) }) } catch (_e) { }
+                return mapped
             }
         } catch (_e) {
-            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_fix_exception', error: String(_e) }) } catch (_e2) { }
+            try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'direct_append_failed', error: String(_e) }) } catch (_e2) { }
         }
     }
 

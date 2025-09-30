@@ -543,9 +543,8 @@ except Exception:
                 // With asyncify, we can run the code directly without transformation!
                 appendTerminalDebug('Using asyncify MicroPython - no transformation needed')
                 codeToRun = code
-                // Even without transformation, we need base headerLines for user-facing line mapping
-                // This ensures user code appears to start from line 1 in tracebacks
-                headerLines = 21
+                // No transformation means no header lines to subtract from tracebacks
+                headerLines = 0
             } else {
                 // Non-asyncify runtime: transform input() to await host.get_input()
                 appendTerminalDebug('Using transform-based approach for input() handling')
@@ -565,7 +564,9 @@ except Exception:
                     if (instrResult && typeof instrResult === 'object' && typeof instrResult.code === 'string') {
                         codeToRun = instrResult.code
                         // accumulate headerLines so mapping subtracts the right offset
-                        headerLines = (headerLines || 0) + (Number(instrResult.headerLines) || 0)
+                        const instrumentationHeaders = Number(instrResult.headerLines) || 0
+                        headerLines = (headerLines || 0) + instrumentationHeaders
+                        appendTerminalDebug(`HeaderLines updated: base=${headerLines - instrumentationHeaders}, instrumentation=${instrumentationHeaders}, total=${headerLines}`)
                     } else if (typeof instrResult === 'string') {
                         // Backwards compatibility: plugin returned string
                         codeToRun = instrResult
@@ -769,6 +770,19 @@ except Exception:
                                 try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'execution_replace_call', mappedType: typeof mapped, mappedPreview: (typeof mapped === 'string') ? mapped.slice(0, 200) : null }) } catch (_e) { }
                                 // Replace buffered raw stderr with mapped traceback
                                 try { replaceBufferedStderr(mapped) } catch (_e) { }
+
+                                // CRITICAL FIX: Ensure the traceback actually appears in the terminal
+                                // If the replacement mechanism failed, directly append the mapped traceback
+                                if (mapped && typeof mapped === 'string') {
+                                    setTimeout(() => {
+                                        const terminalOut = document.getElementById('terminal-output')
+                                        if (terminalOut && !terminalOut.textContent.includes('NameError') && !terminalOut.textContent.includes('Traceback')) {
+                                            // The traceback didn't make it to the terminal, append it directly
+                                            appendTerminal(mapped, 'stderr')
+                                            appendTerminalDebug('Direct traceback append after replacement failure')
+                                        }
+                                    }, 100)
+                                }
                             } catch (_e) {
                                 // Fallback: if mapping fails, flush buffered raw stderr
                                 try { flushStderrBufferRaw() } catch (_e2) { }
@@ -881,34 +895,17 @@ except Exception:
                     try {
                         const outEl = document.getElementById('terminal-output')
                         const stdoutFull = outEl ? (outEl.textContent || '') : ''
-                        // Prefer the mapped traceback when available, but fall back to
-                        // any buffered/raw stderr so feedback rules that look for
-                        // strings like "Traceback" can still match even if mapping
-                        // did not produce a mapped result.
+                        // Proper stderr separation: extract the actual error text that was displayed
                         let stderrFull = ''
                         try {
-                            const mapped = (typeof window.__ssg_last_mapped === 'string' && window.__ssg_last_mapped) ? window.__ssg_last_mapped : ''
-                            const rawBuf = Array.isArray(window.__ssg_last_raw_stderr_buffer) && window.__ssg_last_raw_stderr_buffer.length ? window.__ssg_last_raw_stderr_buffer : (Array.isArray(window.__ssg_stderr_buffer) ? window.__ssg_stderr_buffer : [])
-                            const buffered = (Array.isArray(rawBuf) && rawBuf.length) ? rawBuf.join('\n') : ''
-                            if (mapped && buffered) {
-                                // Combine mapped and raw buffered stderr so rules that
-                                // look for original runtime markers (e.g. "Traceback")
-                                // still match even when mapping produced a cleaned
-                                // traceback string.
-                                stderrFull = mapped + '\n' + buffered
-                            } else if (mapped) {
-                                stderrFull = mapped
-                            } else if (buffered) {
-                                stderrFull = buffered
-                            } else if (outEl) {
-                                // As a last resort, extract terminal lines that look
-                                // like stderr/traceback fragments from the DOM.
-                                try {
-                                    const parts = Array.from(outEl.children || []).map(n => n.textContent || '')
-                                    stderrFull = parts.filter(t => /Traceback|<stdin>|<string>/i.test(t)).join('\n')
-                                } catch (_e) { stderrFull = '' }
+                            // Check for stderr content in the buffer or last raw stderr
+                            if (window.__ssg_last_raw_stderr_buffer && Array.isArray(window.__ssg_last_raw_stderr_buffer)) {
+                                stderrFull = window.__ssg_last_raw_stderr_buffer.join('\n')
+                            } else if (typeof window.__ssg_last_mapped === 'string' && window.__ssg_last_mapped) {
+                                stderrFull = window.__ssg_last_mapped
                             }
                         } catch (_e) { stderrFull = '' }
+
                         // Capture stdin inputs from the execution session
                         const stdinFull = (typeof window.__ssg_stdin_history === 'string') ? window.__ssg_stdin_history : ''
                         // gather filenames from FileManager or localStorage mirror
