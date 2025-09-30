@@ -103,6 +103,25 @@
             </button>
           </div>
 
+          <!-- NEW: Replay controls -->
+          <div id="replay-controls" class="replay-controls" style="display:none">
+            <button id="replay-start" class="btn btn-info" title="Start replay of last execution">
+              <span class="icon" aria-hidden="true">🔄</span>
+              <span>Replay</span>
+            </button>
+            <button id="replay-step-back" class="btn btn-secondary" title="Step backward">
+              <span class="icon" aria-hidden="true">⏮️</span>
+            </button>
+            <button id="replay-step-forward" class="btn btn-secondary" title="Step forward">
+              <span class="icon" aria-hidden="true">⏭️</span>
+            </button>
+            <input id="replay-scrubber" type="range" min="0" max="100" value="0" class="replay-scrubber"
+              title="Jump to execution step">
+            <button id="replay-exit" class="btn btn-outline-secondary" title="Exit replay mode">
+              <span class="icon" aria-hidden="true">❌</span>
+            </button>
+          </div>
+
           <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
             <button id="download-code" class="btn" title="Download workspace code">
               <span class="icon" aria-hidden="true">⬇️</span>

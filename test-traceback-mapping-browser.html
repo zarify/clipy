@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Traceback Mapping Browser Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+        }
+
+        #terminal-output {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            background: #000;
+            color: #0f0;
+        }
+
+        .terminal-line {
+            margin: 2px 0;
+        }
+
+        .term-stdout {
+            color: #0f0;
+        }
+
+        .term-stderr {
+            color: #f00;
+        }
+
+        .term-runtime {
+            color: #ff0;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .failure {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Traceback Mapping Browser Test</h1>
+    <p>This test verifies that the execution context fix resolves the traceback mapping issue.</p>
+
+    <div id="terminal-output"></div>
+
+    <div>
+        <button onclick="testWithoutContext()">Test Without Context (Should Fail)</button>
+        <button onclick="testWithContext()">Test With Context (Should Pass)</button>
+        <button onclick="clearTerminal()">Clear Terminal</button>
+    </div>
+
+    <div id="test-results"></div>
+
+    <script type="module">
+        // Import the terminal module
+        import { appendTerminal, getTerminalInnerHTML, setTerminalInnerHTML } from './src/js/terminal.js';
+
+        // Make functions available globally for buttons
+        window.appendTerminal = appendTerminal;
+        window.getTerminalInnerHTML = getTerminalInnerHTML;
+        window.setTerminalInnerHTML = setTerminalInnerHTML;
+
+        function logResult(message, isSuccess) {
+            const div = document.createElement('div');
+            div.className = `test-result ${isSuccess ? 'success' : 'failure'}`;
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            document.getElementById('test-results').appendChild(div);
+            console.log(message);
+        }
+
+        window.clearTerminal = function () {
+            setTerminalInnerHTML('');
+            document.getElementById('test-results').innerHTML = '';
+
+            // Clear all suppression and mapping state
+            delete window.__ssg_suppress_raw_stderr_until;
+            delete window.__ssg_mapping_in_progress;
+            delete window.__ssg_stderr_buffering;
+            delete window.__ssg_stderr_buffer;
+            delete window.__ssg_last_mapped_event;
+            window.__ssg_terminal_event_log = [];
+
+            logResult('Terminal and state cleared', true);
+        }
+
+        window.testWithoutContext = function () {
+            clearTerminal();
+
+            logResult('Testing WITHOUT execution context (simulating old bug)', false);
+
+            // Don't set execution context (simulates the old bug)
+            window.__ssg_terminal_event_log = [];
+            window.MAIN_FILE = '/main.py';
+
+            // Simulate the exact traceback the user reported
+            const userTraceback = `Traceback (most recent call last):
+  File "/main.py", line 22, in <module>
+NameError: name 'z' is not defined`;
+
+            appendTerminal(userTraceback, 'stdout');
+
+            setTimeout(() => {
+                const eventLog = window.__ssg_terminal_event_log || [];
+                const mappingEvent = eventLog.find(e => e.action === 'terminal_direct_mapping');
+                const mappedResult = window.__ssg_last_mapped_event?.mapped || '';
+
+                console.log('Events without context:', eventLog.map(e => e.action));
+                console.log('Mapped result:', mappedResult);
+
+                if (mappedResult.includes('line 1')) {
+                    logResult('❌ UNEXPECTED: Mapping worked without context', false);
+                } else {
+                    logResult('✅ EXPECTED: No mapping without context (headerLines=0)', true);
+                }
+            }, 100);
+        }
+
+        window.testWithContext = function () {
+            clearTerminal();
+
+            logResult('Testing WITH execution context (simulating the fix)', true);
+
+            // Set up execution context BEFORE runtime output (this is the fix!)
+            window.__ssg_last_mapped_event = {
+                when: Date.now(),
+                headerLines: 21, // The transform added 21 header lines
+                sourcePath: '/main.py',
+                mapped: ''
+            };
+
+            window.__ssg_terminal_event_log = [];
+            window.MAIN_FILE = '/main.py';
+
+            // Simulate the exact traceback the user reported
+            const userTraceback = `Traceback (most recent call last):
+  File "/main.py", line 22, in <module>
+NameError: name 'z' is not defined`;
+
+            appendTerminal(userTraceback, 'stdout');
+
+            setTimeout(() => {
+                const eventLog = window.__ssg_terminal_event_log || [];
+                const mappingEvent = eventLog.find(e => e.action === 'terminal_direct_mapping');
+                const mappedResult = window.__ssg_last_mapped_event?.mapped || '';
+
+                console.log('Events with context:', eventLog.map(e => e.action));
+                console.log('Mapping event headerLines:', mappingEvent?.headerLines);
+                console.log('Mapped result:', mappedResult);
+
+                // Check if direct mapping worked
+                const hasDirectMapping = eventLog.some(e => e.action === 'direct_append_buffered');
+                const correctHeaderLines = mappingEvent?.headerLines === 21;
+                const correctMapping = mappedResult.includes('line 1') && !mappedResult.includes('line 22');
+
+                if (hasDirectMapping && correctHeaderLines && correctMapping) {
+                    logResult('✅ SUCCESS: Execution context fix works! Line 22 → Line 1', true);
+                } else {
+                    logResult(`❌ FAILURE: Fix not working. Direct: ${hasDirectMapping}, HeaderLines: ${mappingEvent?.headerLines}, Mapping: ${correctMapping}`, false);
+                }
+            }, 100);
+        }
+
+        // Initialize
+        clearTerminal();
+        logResult('Browser test initialized. Click buttons to test traceback mapping.', true);
+    </script>
+</body>
+
+</html>
