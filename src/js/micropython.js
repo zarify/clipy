@@ -1016,7 +1016,10 @@ export async function loadMicroPythonRuntime(cfg) {
                         typeof mpInstance.clearInterrupt === 'function'
 
                     if (hasYieldingSupport) {
-                        appendTerminal('MicroPython runtime initialized (with yielding support)', 'runtime')
+                        // Only emit a debug message here to avoid noisy duplicate
+                        // runtime-initialized messages on restarts. Visible terminal
+                        // output for runtime init is not helpful to end users.
+                        appendTerminalDebug('MicroPython runtime initialized (with yielding support)')
                         appendTerminalDebug('Detected asyncify build with interrupt and yielding support')
 
                         // Enable yielding by default for interruptibility
@@ -1042,7 +1045,8 @@ export async function loadMicroPythonRuntime(cfg) {
                             window.__ssg_yielding_enabled = false
                         }
                     } else {
-                        appendTerminal('MicroPython runtime initialized (legacy asyncify build)', 'runtime')
+                        // Only emit debug-level notification for legacy builds too.
+                        appendTerminalDebug('MicroPython runtime initialized (legacy asyncify build)')
                         appendTerminalDebug('Legacy asyncify build - no yielding support detected')
                     }
 

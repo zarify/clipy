@@ -440,15 +440,30 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
         // - Line 27: User line 2  ← Error occurs here (should map to line 2)
         // - Lines 28-31: Tracing code (4 lines)
 
-        if (headerLines > 0 && mappedLn > headerLines) {
-            const lineAfterHeaders = mappedLn - headerLines
-
-            // Pattern: User line N is at position (N-1)*5 + 1 after headers
-            // Line 1 after headers (22) → Original line 1
-            // Line 6 after headers (27) → Original line 2  
-            // Reverse: Original line = ceil(lineAfterHeaders / 5)
-
-            mappedLn = Math.ceil(lineAfterHeaders / 5)
+        if (mappedLn > headerLines) {
+            // Prefer explicit mapping if available from the instrumentor
+            try {
+                const globalMap = (typeof window !== 'undefined') ? window.__ssg_instrumented_line_map : null
+                if (globalMap && typeof globalMap === 'object') {
+                    // instrumented line numbers are 1-based keys
+                    const mappedKey = String(mappedLn)
+                    if (Object.prototype.hasOwnProperty.call(globalMap, mappedKey)) {
+                        mappedLn = Number(globalMap[mappedKey])
+                    } else {
+                        // If exact mapping isn't present, try subtracting headerLines
+                        mappedLn = Math.max(1, mappedLn - headerLines)
+                    }
+                } else if (headerLines > 0) {
+                    const lineAfterHeaders = mappedLn - headerLines
+                    // Heuristic fallback for older instrumentor behavior: assume tracer
+                    // inserted ~4 extra lines per user line in-between (so groups of 5)
+                    mappedLn = Math.ceil(lineAfterHeaders / 5)
+                } else {
+                    mappedLn = Math.max(1, mappedLn - headerLines)
+                }
+            } catch (_e) {
+                mappedLn = Math.max(1, mappedLn - headerLines)
+            }
         } else {
             // Simple case: subtract header offset
             mappedLn = Math.max(1, mappedLn - headerLines)

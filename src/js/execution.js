@@ -1,5 +1,5 @@
 // Python code execution engine
-import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw } from './terminal.js'
+import { appendTerminal, appendTerminalDebug, setTerminalInputEnabled, activateSideTab, enableStderrBuffering, replaceBufferedStderr, flushStderrBufferRaw, clearTerminal } from './terminal.js'
 import { getRuntimeAdapter, setExecutionRunning, getExecutionState, interruptMicroPythonVM } from './micropython.js'
 import { getFileManager, MAIN_FILE, markExpectedWrite, setSystemWriteMode } from './vfs-client.js'
 import { transformAndWrap, mapTracebackAndShow, highlightMappedTracebackInEditor, clearAllErrorHighlights, clearAllFeedbackHighlights } from './code-transform.js'
@@ -279,6 +279,9 @@ export async function runPythonCode(code, cfg) {
         appendTerminal('>>> Execution already in progress...', 'runtime')
         return
     }
+
+    // Clear any previous terminal content (including noisy runtime-init messages)
+    try { if (typeof clearTerminal === 'function') clearTerminal() } catch (_e) { }
 
     setExecutionRunning(true)
     appendTerminal('>>> Running...', 'runtime')
@@ -566,6 +569,10 @@ except Exception:
                         // accumulate headerLines so mapping subtracts the right offset
                         const instrumentationHeaders = Number(instrResult.headerLines) || 0
                         headerLines = (headerLines || 0) + instrumentationHeaders
+                        // If the instrumentor provided an explicit line map, store it
+                        // globally so the traceback mapper can use it to compute
+                        // exact reverse mappings.
+                        try { window.__ssg_instrumented_line_map = instrResult.lineMap || null } catch (_e) { }
                         appendTerminalDebug(`HeaderLines updated: base=${headerLines - instrumentationHeaders}, instrumentation=${instrumentationHeaders}, total=${headerLines}`)
                     } else if (typeof instrResult === 'string') {
                         // Backwards compatibility: plugin returned string

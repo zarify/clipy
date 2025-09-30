@@ -109,6 +109,21 @@ export class PythonInstrumentor {
                 }
             }
 
+            // Build an explicit instrumented-line -> original-line mapping so
+            // callers can accurately map tracebacks back to the user's source
+            // even when instrumentation inserts extra lines between user lines.
+            const instrumentedToOriginal = {}
+            try {
+                let origIdx = 0
+                for (let i = 0; i < instrumentedCodeLines.length && origIdx < lines.length; i++) {
+                    if (instrumentedCodeLines[i] === lines[origIdx]) {
+                        // record 1-based line numbers
+                        instrumentedToOriginal[i + 1] = origIdx + 1
+                        origIdx++
+                    }
+                }
+            } catch (_e) { /* best-effort; ignore mapping failures */ }
+
             appendTerminalDebug(`Instrumentation: ${headerLinesBeforeUserCode} lines before user code, first user line found at position ${actualHeaderLines}`)
             appendTerminalDebug(`Total instrumented lines: ${instrumentedCodeLines.length}, original lines: ${lines.length}`)
 
@@ -121,7 +136,9 @@ export class PythonInstrumentor {
 
             // Return both the instrumented code and how many header lines were
             // prepended so callers (traceback mapping) can adjust line numbers.
-            return { code: instrumentedCode, headerLines: actualHeaderLines }
+            // Also return an explicit instrumented->original line map for
+            // accurate mappings when tracing has injected extra lines.
+            return { code: instrumentedCode, headerLines: actualHeaderLines, lineMap: instrumentedToOriginal }
 
         } catch (error) {
             appendTerminalDebug('Failed to instrument Python code: ' + error)
@@ -216,6 +233,8 @@ export class PythonInstrumentor {
         this.variableState.clear()
         this.astAnalyzer.clear()
         this.sourceCode = ''
+        // Clear any exported mapping helper
+        try { delete this._lastLineMap } catch (_e) { }
         appendTerminalDebug('Python instrumentation cleanup complete')
     }
 }
