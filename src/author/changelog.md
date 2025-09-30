@@ -1,3 +1,7 @@
+## 2025-09-30
+- Feature: record/replay after a program run
+  - Step through code execution and show variable state at the line that was executed
+
 ## 2025-09-29
 - Fix: Runtime reset between runs is now more robust
 - Enhancement: First test, first test group, and first-test-in-test-group run when it makes sense to do so, even if they are not marked to always run
@@ -6,8 +10,6 @@
   - Additional files are hidden in an overflow button
   - `main.py` is always shown
   - Last active file is always shown
-- Feature: record/replay after a program run
-  - Step through code execution and show variable state
 
 ## 2025-09-22
 - Fix: Page header now correctly shows config list name with config name
