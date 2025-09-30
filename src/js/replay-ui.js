@@ -153,6 +153,25 @@ export class ReplayEngine {
         }
 
         try {
+            // If already replaying with the same trace, just rewind to the start
+            if (this.isReplaying && this.executionTrace === executionTrace) {
+                appendTerminalDebug('Replay already active — rewinding to start')
+                this.currentStepIndex = 0
+                // Clear decorations and display first step
+                if (this.lineDecorator) {
+                    this.lineDecorator.clearAllDecorations()
+                }
+                this.displayCurrentStep()
+                this.updateUI()
+                return true
+            }
+
+            // If a different trace or not currently replaying, (re)initialize state
+            // Ensure any previous decorations are cleared before starting
+            if (this.lineDecorator) {
+                try { this.lineDecorator.clearAllDecorations() } catch (e) { /* ignore */ }
+            }
+
             this.executionTrace = executionTrace
             this.currentStepIndex = 0
             this.isReplaying = true
@@ -389,12 +408,32 @@ export class ReplayUI {
         const replayStartBtn = $('replay-start')
         if (replayStartBtn) {
             replayStartBtn.addEventListener('click', () => {
-                if (window.ExecutionRecorder?.hasActiveRecording()) {
-                    const trace = window.ExecutionRecorder.getTrace()
-                    this.replayEngine.startReplay(trace)
-                } else {
+                if (!window.ExecutionRecorder?.hasActiveRecording()) {
                     appendTerminalDebug('No execution recording available for replay')
+                    return
                 }
+
+                const trace = window.ExecutionRecorder.getTrace()
+
+                // If already replaying, rewind to start instead of creating a new replay
+                if (this.replayEngine.isReplaying && this.replayEngine.executionTrace) {
+                    // If the trace object appears to be the same (or equivalent by step count), rewind
+                    const sameTrace = this.replayEngine.executionTrace === trace ||
+                        (trace && this.replayEngine.executionTrace && trace.getStepCount &&
+                            this.replayEngine.executionTrace.getStepCount &&
+                            trace.getStepCount() === this.replayEngine.executionTrace.getStepCount())
+
+                    if (sameTrace) {
+                        appendTerminalDebug('Replay already running — rewinding to start')
+                        this.replayEngine.jumpToStep(0)
+                        return
+                    }
+
+                    // Different trace – stop current replay and start new one
+                    this.replayEngine.stopReplay()
+                }
+
+                this.replayEngine.startReplay(trace)
             })
         }
 
