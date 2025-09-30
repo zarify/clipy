@@ -125,6 +125,19 @@ async function runTests(tests, options = {}) {
     const setupFn = typeof options.setupFn === 'function' ? options.setupFn : null
 
     const results = []
+    // Helper: sanitize stack-like text for storage so vendor JS frames are removed
+    function _sanitizeStoredStack(input) {
+        try {
+            const s = String(input || '')
+            // If this looks like a Python traceback, keep only Python lines and final message
+            if (/Traceback \(most recent call last\):/.test(s)) {
+                return s.split('\n').filter(l => /^Traceback \(most recent call last\):/.test(l) || /^\s*File\s+\"/.test(l) || /^[A-Za-z0-9_].*?:/.test(l) || /\bError\b|\bException\b/.test(l)).join('\n')
+            }
+            // Otherwise drop vendor frames and very long noise lines
+            return s.split('\n').filter(l => !/vendor\//.test(l) && l.length < 1000).join('\n')
+        } catch (_e) { return String(input) }
+    }
+
     for (const t of tests) {
         const res = { id: t.id || null, description: t.description || '', passed: false, stdout: null, stderr: null, durationMs: null, reason: null }
         try {
@@ -226,7 +239,7 @@ async function runTests(tests, options = {}) {
             res.reason = 'error'
             res.error = (e && e.message) ? e.message : String(e)
             // If an exception occurred outside runFn result, capture as stderr-like text
-            try { res.stderr = res.stderr || String(e && e.stack ? e.stack : res.error) } catch (_e) { res.stderr = res.stderr || res.error }
+            try { res.stderr = res.stderr || _sanitizeStoredStack(e && e.stack ? e.stack : res.error) } catch (_e) { res.stderr = res.stderr || res.error }
         }
         results.push(res)
     }

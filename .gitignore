@@ -10,3 +10,5 @@ project/
 micropython-asyncify/
 release/
 scripts/
+plan/
+playwright-report/

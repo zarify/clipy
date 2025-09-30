@@ -6,6 +6,8 @@
   - Additional files are hidden in an overflow button
   - `main.py` is always shown
   - Last active file is always shown
+- Feature: record/replay after a program run
+  - Step through code execution and show variable state
 
 ## 2025-09-22
 - Fix: Page header now correctly shows config list name with config name

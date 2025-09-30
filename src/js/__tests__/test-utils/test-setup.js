@@ -22,7 +22,19 @@ export function clearLocalStorageMirror() {
 export async function setRuntimeAdapter(adapter) {
     const mp = await import('../../micropython.js')
     if (typeof mp.setRuntimeAdapter === 'function') mp.setRuntimeAdapter(adapter)
-    try { const gs = mp.getExecutionState(); Object.assign(gs, {}) } catch (_e) { }
+    try {
+        const gs = mp.getExecutionState()
+        // Ensure tests don't start with a stale 'isRunning' flag or leftover
+        // abort controller/timeouts from previous tests.
+        if (gs) {
+            gs.isRunning = false
+            gs.currentAbortController = null
+            try { if (gs.timeoutId) clearTimeout(gs.timeoutId) } catch (_e) { }
+            try { if (gs.safetyTimeoutId) clearTimeout(gs.safetyTimeoutId) } catch (_e) { }
+            gs.timeoutId = null
+            gs.safetyTimeoutId = null
+        }
+    } catch (_e) { }
 }
 
 export function setFileManager(fm) {
