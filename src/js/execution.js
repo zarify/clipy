@@ -532,6 +532,18 @@ except Exception:
 
     try {
         if (currentRuntimeAdapter) {
+            // Clear any previous captured stderr/mapping state to avoid stale data
+            // (If a previous run produced a mapped traceback, these globals
+            // could cause feedback to fire on later clean runs.)
+            try { delete window.__ssg_last_raw_stderr_buffer } catch (_e) { }
+            try { window.__ssg_last_mapped = '' } catch (_e) { }
+            try { window.__ssg_last_mapped_event = null } catch (_e) { }
+            try { window.__ssg_final_stderr = '' } catch (_e) { }
+            try { window.__ssg_stderr_buffer = [] } catch (_e) { }
+            try { window.__ssg_suppress_raw_stderr_until = 0 } catch (_e) { }
+            try { window.__ssg_appending_mapped = false } catch (_e) { }
+            try { window.__ssg_mapping_in_progress = false } catch (_e) { }
+
             // Sync VFS before execution
             await syncVFSBeforeRun()
 
@@ -618,6 +630,18 @@ except Exception:
                 // Note: Don't clear stderr_buffering here as enableStderrBuffering() sets it intentionally
             } catch (_e) { }            // Enable stderr buffering so we can replace raw runtime tracebacks with mapped ones
             try { enableStderrBuffering() } catch (_e) { }
+
+            // Create a per-run promise that the terminal can resolve when
+            // it publishes the canonical final stderr. This reduces the
+            // race window where mapping finishes just after feedback samples
+            // the globals. The terminal will set `__ssg_final_stderr_resolve`
+            // and resolve `__ssg_final_stderr_promise` when it appends the
+            // mapped stderr.
+            try {
+                try { delete window.__ssg_final_stderr_promise } catch (_e) { }
+                try { delete window.__ssg_final_stderr_resolve } catch (_e) { }
+                window.__ssg_final_stderr_promise = new Promise((resolve) => { try { window.__ssg_final_stderr_resolve = resolve } catch (_e) { } })
+            } catch (_e) { }
 
             // Try asyncify execution first (preferred path)
             if (isAsyncify && !needsTransformation) {
@@ -923,12 +947,96 @@ except Exception:
                         // Proper stderr separation: extract the actual error text that was displayed
                         let stderrFull = ''
                         try {
-                            // Check for stderr content in the buffer or last raw stderr
-                            if (window.__ssg_last_raw_stderr_buffer && Array.isArray(window.__ssg_last_raw_stderr_buffer)) {
-                                stderrFull = window.__ssg_last_raw_stderr_buffer.join('\n')
-                            } else if (typeof window.__ssg_last_mapped === 'string' && window.__ssg_last_mapped) {
-                                stderrFull = window.__ssg_last_mapped
-                            }
+                            // Prefer the mapped traceback when it's informative (mapped
+                            // text generally contains the user-facing exception and
+                            // mapped file/line info). Fall back to the raw buffered
+                            // stderr only when it contains an actual traceback or
+                            // exception message (to avoid noisy vendor-frame-only
+                            // buffers masking mapped errors).
+                            try {
+                                // If a per-run canonical stderr promise exists, wait a short
+                                // bounded time for it to resolve so we prefer the terminal's
+                                // authoritative value when available.
+                                const awaitWithTimeout = (p, ms) => {
+                                    if (!p) return Promise.resolve(undefined)
+                                    return Promise.race([
+                                        p,
+                                        new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
+                                    ])
+                                }
+                                try {
+                                    if (window.__ssg_final_stderr_promise && typeof window.__ssg_final_stderr_promise.then === 'function') {
+                                        // Wait up to 80ms for terminal to publish final stderr
+                                        const resolved = await awaitWithTimeout(window.__ssg_final_stderr_promise, 80)
+                                        if (typeof resolved === 'string' && resolved.trim().length > 0) {
+                                            try { window.__ssg_final_stderr = String(resolved || '') } catch (_e) { }
+                                        }
+                                    }
+                                } catch (_e) { }
+
+                                // Prefer a canonical final stderr slot when available
+                                const finalCanonical = (typeof window.__ssg_final_stderr === 'string') ? String(window.__ssg_final_stderr || '') : ''
+                                const mappedCandidate = (typeof window.__ssg_last_mapped === 'string') ? String(window.__ssg_last_mapped || '') : ''
+                                const rawBuf = (window.__ssg_last_raw_stderr_buffer && Array.isArray(window.__ssg_last_raw_stderr_buffer)) ? window.__ssg_last_raw_stderr_buffer.join('\n') : ''
+
+                                const looksLikeException = (s) => {
+                                    if (!s) return false
+                                    // Traceback header or typical Python exception line (e.g. "NameError: ...")
+                                    if (/Traceback \(most recent call last\):/.test(s)) return true
+                                    if (/^[A-Za-z0-9_].*?:/.test(s)) return true
+                                    return false
+                                }
+
+                                // If a canonical final stderr is present, prefer it
+                                if (finalCanonical && finalCanonical.trim().length > 0) {
+                                    stderrFull = finalCanonical
+                                } else if (mappedCandidate.trim().length > 0 && looksLikeException(mappedCandidate)) {
+                                    stderrFull = mappedCandidate
+                                } else if (rawBuf && looksLikeException(rawBuf)) {
+                                    // Fallback to raw buffer only when it contains real
+                                    // traceback/exception information
+                                    stderrFull = rawBuf
+                                } else if (mappedCandidate.trim().length > 0) {
+                                    // If mapped is present but not clearly an exception,
+                                    // still prefer it over noisy raw buffers so feedback
+                                    // rules that target mapped text can fire.
+                                    stderrFull = mappedCandidate
+                                } else {
+                                    stderrFull = ''
+                                }
+
+                                // Extra fallback: if neither mappedCandidate nor the
+                                // preserved raw buffer contained useful information,
+                                // try to extract any trailing mapped traceback that
+                                // was already appended into the terminal DOM. This
+                                // covers a race where replaceBufferedStderr appended
+                                // mapped text but the mapping state slots weren't
+                                // populated by the time we sampled them above.
+                                if ((!stderrFull || !stderrFull.trim()) && typeof document !== 'undefined') {
+                                    try {
+                                        const outEl = document.getElementById('terminal-output')
+                                        const terminalText = outEl ? (outEl.textContent || '') : ''
+                                        if (terminalText) {
+                                            // Prefer a full traceback block if present
+                                            const tbIdx = terminalText.lastIndexOf('Traceback (most recent call last):')
+                                            if (tbIdx !== -1) {
+                                                stderrFull = terminalText.slice(tbIdx).trim()
+                                            } else {
+                                                // Otherwise look for a trailing exception line
+                                                const lines = terminalText.split('\n')
+                                                for (let i = lines.length - 1; i >= 0; i--) {
+                                                    const l = (lines[i] || '').trim()
+                                                    if (/^[A-Za-z_][\w\.]*:/.test(l)) {
+                                                        const start = Math.max(0, i - 8)
+                                                        stderrFull = lines.slice(start).join('\n').trim()
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch (_e) { /* best-effort fallback only */ }
+                                }
+                            } catch (_e) { stderrFull = '' }
                         } catch (_e) { stderrFull = '' }
 
                         // Capture stdin inputs from the execution session

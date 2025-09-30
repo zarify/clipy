@@ -379,6 +379,17 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     // Debug: Log function call parameters
     try { window.__ssg_terminal_event_log = window.__ssg_terminal_event_log || []; window.__ssg_terminal_event_log.push({ when: Date.now(), action: 'mapTracebackAndShow_called', headerLines: headerLines, headerLinesType: typeof headerLines, userCode: (typeof userCode === 'string' ? userCode.slice(0, 50) : userCode), rawTextPreview: (rawText || '').slice(0, 200) }) } catch (_e) { }
 
+    // Safe debug helper: appendTerminalDebug may not be available in some
+    // test or mapping-only environments (avoids ReferenceError). Use the
+    // global if present, otherwise no-op.
+    const _safeAppendTerminalDebug = (...args) => {
+        try {
+            if (typeof window !== 'undefined' && window.appendTerminalDebug && typeof window.appendTerminalDebug === 'function') {
+                try { window.appendTerminalDebug(...args) } catch (_e) { }
+            }
+        } catch (_e) { }
+    }
+
     if (!rawText) return
     // Normalize headerLines to a number and attempt a best-effort
     // fallback when callers did not supply a headerLines value. Some
@@ -504,12 +515,12 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     const m = mapped.match(/line (\d+)/)
     if (m) {
         const errLine = Math.max(1, Number(m[1]))
-        const userLines = userCode.split('\n')
+        const userLines = (typeof userCode === 'string') ? userCode.split('\n') : []
         const contextStart = Math.max(0, errLine - 3)
-        appendTerminalDebug('--- source context (student code) ---')
+        _safeAppendTerminalDebug('--- source context (student code) ---')
         for (let i = contextStart; i < Math.min(userLines.length, errLine + 2); i++) {
             const prefix = (i + 1 === errLine) ? '-> ' : '   '
-            appendTerminalDebug(prefix + String(i + 1).padStart(3, ' ') + ': ' + userLines[i])
+            _safeAppendTerminalDebug(prefix + String(i + 1).padStart(3, ' ') + ': ' + userLines[i])
         }
     }
 

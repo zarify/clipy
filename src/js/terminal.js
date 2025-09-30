@@ -80,6 +80,21 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
                     div.className = 'terminal-line ' + kindClass
                     div.textContent = sanitized
                     out.appendChild(div)
+                    // Publish canonical final stderr slot when we append stderr
+                    try {
+                        if (kind === 'stderr') {
+                            host.__ssg_final_stderr = String(sanitized || '')
+                            // If a per-run promise resolver exists, resolve it with the final value
+                            try {
+                                if (host.__ssg_final_stderr_resolve && typeof host.__ssg_final_stderr_resolve === 'function') {
+                                    try { host.__ssg_final_stderr_resolve(host.__ssg_final_stderr) } catch (_e) { }
+                                    // Clear resolver so it's one-shot
+                                    try { delete host.__ssg_final_stderr_resolve } catch (_e) { }
+                                    try { delete host.__ssg_final_stderr_promise } catch (_e) { }
+                                }
+                            } catch (_e) { }
+                        }
+                    } catch (_e) { }
                     out.scrollTop = out.scrollHeight
                     try { host.__ssg_terminal_event_log = host.__ssg_terminal_event_log || []; host.__ssg_terminal_event_log.push({ when: Date.now(), action: 'append_mapped_bypass', kind, text: raw.slice(0, 200) }) } catch (_e) { }
                 } catch (_e) { }
@@ -290,6 +305,7 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
             } catch (_e) { }
             div.textContent = sanitized
             out.appendChild(div)
+            try { if (kind === 'stderr') host.__ssg_final_stderr = String(sanitized || '') } catch (_e) { }
             out.scrollTop = out.scrollHeight
 
             try { host.__ssg_terminal_event_log = host.__ssg_terminal_event_log || []; host.__ssg_terminal_event_log.push({ when: Date.now(), action: 'append', kind, text: raw.slice(0, 200) }) } catch (_e) { }
@@ -392,12 +408,24 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
                     const joined = buf.join('\n')
                     const guessed = joined.replace(/File\s+["'](?:<stdin>|<string>)["']\s*,\s*line\s+(\d+)/g, 'File "\/main.py", line $1')
                     mappedText = guessed
+                    try { host.__ssg_final_stderr = String(guessed || '') } catch (_e) { }
                     try { host.__ssg_terminal_event_log = host.__ssg_terminal_event_log || []; host.__ssg_terminal_event_log.push({ when: Date.now(), action: 'replaceBufferedStderr_fallback_guessed', sample: joined.slice(0, 200), guessedPreview: mappedText.slice(0, 200) }) } catch (_e) { }
                 } catch (_e) { }
             }
 
             if (mappedText && typeof mappedText === 'string') {
                 try {
+                    // Publish the mapped result to host-level slots so callers
+                    // (like runPythonCode -> Feedback) can read the final mapped
+                    // traceback that was appended into the terminal. This keeps
+                    // the source of truth that feedback rules inspect in sync
+                    // with what the user actually sees in the terminal.
+                    try {
+                        host.__ssg_last_mapped = String(mappedText || '')
+                        host.__ssg_last_mapped_event = host.__ssg_last_mapped_event || { when: Date.now(), headerLines: 0, sourcePath: (host && host.MAIN_FILE) ? host.MAIN_FILE : '/main.py', mapped: String(mappedText || '') }
+                        try { host.__ssg_last_mapped_event.when = Date.now() } catch (_e) { }
+                        try { host.__ssg_last_mapped_event.mapped = String(mappedText || '') } catch (_e) { }
+                    } catch (_e) { }
                     const out = $('terminal-output')
                     if (out && out.children && out.children.length) {
                         const nodes = Array.from(out.children)
@@ -419,7 +447,22 @@ export function createTerminal(host = (typeof window !== 'undefined' ? window : 
                     const prevMapping = !!host.__ssg_mapping_in_progress
                     try { host.__ssg_mapping_in_progress = false } catch (_e) { }
                     try { host.__ssg_appending_mapped = true } catch (_e) { }
-                    try { appendTerminal(mappedText, 'stderr') } catch (_e) { }
+                    try {
+                        // Set canonical final stderr before appending so readers
+                        // sampling the slot see the authoritative value.
+                        try {
+                            host.__ssg_final_stderr = String(mappedText || '')
+                        } catch (_e) { }
+                        // If a per-run promise resolver exists, resolve it with the final value
+                        try {
+                            if (host.__ssg_final_stderr_resolve && typeof host.__ssg_final_stderr_resolve === 'function') {
+                                try { host.__ssg_final_stderr_resolve(host.__ssg_final_stderr) } catch (_e) { }
+                                try { delete host.__ssg_final_stderr_resolve } catch (_e) { }
+                                try { delete host.__ssg_final_stderr_promise } catch (_e) { }
+                            }
+                        } catch (_e) { }
+                        appendTerminal(mappedText, 'stderr')
+                    } catch (_e) { }
                     try { host.__ssg_appending_mapped = false } catch (_e) { }
                     try { host.__ssg_mapping_in_progress = prevMapping } catch (_e) { }
                 } catch (_e) { appendTerminal(mappedText, 'stderr') }
