@@ -111,10 +111,9 @@ export class PythonASTAnalyzer {
             // Fallback: show all user variables if AST analysis not available
             const filtered = new Map()
             for (const [name, value] of allVariables) {
-                // Filter out obvious system variables
+                // Filter out obvious system variables only
                 if (!name.startsWith('_') &&
-                    !['sys', 'gc', 'json', 'ast'].includes(name) &&
-                    name !== 'k' && name !== 'name') {
+                    !['sys', 'gc', 'json', 'ast'].includes(name)) {
                     filtered.set(name, value)
                 }
             }
