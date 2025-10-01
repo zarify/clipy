@@ -301,6 +301,15 @@ export class ReplayEngine {
             // Show replay UI
             this.showReplayUI()
 
+            // Reset scrubber to start when replay begins
+            try {
+                const scrubber = $('replay-scrubber')
+                if (scrubber) {
+                    scrubber.value = 0
+                    scrubber.disabled = false
+                }
+            } catch (e) { /* ignore */ }
+
             // Display first step
             this.displayCurrentStep()
 
@@ -330,6 +339,30 @@ export class ReplayEngine {
 
             // Hide replay UI
             this.hideReplayUI()
+
+            // After stopping, if there is still a recorded trace available, mark the
+            // start button as needing to be pressed (visual cue). Otherwise ensure
+            // any special classes are removed.
+            try {
+                const replayStartBtn = $('replay-start')
+                if (replayStartBtn) {
+                    if (this.executionTrace) {
+                        replayStartBtn.classList.remove('rewind')
+                        replayStartBtn.classList.add('needs-start')
+                        replayStartBtn.setAttribute('aria-label', 'Start replay')
+                    } else {
+                        replayStartBtn.classList.remove('rewind')
+                        replayStartBtn.classList.remove('needs-start')
+                        replayStartBtn.setAttribute('aria-label', 'No replay available')
+                    }
+                }
+            } catch (e) { /* ignore */ }
+
+            // Disable scrubber when not replaying
+            try {
+                const scrubber = $('replay-scrubber')
+                if (scrubber) scrubber.disabled = true
+            } catch (e) { /* ignore */ }
 
             appendTerminalDebug('Replay stopped')
         } catch (error) {
@@ -445,6 +478,22 @@ export class ReplayEngine {
             window.cm.getWrapperElement().classList.add('replay-mode')
         }
 
+        // Hide the inline start button and show the rewind button inside controls
+        try {
+            const inlineStart = $('replay-start-inline')
+            if (inlineStart) {
+                inlineStart.style.display = 'none'
+                inlineStart.classList.remove('needs-start')
+            }
+
+            const rewindBtn = $('replay-rewind')
+            if (rewindBtn) {
+                rewindBtn.style.display = 'inline-flex'
+                rewindBtn.disabled = false
+                rewindBtn.setAttribute('aria-label', 'Rewind replay')
+            }
+        } catch (e) { /* ignore */ }
+
         this.updateUI()
     }
 
@@ -461,12 +510,30 @@ export class ReplayEngine {
         if (window.cm) {
             window.cm.getWrapperElement().classList.remove('replay-mode')
         }
+
+        // Clean up any start/rewind button visual state: hide rewind, clear inline state
+        try {
+            const rewindBtn = $('replay-rewind')
+            if (rewindBtn) {
+                rewindBtn.style.display = 'none'
+                rewindBtn.classList.remove('rewind')
+            }
+
+            const inlineStart = $('replay-start-inline')
+            if (inlineStart) {
+                inlineStart.classList.remove('rewind')
+                inlineStart.classList.remove('needs-start')
+            }
+        } catch (e) { /* ignore */ }
     }
 
     /**
      * Update UI controls state
      */
     updateUI() {
+        // If not replaying, we don't update the per-step UI here; callers
+        // should use updateReplayControls(hasRecording) to set the initial
+        // disabled state. When replaying, update the buttons and scrubber.
         if (!this.isReplaying || !this.executionTrace) {
             return
         }
@@ -489,12 +556,12 @@ export class ReplayEngine {
                     ? (this.currentStepIndex / (this.executionTrace.getStepCount() - 1)) * 100
                     : 0
                 scrubber.value = percentage
+                scrubber.disabled = false
             }
         } catch (error) {
             appendTerminalDebug('Failed to update UI: ' + error)
         }
     }
-
     /**
      * Get current replay status
      */
@@ -521,36 +588,27 @@ export class ReplayUI {
      * Setup event listeners for replay controls
      */
     setupEventListeners() {
-        // Start replay button
-        const replayStartBtn = $('replay-start')
-        if (replayStartBtn) {
-            replayStartBtn.addEventListener('click', () => {
+        // Inline start button (shown next to Run when a recording exists)
+        const inlineStart = $('replay-start-inline')
+        if (inlineStart) {
+            inlineStart.addEventListener('click', () => {
                 if (!window.ExecutionRecorder?.hasActiveRecording()) {
                     appendTerminalDebug('No execution recording available for replay')
                     return
                 }
 
                 const trace = window.ExecutionRecorder.getTrace()
-
-                // If already replaying, rewind to start instead of creating a new replay
-                if (this.replayEngine.isReplaying && this.replayEngine.executionTrace) {
-                    // If the trace object appears to be the same (or equivalent by step count), rewind
-                    const sameTrace = this.replayEngine.executionTrace === trace ||
-                        (trace && this.replayEngine.executionTrace && trace.getStepCount &&
-                            this.replayEngine.executionTrace.getStepCount &&
-                            trace.getStepCount() === this.replayEngine.executionTrace.getStepCount())
-
-                    if (sameTrace) {
-                        appendTerminalDebug('Replay already running — rewinding to start')
-                        this.replayEngine.jumpToStep(0)
-                        return
-                    }
-
-                    // Different trace – stop current replay and start new one
-                    this.replayEngine.stopReplay()
-                }
-
+                // Start the replay and show controls (showReplayUI handles hiding inline)
                 this.replayEngine.startReplay(trace)
+            })
+        }
+
+        // Rewind button inside controls (visible when replaying)
+        const rewindBtn = $('replay-rewind')
+        if (rewindBtn) {
+            rewindBtn.addEventListener('click', () => {
+                // Rewind to start step
+                this.replayEngine.jumpToStep(0)
             })
         }
 
@@ -630,15 +688,42 @@ export class ReplayUI {
      */
     updateReplayControls(hasRecording) {
         const replayControls = $('replay-controls')
-        const replayStartBtn = $('replay-start')
+        const inlineStart = $('replay-start-inline')
+        const rewindBtn = $('replay-rewind')
 
-        if (replayControls && replayStartBtn) {
+        const stepBackBtn = $('replay-step-back')
+        const stepForwardBtn = $('replay-step-forward')
+        const scrubber = $('replay-scrubber')
+
+        if (replayControls && inlineStart && rewindBtn) {
             if (hasRecording) {
-                replayControls.style.display = 'flex'
-                replayStartBtn.disabled = false
+                // Show the inline start button next to Run when not replaying
+                if (!this.replayEngine.isReplaying) {
+                    replayControls.style.display = 'none'
+                    inlineStart.style.display = 'inline-flex'
+                    inlineStart.classList.add('needs-start')
+                    inlineStart.setAttribute('aria-label', 'Start replay')
+
+                    if (stepBackBtn) stepBackBtn.disabled = true
+                    if (stepForwardBtn) stepForwardBtn.disabled = true
+                    if (scrubber) scrubber.disabled = true
+                } else {
+                    // When replaying, show controls (and the rewind button inside them)
+                    replayControls.style.display = 'flex'
+                    inlineStart.style.display = 'none'
+
+                    if (stepBackBtn) stepBackBtn.disabled = this.replayEngine.currentStepIndex <= 0
+                    if (stepForwardBtn) stepForwardBtn.disabled = this.replayEngine.currentStepIndex >= this.replayEngine.executionTrace.getStepCount() - 1
+                    if (scrubber) scrubber.disabled = false
+
+                    rewindBtn.style.display = 'inline-flex'
+                    rewindBtn.setAttribute('aria-label', 'Rewind replay')
+                }
             } else {
+                // No recording: hide both inline and controls
                 replayControls.style.display = 'none'
-                replayStartBtn.disabled = true
+                inlineStart.style.display = 'none'
+                rewindBtn.style.display = 'none'
             }
         }
     }
