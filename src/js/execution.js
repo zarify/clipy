@@ -283,6 +283,14 @@ export async function runPythonCode(code, cfg) {
     // Clear any previous terminal content (including noisy runtime-init messages)
     try { if (typeof clearTerminal === 'function') clearTerminal() } catch (_e) { }
 
+    // Dismiss any active replay (clear decorations) when starting a run
+    try {
+        if (typeof window !== 'undefined' && window.ReplayEngine && typeof window.ReplayEngine.stopReplay === 'function') {
+            try { window.ReplayEngine.stopReplay() } catch (_e2) { /* ignore */ }
+            appendTerminalDebug('Stopped active replay before run')
+        }
+    } catch (_e) { appendTerminalDebug('Failed to stop replay before run: ' + _e) }
+
     setExecutionRunning(true)
     appendTerminal('>>> Running...', 'runtime')
 
