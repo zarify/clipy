@@ -4,6 +4,7 @@ Tests provide a way to verify that a user's code satisfies the problem. These
 tests come in a couple of varities:
 - Behavioural tests, manipulating `stdin` and workspace files, and checking outputs
 - Code tests using [AST rules](ast_rules.md) that check the structure of the code
+- Advanced tests using [pre/post execution](test_pre_post_execution.md) for setup and verification
 
 Tests can be grouped or ungrouped, and have dependencies on previous individual tests
 or groups of tests, allowing for feedback to be shown with progressively advanced
@@ -29,6 +30,7 @@ A more complex example that involves different test types could be:
 | Expected stderr | As for `stdout` but checking `stderr`. |
 | Timeout | Optional timeout for the test case. Wall clock time. |
 | Test files | Optional workspace files that will override the user workspace files. |
+| [Pre/Post Execution](test_pre_post_execution.md) | Include `__pre.py` and/or `__post.py` files in setup/files for advanced test setup and verification. |
 | Failure Message | Optional message to the user on test failure. |
 | Hide Actual vs Expected | Non-regex tests will default to showing what the program output vs what the test expected. This hides this behaviour, making it suitable for test cases where the output comparison is not helpful or designed to be more difficult. |
 | [Run Conditions](tests_conditional_runs.md) | Whether this test should only run if the previous test runs, or whether it should always run. |
