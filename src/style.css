@@ -714,10 +714,8 @@ textarea#code {
 /* Replay inline start button (shown next to Run) */
 #replay-start-inline {
     background: #e6f8f2;
-    /* light teal background for higher contrast */
     border: 1px solid #bfeee2;
     color: #0b6b56;
-    /* darker teal for text/icon */
     display: inline-flex;
     align-items: center;
     padding: 6px 10px;
@@ -732,7 +730,6 @@ textarea#code {
 /* Rewind button inside the full replay controls */
 #replay-rewind {
     background: white;
-    /* filled teal */
     color: black;
     border-radius: 4px;
     padding: 6px 8px;
