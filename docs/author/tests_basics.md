@@ -36,6 +36,9 @@ A more complex example that involves different test types could be:
 | [Run Conditions](tests_conditional_runs.md) | Whether this test should only run if the previous test runs, or whether it should always run. |
 | [Assign to Group](tests_groups.md) | Put this test into a test group |
 
-> [!WARNING]
-> Currently the first test **must** be set to `Always run this test` otherwise the test suite
-> will not run. This will be fixed in a later version.
+> [!NOTE]
+> Run conditions are overridden by common sense conditions that
+> would prevent test operation like:
+> - An ungrouped test has no preceeding tests (should always run)
+> - The first test in a group that should run (should always run)
+> - The first group in the suite (should always run)

@@ -14,7 +14,7 @@ All three files:
 - Run in the same Python interpreter instance
 - Share the same module namespace and runtime state
 - Share the same stdin, stdout, and stderr streams
-- Can import from each other (e.g., `__post.py` can `import main`)
+- Can import from each other (e.g., `__post.py` can `import main` - but generally shouldn't need to)
 
 ## When to Use This Feature
 
@@ -25,29 +25,13 @@ All three files:
 - Pre-loading data or resources
 
 ### Use `__post.py` for:
-- Verifying function behavior by importing and calling user functions
+- Verifying function behavior by importing and/or calling user functions
 - Checking variable values or types after execution
 - Validating global state changes
-- Testing that functions raise expected exceptions
 
 ## Configuration
 
-Include `__pre.py` and/or `__post.py` in either the `setup` or `files` section of your test:
-
-```json
-{
-  "id": "test-with-setup",
-  "description": "Test with pre and post execution",
-  "setup": {
-    "/__pre.py": "import random\nrandom.seed(42)",
-    "/__post.py": "from main import calculate\nassert calculate(2, 3) == 5"
-  },
-  "stdin": "input data",
-  "expected_stdout": "expected output"
-}
-```
-
-Or in the `files` section:
+Include `__pre.py` and/or `__post.py` in `files` section of your test:
 
 ```json
 {
@@ -133,9 +117,8 @@ If `__pre.py` fails:
 ### Main Execution Failures
 
 If `main.py` fails:
-- `__post.py` still executes (allows verification of partial state)
 - The test fails (normal test failure)
-- Full error details shown to both authors and users
+- `__post.py` is still run
 
 ### Post-Execution Failures
 
@@ -341,6 +324,7 @@ def is_even(n):
 ## Best Practices
 
 1. **Keep it Simple**: Use `__pre.py` and `__post.py` for specific test needs, not as a replacement for clear test design.
+You might also need to test for program structure (e.g. with an AST test) prior to using `__post.py` tests to check for things like a specific function's definition.
 
 2. **Fail Fast**: Use assertions in `__post.py` to provide clear error messages:
    ```python
@@ -367,14 +351,11 @@ def is_even(n):
 
 3. **No State Reset**: The Python interpreter state is not reset between pre/main/post. If you need isolation, use separate test cases.
 
-4. **Import Limitations**: Standard library modules are available, but third-party packages may not be installed in the MicroPython runtime.
-
 ## Troubleshooting
 
 ### "Module not found" errors
 
 If `__post.py` cannot import from `main.py`:
-- Verify the user's code file is named `main.py` or adjust your import
 - Check that the user's code runs without syntax errors
 - Remember that if `main.py` fails, `__post.py` still runs but imports may fail
 
@@ -382,7 +363,6 @@ If `__post.py` cannot import from `main.py`:
 
 If stdin consumption seems wrong:
 - Remember that stdin is consumed sequentially: pre → main → post
-- Use array stdin `["line1", "line2"]` for clarity
 - Check that each file calls `input()` the expected number of times
 
 ### Tests passing when they should fail
