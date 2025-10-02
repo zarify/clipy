@@ -1759,10 +1759,16 @@ function setupExecutionStepMonitoring(executionHooks) {
                             const { line, vars } = traceData.__TRACE__
                             const variables = new Map()
 
-                            // Convert vars object to Map
+                            // Convert vars object to Map, filtering out noise
                             if (vars && typeof vars === 'object') {
                                 for (const [name, value] of Object.entries(vars)) {
-                                    variables.set(name, value)
+                                    // Filter out internal variables and module objects (noise for students)
+                                    const isInternalVar = name.startsWith('_') || name === 'k'
+                                    const isModuleObject = typeof value === 'string' && value.startsWith('<module ')
+
+                                    if (!isInternalVar && !isModuleObject) {
+                                        variables.set(name, value)
+                                    }
                                 }
                             }
 
