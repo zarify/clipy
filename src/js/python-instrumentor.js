@@ -3,7 +3,12 @@ import { appendTerminalDebug } from './terminal.js'
 import { getPythonASTAnalyzer } from './python-ast-analyzer.js'
 
 /**
- * Instrument Python source code to capture execution traces
+ * Instrument Python source code t                    instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars, _trace_filename)`)
+                    instrumentedLines.push(`${indent}except Exception as _trace_err:`)
+                    instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line ${originalLineNumber}: {_trace_err}")`)
+
+                    // Now add the return statement itself
+                    instrumentedLines.push(lines[i])ure execution traces
  */
 export class PythonInstrumentor {
     constructor() {
@@ -26,10 +31,9 @@ export class PythonInstrumentor {
     /**
      * Instrument Python source code to add tracing
      */
-    async instrumentCode(sourceCode, runtimeAdapter = null) {
+    async instrumentCode(sourceCode, runtimeAdapter = null, filename = '/main.py') {
         try {
-            console.log('🚀 NEW INSTRUMENTOR CODE LOADED - v2024-10-02-HEURISTIC-FIX')
-            appendTerminalDebug('Instrumenting Python code for execution tracing')
+            appendTerminalDebug(`Instrumenting Python code for execution tracing: ${filename}`)
 
             this.sourceCode = sourceCode
 
@@ -44,16 +48,17 @@ export class PythonInstrumentor {
             instrumentedLines.push('# Execution tracing setup')
             instrumentedLines.push('import sys')
             instrumentedLines.push('_trace_vars = {}')
+            instrumentedLines.push(`_trace_filename = ${JSON.stringify(filename)}`)
             instrumentedLines.push('')
 
             // Add trace function with multiple communication methods
-            instrumentedLines.push('def _trace_execution(line_no, vars_dict):')
+            instrumentedLines.push('def _trace_execution(line_no, vars_dict, filename):')
             instrumentedLines.push('    try:')
             instrumentedLines.push('        # Method 1: Try MicroPython js module')
             instrumentedLines.push('        try:')
             instrumentedLines.push('            import js')
             instrumentedLines.push('            if hasattr(js, "_record_execution_step"):')
-            instrumentedLines.push('                js._record_execution_step(line_no, vars_dict)')
+            instrumentedLines.push('                js._record_execution_step(line_no, vars_dict, filename)')
             instrumentedLines.push('                return')
             instrumentedLines.push('        except: pass')
             instrumentedLines.push('        ')
@@ -67,16 +72,16 @@ export class PythonInstrumentor {
             instrumentedLines.push('            return  # Skip JSON if import failed')
             instrumentedLines.push('        ')
             instrumentedLines.push('        try:')
-            instrumentedLines.push('            trace_data = {"__TRACE__": {"line": line_no, "vars": vars_dict}}')
+            instrumentedLines.push('            trace_data = {"__TRACE__": {"line": line_no, "vars": vars_dict, "file": filename}}')
             instrumentedLines.push('            print(f"[TRACE_DATA_CREATED] {type(trace_data)}")  # Debug: data object created')
             instrumentedLines.push('            json_str = json.dumps(trace_data)')
             instrumentedLines.push('            print(f"[TRACE_JSON_DUMPS_OK] length={len(json_str)}")  # Debug: JSON conversion worked')
             instrumentedLines.push('            print("__EXECUTION_TRACE__" + json_str)')
-            instrumentedLines.push('            print(f"[TRACE_JSON_SENT] Line {line_no}")  # Debug: JSON sent')
+            instrumentedLines.push('            print(f"[TRACE_JSON_SENT] Line {line_no} in {filename}")  # Debug: JSON sent')
             instrumentedLines.push('        except Exception as json_err:')
-            instrumentedLines.push('            print(f"[TRACE JSON ERROR] Line {line_no}: {type(json_err).__name__}: {json_err}")')
+            instrumentedLines.push('            print(f"[TRACE JSON ERROR] Line {line_no} in {filename}: {type(json_err).__name__}: {json_err}")')
             instrumentedLines.push('    except Exception as e:')
-            instrumentedLines.push('        print(f"[TRACE ERROR] Line {line_no}: {e}")  # Show tracing errors')
+            instrumentedLines.push('        print(f"[TRACE ERROR] Line {line_no} in {filename}: {e}")  # Show tracing errors')
             instrumentedLines.push('')
 
             // Record how many header lines we've added before the user's code
@@ -214,9 +219,9 @@ export class PythonInstrumentor {
                         instrumentedLines.push(`${indent}            except: pass`)
                     }
 
-                    instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars)`)
+                    instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars, _trace_filename)`)
                     instrumentedLines.push(`${indent}except Exception as _trace_err:`)
-                    instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line {originalLineNumber}: {_trace_err}")`)
+                    instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line ${originalLineNumber}: {_trace_err}")`)
 
                     // Now add the return statement itself
                     instrumentedLines.push(lines[i])
@@ -271,7 +276,7 @@ export class PythonInstrumentor {
                             instrumentedLines.push(`${indent}            except: pass`)
                         }
 
-                        instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars)`)
+                        instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars, _trace_filename)`)
                         instrumentedLines.push(`${indent}except Exception as _trace_err:`)
                         instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line ${originalLineNumber}: {_trace_err}")`)
                     }
@@ -389,9 +394,10 @@ export class PythonInstrumentor {
      */
     setupTraceCallback() {
         // Create a global function that Python can call
-        window._record_execution_step = (lineNumber, varsDict) => {
+        window._record_execution_step = (lineNumber, varsDict, filename) => {
             try {
-                appendTerminalDebug(`JS Trace callback: Line ${lineNumber}, raw vars: ${JSON.stringify(varsDict)}`)
+                const file = filename || '/main.py'
+                appendTerminalDebug(`JS Trace callback: Line ${lineNumber} in ${file}, raw vars: ${JSON.stringify(varsDict)}`)
 
                 if (!this.hooks) {
                     appendTerminalDebug('No hooks available for recording')
@@ -419,11 +425,11 @@ export class PythonInstrumentor {
                 // Show ALL captured variables, not just AST-relevant ones
                 // Since we're explicitly capturing by name, if a variable was captured,
                 // it's because it exists in scope and should be shown
-                appendTerminalDebug(`Trace: Line ${lineNumber}, captured ${allVariables.size} variables: ${Array.from(allVariables.keys()).join(', ')}`)
+                appendTerminalDebug(`Trace: Line ${lineNumber} in ${file}, captured ${allVariables.size} variables: ${Array.from(allVariables.keys()).join(', ')}`)
 
-                // Call the recording hook with ALL captured variables
+                // Call the recording hook with ALL captured variables AND the filename
                 if (this.hooks.onExecutionStep) {
-                    this.hooks.onExecutionStep(lineNumber, allVariables, 'global')
+                    this.hooks.onExecutionStep(lineNumber, allVariables, 'global', file)
                 } else {
                     appendTerminalDebug('No onExecutionStep hook available')
                 }

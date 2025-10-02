@@ -258,6 +258,7 @@ export class ReplayEngine {
         this.isReplaying = false
         this.lineDecorator = null
         this.ui = null
+        this.currentFilename = '/main.py'  // Track which file is currently being shown
     }
 
     /**
@@ -449,6 +450,13 @@ export class ReplayEngine {
                 return
             }
 
+            appendTerminalDebug(`Displaying step ${this.currentStepIndex}: line ${step.lineNumber} in ${step.filename || '/main.py'}`)
+
+            // If this step is in a different file, switch to that file's tab
+            if (step.filename && step.filename !== this.currentFilename) {
+                this.switchToFile(step.filename)
+            }
+
             // Clear previous decorations
             this.lineDecorator.clearAllDecorations()
 
@@ -461,6 +469,27 @@ export class ReplayEngine {
             }
         } catch (error) {
             appendTerminalDebug('Failed to display current step: ' + error)
+        }
+    }
+
+    /**
+     * Switch to a different file tab
+     */
+    switchToFile(filename) {
+        try {
+            // Normalize the filename
+            const normalizedFilename = filename.startsWith('/') ? filename : `/${filename}`
+
+            // Try to switch to the tab using the TabManager
+            if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
+                appendTerminalDebug(`Switching to file: ${normalizedFilename}`)
+                window.TabManager.selectTab(normalizedFilename)
+                this.currentFilename = normalizedFilename
+            } else {
+                appendTerminalDebug('TabManager not available for file switching')
+            }
+        } catch (error) {
+            appendTerminalDebug('Failed to switch to file: ' + error)
         }
     }
 

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-File Replay Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #555;
+            margin-top: 30px;
+        }
+
+        .file-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #007acc;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #007acc;
+            margin-bottom: 10px;
+        }
+
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .instructions {
+            background: #e7f3ff;
+            padding: 15px;
+            border-left: 4px solid #007acc;
+            margin: 20px 0;
+        }
+
+        .expected {
+            background: #e8f5e9;
+            padding: 15px;
+            border-left: 4px solid #4caf50;
+            margin: 20px 0;
+        }
+
+        .step {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .step-header {
+            font-weight: bold;
+            color: #007acc;
+        }
+
+        .variables {
+            margin-top: 5px;
+            font-family: monospace;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎯 Multi-File Replay Feature Test</h1>
+
+        <div class="instructions">
+            <h2>📋 Test Instructions</h2>
+            <ol>
+                <li>Open Clipy in your browser</li>
+                <li>Create a workspace with the two files shown below</li>
+                <li>Ensure record-replay is enabled in your configuration</li>
+                <li>Click "Run" to execute the code</li>
+                <li>After execution completes, click the "Start Replay" button</li>
+                <li>Use the replay controls to step through execution</li>
+            </ol>
+        </div>
+
+        <h2>📁 Test Files</h2>
+
+        <div class="file-section">
+            <div class="file-name">main.py</div>
+            <pre>from dice import roll
+
+for i in range(3):
+    print(roll(3))</pre>
+        </div>
+
+        <div class="file-section">
+            <div class="file-name">dice.py</div>
+            <pre>import random
+random.seed(42)
+
+def roll(n):
+    rolls = [random.randint(1, 6) for i in range(n)]
+    return rolls</pre>
+        </div>
+
+        <h2>✅ Expected Behavior</h2>
+
+        <div class="expected">
+            <h3>What Should Happen:</h3>
+
+            <div class="step">
+                <div class="step-header">Step 1: Execution in main.py</div>
+                <div>Line 1: <code>from dice import roll</code></div>
+                <div class="variables">Should see: roll = &lt;function roll at ...&gt;</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 2: Enter dice.py</div>
+                <div><strong>Tab should switch to dice.py</strong></div>
+                <div>Line 1: <code>import random</code></div>
+                <div class="variables">Should see: random = &lt;module 'random' ...&gt;</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 3: Still in dice.py</div>
+                <div>Line 2: <code>random.seed(42)</code></div>
+                <div class="variables">Should see random variable</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 4: Define function in dice.py</div>
+                <div>Line 4-6: Function definition</div>
+                <div class="variables">Should see roll = &lt;function roll&gt;</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 5: Back to main.py</div>
+                <div><strong>Tab should switch back to main.py</strong></div>
+                <div>Line 3: <code>for i in range(3):</code></div>
+                <div class="variables">Should see: i = 0, roll = &lt;function&gt;</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 6: Call roll() - switches to dice.py</div>
+                <div><strong>Tab switches to dice.py during function execution</strong></div>
+                <div>Line 5: Inside roll function</div>
+                <div class="variables">Should see: n = 3, rolls = [...]</div>
+            </div>
+
+            <div class="step">
+                <div class="step-header">Step 7: Return to main.py</div>
+                <div><strong>Tab switches back to main.py</strong></div>
+                <div>Line 4: <code>print(roll(3))</code></div>
+                <div class="variables">Should see loop variables and roll result</div>
+            </div>
+
+            <p style="margin-top: 20px; font-weight: bold; color: #4caf50;">
+                ✨ The replay should seamlessly switch between main.py and dice.py as execution flows through the code!
+            </p>
+        </div>
+
+        <h2>🐛 Previous Behavior (Bug)</h2>
+        <div style="background: #ffebee; padding: 15px; border-left: 4px solid #f44336;">
+            <p><strong>Before the fix:</strong></p>
+            <ul>
+                <li>❌ Only showed steps from main.py</li>
+                <li>❌ When roll() was called, you'd see <code>roll = &lt;function roll at 0x28bf0&gt;</code> repeatedly
+                </li>
+                <li>❌ No visibility into what happened inside dice.py</li>
+                <li>❌ Could not trace through imported modules</li>
+            </ul>
+        </div>
+
+        <h2>✅ New Behavior (Fixed)</h2>
+        <div style="background: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50;">
+            <p><strong>After the fix:</strong></p>
+            <ul>
+                <li>✅ Shows execution steps from ALL Python files</li>
+                <li>✅ Automatically switches tabs to the correct file during replay</li>
+                <li>✅ Can trace through imported modules</li>
+                <li>✅ Shows variables in context of the executing file</li>
+                <li>✅ Complete visibility into student's multi-file programs</li>
+            </ul>
+        </div>
+
+        <h2>🔧 Technical Details</h2>
+        <div style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin-top: 20px;">
+            <h3>What Changed:</h3>
+            <ol>
+                <li><strong>ExecutionStep:</strong> Now includes a <code>filename</code> field</li>
+                <li><strong>Instrumentation:</strong> All .py files in the workspace are instrumented before execution
+                </li>
+                <li><strong>Trace Data:</strong> Each trace record includes the filename where it occurred</li>
+                <li><strong>Replay Engine:</strong> Switches to the appropriate file tab when displaying each step</li>
+            </ol>
+
+            <h3>Files Modified:</h3>
+            <ul>
+                <li><code>execution-recorder.js</code> - Added filename to ExecutionStep</li>
+                <li><code>python-instrumentor.js</code> - Updated to pass filename in trace data</li>
+                <li><code>execution.js</code> - Instruments all .py files, not just main.py</li>
+                <li><code>replay-ui.js</code> - Switches tabs based on step filename</li>
+                <li><code>micropython.js</code> - Updated trace parsing to extract filename</li>
+            </ul>
+        </div>
+    </div>
+</body>
+
+</html>
