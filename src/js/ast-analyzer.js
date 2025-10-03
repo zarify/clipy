@@ -1307,10 +1307,6 @@ export class ASTAnalyzer {
             // For arrays, we need to first determine the line number from the parent context
             // then pass it down to each array element
             if (Array.isArray(node)) {
-                // DEBUG: Log array traversal for f-string lines
-                if (inheritedLineNo >= 18 && inheritedLineNo <= 25) {
-                    console.log(`[AST] Traversing array with ${node.length} elements, inherited line ${inheritedLineNo}`);
-                }
                 node.forEach(n => traverse(n, inheritedLineNo));
                 return;
             }
@@ -1325,40 +1321,15 @@ export class ASTAnalyzer {
                 : (nodeLine || inheritedLineNo);
             const lineData = ensureLine(lineNo);
 
-            // DEBUG: Log node types for f-string lines
-            if (lineNo >= 18 && lineNo <= 25) {
-                console.log(`[AST] Line ${lineNo}: Processing ${node.nodeType} node, hasLineno=${!!node.lineno}, inherited=${inheritedLineNo}`);
-                // Extra debug for FormattedValue nodes
-                if (node.nodeType === 'FormattedValue') {
-                    console.log(`[AST]   FormattedValue has value=${!!node.value}, conversion=${node.conversion}, format_spec=${!!node.format_spec}`);
-                    if (node.value) {
-                        console.log(`[AST]   FormattedValue.value type=${node.value.nodeType}`);
-                    }
-                }
-            }
-
-            // DEBUG: Always log Subscript nodes to see if they're being processed
-            if (node.nodeType === 'Subscript') {
-                console.log(`[AST] *** Processing Subscript node at line ${lineNo}, nodeLineno=${node.lineno}, inherited=${inheritedLineNo}`);
-            }
-
             // Collect variable references (Name nodes)
             if (node.nodeType === 'Name' && node.id) {
                 const ctx = node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
-                // DEBUG: Log Name nodes to diagnose f-string issues
-                if (lineNo >= 18 && lineNo <= 25 && node.id !== 'print') {
-                    console.log(`[AST] Line ${lineNo}: Found Name node "${node.id}" with ctx=${ctx}, nodeLineno=${node.lineno}, inherited=${inheritedLineNo}, lineData=${!!lineData}`);
-                }
                 // Separate Load (usage) and Store (assignment) contexts
                 if (lineData) {
                     if (ctx === 'Store') {
                         lineData.assigned.add(node.id);
                     } else if (ctx === 'Load') {
                         lineData.referenced.add(node.id);
-                        // DEBUG: Confirm addition
-                        if (lineNo >= 18 && lineNo <= 25 && node.id !== 'print') {
-                            console.log(`[AST] ✓ Added "${node.id}" to referenced for line ${lineNo}`);
-                        }
                     }
                 }
             }
@@ -1432,21 +1403,8 @@ export class ASTAnalyzer {
             }
 
             // Recursively traverse child nodes
-            // DEBUG: Log properties for FormattedValue nodes
-            if (node.nodeType === 'FormattedValue' && lineNo >= 18 && lineNo <= 25) {
-                console.log(`[AST]   FormattedValue properties: ${Object.keys(node).join(', ')}`);
-                for (const k of Object.keys(node)) {
-                    const c = node[k];
-                    console.log(`[AST]     Property "${k}": type=${typeof c}, isObject=${typeof c === 'object'}, isNull=${c === null}, value=${c && typeof c === 'object' ? (c.nodeType || 'no nodeType') : c}`);
-                }
-            }
-
             for (const k of Object.keys(node)) {
                 const c = node[k];
-                // DEBUG: Log when we're about to traverse into value property of FormattedValue
-                if (node.nodeType === 'FormattedValue' && k === 'value' && lineNo >= 18 && lineNo <= 25) {
-                    console.log(`[AST]   About to traverse FormattedValue.value (${c.nodeType}) at line ${lineNo}, c.lineno=${c.lineno}`);
-                }
                 if (c && typeof c === 'object') {
                     // Pass down the current line number to children that might not have their own
                     traverse(c, lineNo);

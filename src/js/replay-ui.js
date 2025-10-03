@@ -53,17 +53,7 @@ export class ReplayLineDecorator {
                 return false
             }
 
-            // DEBUG: Log complete state for this line
-            console.group(`🔍 Line ${lineNumber}: ${lineText.trim()}`)
-            console.log('Available variables:', Array.from(variables.keys()).join(', '))
-            console.log('AST data exists:', !!astData)
-            if (astData) {
-                console.log('AST assigned size:', astData.assigned.size, 'referenced size:', astData.referenced.size)
-            }
-
             if (astData && (astData.assigned.size > 0 || astData.referenced.size > 0)) {
-                console.log('AST assigned:', Array.from(astData.assigned))
-                console.log('AST referenced:', Array.from(astData.referenced))
 
                 // Strategy: Show both assigned AND referenced variables
                 // IMPORTANT: sys.settrace 'line' events fire BEFORE the line executes
@@ -75,31 +65,52 @@ export class ReplayLineDecorator {
                     const nextStep = executionTrace.getStep(currentStepIndex + 1)
                     if (nextStep) {
                         nextStepVars = nextStep.variables
-                        console.log('Next step vars:', Array.from(nextStepVars?.keys() || []).join(', '))
-                        console.log('Next step line:', nextStep.lineNumber)
-                    } else {
-                        console.log('Next step exists but is null')
                     }
-                } else {
-                    console.log('No next step available - trace:', !!executionTrace, 'stepIndex:', currentStepIndex, 'count:', executionTrace?.getStepCount())
                 }
 
                 // First, add all assigned variables (use next step's values if available)
                 for (const name of astData.assigned) {
                     // Skip built-ins
                     if (isBuiltinOrInternal(name, variables.get(name))) {
-                        console.log(`  ⊘ Skipping builtin/internal: ${name}`)
                         continue
                     }
 
                     // For assignments, prefer the next step's value (after execution)
                     let value = nextStepVars?.get(name) ?? variables.get(name)
 
+                    // Special case: if variable not found but next step has local_N variables,
+                    // the variable might be a newly assigned local variable inside a function
+                    if (value === undefined && nextStepVars) {
+                        // Check if any local_N exists in next step - if so, try to translate
+                        const hasLocalVars = Array.from(nextStepVars.keys()).some(k => k.startsWith('local_'))
+                        if (hasLocalVars) {
+                            console.log(`🔍 Variable "${name}" not found, but next step has local vars`)
+                            console.log('  Next step vars:', Array.from(nextStepVars.keys()).join(', '))
+                            console.log('  this.functionLocalMaps:', this.functionLocalMaps)
+                            console.log('  this.lineDecorator:', this.lineDecorator)
+                            console.log('  this.lineDecorator?.functionLocalMaps:', this.lineDecorator?.functionLocalMaps)
+                            // Find the function we're in by checking if any function map contains this variable
+                            const functionLocalMaps = this.functionLocalMaps || {}
+                            console.log('  Function local maps:', functionLocalMaps)
+                            for (const [funcName, localVars] of Object.entries(functionLocalMaps)) {
+                                console.log(`  Checking function "${funcName}" with locals:`, localVars)
+                                const index = localVars.indexOf(name)
+                                console.log(`  Index of "${name}" in ${funcName}:`, index)
+                                if (index !== -1) {
+                                    const localName = `local_${index}`
+                                    console.log(`  Looking for "${localName}" in next step`)
+                                    value = nextStepVars.get(localName)
+                                    console.log(`  Found value:`, value)
+                                    if (value !== undefined) {
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (value !== undefined) {
                         displayVars.set(name, value)
-                        console.log(`  ✓ Added ASSIGNED: ${name} = ${value}`)
-                    } else {
-                        console.log(`  ✗ ASSIGNED var not found: ${name}`)
                     }
                 }
 
@@ -108,27 +119,16 @@ export class ReplayLineDecorator {
                 for (const [name, value] of variables) {
                     if (astData.referenced.has(name) && !displayVars.has(name) && !isBuiltinOrInternal(name, value)) {
                         displayVars.set(name, value)
-                        console.log(`  ✓ Added REFERENCED: ${name} = ${value}`)
                     }
                 }
-
-                console.log('Final display vars:', Array.from(displayVars.keys()).join(', '))
-                console.groupEnd()
-                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", AST found ${astData.assigned.size} assigned + ${astData.referenced.size} referenced, displaying ${displayVars.size} variables`)
             } else if (astData) {
                 // AST data exists but indicates no variables assigned or referenced on this line
                 // Show nothing (e.g., return statement with a constant, pass, etc.)
-                console.log('AST indicates no variables - showing nothing')
-                console.groupEnd()
-                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", AST indicates no variables`)
             } else {
                 // Fallback: if AST not available at all, show all variables (better than showing nothing)
-                console.log('No AST data - showing all variables as fallback')
-                console.groupEnd()
                 for (const [name, value] of variables) {
                     displayVars.set(name, value)
                 }
-                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", no AST data, displaying all ${displayVars.size} variables`)
             }
 
             if (displayVars.size === 0) {
@@ -424,6 +424,8 @@ export class ReplayEngine {
             if (window.cm) {
                 this.lineDecorator = new ReplayLineDecorator(window.cm)
                 this.lineDecorator.lineReferenceMap = this.lineReferenceMap
+                this.lineDecorator.functionLocalMaps = this.functionLocalMaps
+                this.lineDecorator.lineFunctionMap = this.lineFunctionMap
             }
 
             // Before showing replay UI and displaying the first step, ensure
