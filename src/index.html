@@ -157,7 +157,10 @@
               <span class="icon" aria-hidden="true">›</span>
             </button>
             <input id="replay-scrubber" type="range" min="0" max="100" value="0" class="replay-scrubber"
-              title="Jump to execution step">
+              title="Jump to execution step" list="replay-ticks">
+            <datalist id="replay-ticks">
+              <!-- Tick marks will be populated dynamically based on step count -->
+            </datalist>
             <button id="replay-exit" class="btn btn-outline-secondary" title="Exit replay mode">
               <span class="icon" aria-hidden="true">×</span>
             </button>

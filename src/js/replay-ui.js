@@ -17,7 +17,7 @@ export class ReplayLineDecorator {
      */
     showVariablesAtLine(lineNumber, variables) {
         if (!this.codemirror || !variables || variables.size === 0) {
-            return
+            return null
         }
 
         try {
@@ -47,7 +47,7 @@ export class ReplayLineDecorator {
             }
 
             if (filteredVars.size === 0) {
-                return
+                return null
             }
 
             // Create HTML element for variable display (each variable on its own row)
@@ -61,13 +61,15 @@ export class ReplayLineDecorator {
                 above: false
             })
             this.activeWidgets.push(widget)
+            return widget
         } catch (error) {
             appendTerminalDebug('Failed to show variables at line: ' + error)
+            return null
         }
     }
 
     /**
-     * Highlight current execution line
+     * Highlight current execution line (without scrolling)
      */
     highlightExecutionLine(lineNumber) {
         try {
@@ -80,13 +82,49 @@ export class ReplayLineDecorator {
             if (lineNumber > 0) {
                 this.codemirror.addLineClass(lineNumber - 1, 'background', 'execution-current')
                 this.currentExecutionLine = lineNumber
-
-                // Scroll to the line
-                const coords = this.codemirror.charCoords({ line: lineNumber - 1, ch: 0 }, 'local')
-                this.codemirror.scrollIntoView({ line: lineNumber - 1, ch: 0 })
             }
         } catch (error) {
             appendTerminalDebug('Failed to highlight execution line: ' + error)
+        }
+    }
+
+    /**
+     * Scroll to ensure the highlighted line and any decorations are visible
+     * with appropriate code context above and below
+     */
+    scrollToCurrentLine(lineNumber, hasDecorations = false) {
+        try {
+            if (lineNumber <= 0) return
+
+            const lineHeight = this.codemirror.defaultTextHeight()
+            const editorHeight = this.codemirror.getScrollInfo().clientHeight
+            
+            // Context lines: aim for 2-3 lines of user code above and below
+            const contextLines = 2.5
+            const topMargin = lineHeight * contextLines
+            
+            // Bottom margin accounts for:
+            // - Context lines below (2-3 lines of user code)
+            // - Space for decoration widget if present (estimated)
+            let bottomMargin = lineHeight * contextLines
+            
+            if (hasDecorations) {
+                // Add extra space for the decoration widget
+                // Estimate: decoration widgets are typically 1-3 lines tall depending on variable count
+                // Add enough space but don't go overboard
+                bottomMargin += lineHeight * 3
+            }
+            
+            // Ensure we don't request more margin than the editor height
+            const maxMargin = Math.floor(editorHeight / 3)
+            const finalMargin = Math.min(Math.max(topMargin, bottomMargin), maxMargin)
+            
+            this.codemirror.scrollIntoView(
+                { line: lineNumber - 1, ch: 0 }, 
+                finalMargin
+            )
+        } catch (error) {
+            appendTerminalDebug('Failed to scroll to current line: ' + error)
         }
     }
 
@@ -321,6 +359,9 @@ export class ReplayEngine {
                 if (scrubber) {
                     scrubber.value = 0
                     scrubber.disabled = false
+                    
+                    // Populate tick marks based on step count
+                    this.updateScrubberTickMarks(executionTrace.getStepCount())
                 }
             } catch (e) { /* ignore */ }
 
@@ -474,13 +515,18 @@ export class ReplayEngine {
             // Clear previous decorations
             this.lineDecorator.clearAllDecorations()
 
-            // Highlight execution line
+            // Highlight execution line (without scrolling yet)
             this.lineDecorator.highlightExecutionLine(step.lineNumber)
 
             // Show variables if available
+            let hasDecorations = false
             if (step.variables && step.variables.size > 0) {
-                this.lineDecorator.showVariablesAtLine(step.lineNumber, step.variables)
+                const widget = this.lineDecorator.showVariablesAtLine(step.lineNumber, step.variables)
+                hasDecorations = widget !== null
             }
+
+            // Now scroll to ensure the line and any decorations are visible with code context
+            this.lineDecorator.scrollToCurrentLine(step.lineNumber, hasDecorations)
         } catch (error) {
             appendTerminalDebug('Failed to display current step: ' + error)
         }
@@ -647,6 +693,43 @@ export class ReplayEngine {
             appendTerminalDebug('Failed to update UI: ' + error)
         }
     }
+
+    /**
+     * Update scrubber tick marks based on the number of execution steps.
+     * Creates a tick mark for each execution step in the replay.
+     */
+    updateScrubberTickMarks(stepCount) {
+        try {
+            const datalist = $('replay-ticks')
+            if (!datalist) {
+                return
+            }
+
+            // Clear existing tick marks
+            datalist.innerHTML = ''
+
+            // Don't add ticks if there are no steps
+            if (stepCount < 1) {
+                return
+            }
+
+            // Create a tick mark for EACH execution step
+            // The scrubber goes from 0 to 100, and we have stepCount steps
+            // So each step corresponds to a percentage value
+            for (let stepIndex = 0; stepIndex < stepCount; stepIndex++) {
+                const percentage = stepCount > 1 
+                    ? (stepIndex / (stepCount - 1)) * 100 
+                    : 0
+                const option = document.createElement('option')
+                option.value = percentage.toFixed(2)
+                // DO NOT set label property - it causes visible numbers
+                datalist.appendChild(option)
+            }
+        } catch (error) {
+            appendTerminalDebug('Failed to update scrubber tick marks: ' + error)
+        }
+    }
+
     /**
      * Get current replay status
      */

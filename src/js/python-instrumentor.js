@@ -35,6 +35,8 @@ export class PythonInstrumentor {
         try {
             appendTerminalDebug(`Instrumenting Python code for execution tracing: ${filename}`)
 
+            // Clear any previous state to ensure clean instrumentation
+            this.variableState.clear()
             this.sourceCode = sourceCode
 
             // First, analyze the AST to understand variable usage per line
@@ -49,6 +51,56 @@ export class PythonInstrumentor {
             instrumentedLines.push('import sys')
             instrumentedLines.push('_trace_vars = {}')
             instrumentedLines.push(`_trace_filename = ${JSON.stringify(filename)}`)
+            instrumentedLines.push('_call_results = {}  # Store function call results for current line')
+            instrumentedLines.push('')
+            
+            // Add helper to capture and trace function call results
+            instrumentedLines.push('def _capture_call(func_name, func, *args, **kwargs):')
+            instrumentedLines.push('    """Capture a function call result and return it (for inline wrapping)"""')
+            instrumentedLines.push('    global _call_results')
+            instrumentedLines.push('    try:')
+            instrumentedLines.push('        result = func(*args, **kwargs)')
+            instrumentedLines.push('        # Store the result with proper representation for display')
+            instrumentedLines.push('        if isinstance(result, str):')
+            instrumentedLines.push('            _call_results[func_name] = repr(result)')
+            instrumentedLines.push('        elif isinstance(result, (int, float, bool)):')
+            instrumentedLines.push('            _call_results[func_name] = result')
+            instrumentedLines.push('        elif result is None:')
+            instrumentedLines.push('            _call_results[func_name] = None')
+            instrumentedLines.push('        else:')
+            instrumentedLines.push('            _call_results[func_name] = repr(result)')
+            instrumentedLines.push('        return result')
+            instrumentedLines.push('    except Exception as e:')
+            instrumentedLines.push('        raise e  # Re-raise the original exception')
+            instrumentedLines.push('')
+            
+            // Add helper to record line execution and return True (for inline use in conditions)
+            instrumentedLines.push('def _trace_and_pass(line_no):')
+            instrumentedLines.push('    """Record that a line was executed, then return True for chaining"""')
+            instrumentedLines.push('    global _call_results')
+            instrumentedLines.push('    try:')
+            instrumentedLines.push('        # Include any captured call results in the trace')
+            instrumentedLines.push('        vars_to_trace = dict(_call_results) if _call_results else {}')
+            instrumentedLines.push('        _trace_execution(line_no, vars_to_trace, _trace_filename)')
+            instrumentedLines.push('    except Exception as e:')
+            instrumentedLines.push('        pass  # Silently ignore trace errors to avoid breaking execution')
+            instrumentedLines.push('    finally:')
+            instrumentedLines.push('        _call_results.clear()  # Always clear for next line')
+            instrumentedLines.push('    return True')
+            instrumentedLines.push('')
+            
+            // Add helper to combine call capture with tracing for conditions
+            instrumentedLines.push('def _trace_condition(line_no, condition_result):')
+            instrumentedLines.push('    """Trace a condition evaluation along with any captured call results"""')
+            instrumentedLines.push('    global _call_results')
+            instrumentedLines.push('    try:')
+            instrumentedLines.push('        vars_to_trace = dict(_call_results) if _call_results else {}')
+            instrumentedLines.push('        _trace_execution(line_no, vars_to_trace, _trace_filename)')
+            instrumentedLines.push('    except Exception as e:')
+            instrumentedLines.push('        pass')
+            instrumentedLines.push('    finally:')
+            instrumentedLines.push('        _call_results.clear()  # Clear for next line')
+            instrumentedLines.push('    return condition_result')
             instrumentedLines.push('')
 
             // Add trace function with multiple communication methods
@@ -174,10 +226,71 @@ export class PythonInstrumentor {
                     continue
                 }
 
+                // Check if this is a control flow statement that needs condition wrapping
+                // Only transform simple single-line conditions to avoid breaking complex code
+                const ifMatch = line.match(/^(if|elif|while)\s+(.+):$/)
+                if (ifMatch) {
+                    try {
+                        // Transform: if condition: -> if _trace_and_pass(N) and (condition):
+                        const keyword = ifMatch[1]
+                        let condition = ifMatch[2].trim()
+                        const indent = this.getIndentation(lines[i])
+                        
+                        // Safety checks: only transform if condition looks safe
+                        // Skip if condition contains things that might not work well when wrapped
+                        const unsafePatterns = [
+                            /\\$/,  // Line continuation
+                            /^\s*$/,  // Empty condition
+                        ]
+                        
+                        const isUnsafe = unsafePatterns.some(pattern => pattern.test(condition))
+                        
+                        if (!isUnsafe && condition && condition.length > 0) {
+                            // Try to wrap function calls in the condition to capture their results
+                            // Pattern: functionName(args) -> _capture_call(functionName, args)
+                            // This is a simple approach that works for common cases
+                            const wrappedCondition = this.wrapFunctionCallsInCondition(condition)
+                            
+                            // Transform: if condition: -> if _trace_condition(N, condition):
+                            // This evaluates the condition (with wrapped calls), then traces it
+                            instrumentedLines.push(`${indent}${keyword} _trace_condition(${originalLineNumber}, (${wrappedCondition})):`)
+                            continue
+                        } else {
+                            // Fallback: if condition looks unsafe, keep original line
+                            appendTerminalDebug(`Warning: Skipping transformation of line ${originalLineNumber} (unsafe pattern)`)
+                            instrumentedLines.push(lines[i])
+                            continue
+                        }
+                    } catch (e) {
+                        // If transformation fails, keep original line
+                        appendTerminalDebug(`Error transforming control flow on line ${originalLineNumber}: ${e}`)
+                        instrumentedLines.push(lines[i])
+                        continue
+                    }
+                }
+
+                // Check if this is a for loop (different handling - no condition to wrap)
+                const forMatch = line.match(/^for\s+.+:$/)
+                if (forMatch) {
+                    try {
+                        // For 'for' loops, we can't wrap the condition easily, so just add trace as first line in block
+                        const indent = this.getIndentation(lines[i])
+                        instrumentedLines.push(lines[i]) // Add original for line
+                        // Add a trace call as the first statement in the loop body
+                        instrumentedLines.push(`${indent}    if _trace_and_pass(${originalLineNumber}): pass`)
+                        continue
+                    } catch (e) {
+                        // If transformation fails, keep original line only
+                        appendTerminalDebug(`Error transforming for loop on line ${originalLineNumber}: ${e}`)
+                        instrumentedLines.push(lines[i])
+                        continue
+                    }
+                }
+
                 // Check if this is a return statement (needs special handling)
                 const isReturnStatement = line.startsWith('return ')
 
-                // For return statements, add tracing BEFORE the return
+                // For return statements, add tracing BEFORE the return (because return exits the function)
                 // For other statements, add tracing AFTER the statement
                 if (isReturnStatement && this.isExecutableLine(line)) {
                     const indent = this.getIndentation(lines[i])
@@ -186,20 +299,36 @@ export class PythonInstrumentor {
                     instrumentedLines.push(`${indent}try:`)
                     instrumentedLines.push(`${indent}    # Capture variables before return`)
                     instrumentedLines.push(`${indent}    _trace_vars = {}`)
+                    instrumentedLines.push(`${indent}    # Include any function call results`)
+                    instrumentedLines.push(`${indent}    if _call_results:`)
+                    instrumentedLines.push(`${indent}        _trace_vars.update(_call_results)`)
 
                     if (hasVariableNames) {
+                        // Get variables being assigned on this line to exclude them
+                        const varsBeingAssigned = new Set()
+                        if (astFoundVariables && this.astAnalyzer.lineVariableMap.has(originalLineNumber)) {
+                            const lineInfo = this.astAnalyzer.lineVariableMap.get(originalLineNumber)
+                            for (const varName of lineInfo.defined) {
+                                varsBeingAssigned.add(varName)
+                            }
+                        }
+                        
                         for (const varName of allVariableNames) {
                             if (varName.startsWith('_')) continue
+                            if (varsBeingAssigned.has(varName)) continue
+                            
                             instrumentedLines.push(`${indent}    try:`)
-                            instrumentedLines.push(`${indent}        ${varName}`)
-                            instrumentedLines.push(`${indent}        if isinstance(${varName}, str):`)
-                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(${varName})`)
-                            instrumentedLines.push(`${indent}        elif isinstance(${varName}, (int, float, bool)):`)
-                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = ${varName}`)
-                            instrumentedLines.push(`${indent}        elif ${varName} is None:`)
+                            instrumentedLines.push(`${indent}        _val = eval('${varName}')`)
+                            instrumentedLines.push(`${indent}        if callable(_val):`)
+                            instrumentedLines.push(`${indent}            pass  # Skip functions`)
+                            instrumentedLines.push(`${indent}        elif isinstance(_val, str):`)
+                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(_val)`)
+                            instrumentedLines.push(`${indent}        elif isinstance(_val, (int, float, bool)):`)
+                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = _val`)
+                            instrumentedLines.push(`${indent}        elif _val is None:`)
                             instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = None`)
                             instrumentedLines.push(`${indent}        else:`)
-                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(${varName})`)
+                            instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(_val)`)
                             instrumentedLines.push(`${indent}    except: pass`)
                         }
                     } else {
@@ -222,12 +351,40 @@ export class PythonInstrumentor {
                     instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars, _trace_filename)`)
                     instrumentedLines.push(`${indent}except Exception as _trace_err:`)
                     instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line ${originalLineNumber}: {_trace_err}")`)
+                    instrumentedLines.push(`${indent}finally:`)
+                    instrumentedLines.push(`${indent}    _call_results.clear()  # Clear call results`)
 
                     // Now add the return statement itself
                     instrumentedLines.push(lines[i])
                 } else {
-                    // Add the original line first
-                    instrumentedLines.push(lines[i])
+                    // Try to wrap function calls in this line to capture their return values
+                    let lineToAdd = lines[i]
+                    
+                    if (this.isExecutableLine(line)) {
+                        try {
+                            // Get the code part (everything before any comment)
+                            const commentIndex = lineToAdd.indexOf('#')
+                            let codePart = commentIndex >= 0 ? lineToAdd.substring(0, commentIndex) : lineToAdd
+                            const commentPart = commentIndex >= 0 ? lineToAdd.substring(commentIndex) : ''
+                            const indent = this.getIndentation(lineToAdd)
+                            const codeWithoutIndent = codePart.substring(indent.length)
+                            
+                            // Wrap function calls in the code part
+                            const wrappedCode = this.wrapFunctionCallsInCondition(codeWithoutIndent)
+                            
+                            // Only use the wrapped version if it actually changed
+                            if (wrappedCode !== codeWithoutIndent) {
+                                lineToAdd = indent + wrappedCode + commentPart
+                                appendTerminalDebug(`Wrapped function calls on line ${originalLineNumber}`)
+                            }
+                        } catch (e) {
+                            // If wrapping fails, use original line
+                            appendTerminalDebug(`Failed to wrap function calls on line ${originalLineNumber}: ${e}`)
+                        }
+                    }
+                    
+                    // Add the line (original or wrapped)
+                    instrumentedLines.push(lineToAdd)
 
                     // Add tracing call after executable lines (for non-return statements)
                     if (this.isExecutableLine(line)) {
@@ -236,26 +393,55 @@ export class PythonInstrumentor {
                         instrumentedLines.push(`${indent}try:`)
                         instrumentedLines.push(`${indent}    # Capture variables after line execution`)
                         instrumentedLines.push(`${indent}    _trace_vars = {}`)
+                        instrumentedLines.push(`${indent}    # First, include any function call results captured during execution`)
+                        instrumentedLines.push(`${indent}    if _call_results:`)
+                        instrumentedLines.push(`${indent}        _trace_vars.update(_call_results)`)
 
                         if (hasVariableNames) {
                             // Method 1: Explicit variable capture by name (MicroPython-compatible)
                             // This works around MicroPython's limitation where locals() only returns globals in functions
+                            
+                            // Get variables being assigned on this line to exclude them
+                            const varsBeingAssigned = new Set()
+                            if (astFoundVariables && this.astAnalyzer.lineVariableMap.has(originalLineNumber)) {
+                                const lineInfo = this.astAnalyzer.lineVariableMap.get(originalLineNumber)
+                                for (const varName of lineInfo.defined) {
+                                    varsBeingAssigned.add(varName)
+                                }
+                                // Debug: log what we're excluding
+                                if (varsBeingAssigned.size > 0) {
+                                    appendTerminalDebug(`Line ${originalLineNumber}: excluding assigned vars: ${Array.from(varsBeingAssigned).join(', ')}`)
+                                }
+                            }
+                            
                             for (const varName of allVariableNames) {
                                 // Skip variables that start with underscore (internal)
                                 if (varName.startsWith('_')) continue
+                                
+                                // Skip variables being assigned on this line (they don't exist yet in trace code scope)
+                                if (varsBeingAssigned.has(varName)) {
+                                    appendTerminalDebug(`Line ${originalLineNumber}: skipping ${varName} (being assigned)`)
+                                    continue
+                                }
 
                                 instrumentedLines.push(`${indent}    try:`)
-                                instrumentedLines.push(`${indent}        ${varName}  # Reference to check if variable exists`)
+                                // Use eval() to safely get the variable value - works in MicroPython
+                                // If the variable doesn't exist or isn't assigned yet, eval will raise NameError
+                                instrumentedLines.push(`${indent}        _val = eval('${varName}')`)
+                                instrumentedLines.push(`${indent}        # Skip callables (functions) - we only want data values`)
+                                instrumentedLines.push(`${indent}        if callable(_val):`)
+                                instrumentedLines.push(`${indent}            pass  # Skip functions, classes, etc.`)
                                 instrumentedLines.push(`${indent}        # Store value with proper representation`)
-                                instrumentedLines.push(`${indent}        if isinstance(${varName}, str):`)
-                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(${varName})`)
-                                instrumentedLines.push(`${indent}        elif isinstance(${varName}, (int, float, bool)):`)
-                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = ${varName}`)
-                                instrumentedLines.push(`${indent}        elif ${varName} is None:`)
+                                instrumentedLines.push(`${indent}        elif isinstance(_val, str):`)
+                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(_val)`)
+                                instrumentedLines.push(`${indent}        elif isinstance(_val, (int, float, bool)):`)
+                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = _val`)
+                                instrumentedLines.push(`${indent}        elif _val is None:`)
                                 instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = None`)
                                 instrumentedLines.push(`${indent}        else:`)
-                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(${varName})`)
-                                instrumentedLines.push(`${indent}    except: pass  # Variable doesn't exist in this scope`)
+                                instrumentedLines.push(`${indent}            _trace_vars['${varName}'] = repr(_val)`)
+                                instrumentedLines.push(`${indent}    except Exception as _e:`)
+                                instrumentedLines.push(`${indent}        pass  # Variable doesn't exist or not assigned yet: {type(_e).__name__}: {_e}`)
                             }
                         } else {
                             // Method 2: Fallback using globals() + locals() attempt
@@ -279,6 +465,8 @@ export class PythonInstrumentor {
                         instrumentedLines.push(`${indent}    _trace_execution(${originalLineNumber}, _trace_vars, _trace_filename)`)
                         instrumentedLines.push(`${indent}except Exception as _trace_err:`)
                         instrumentedLines.push(`${indent}    print(f"[TRACE CAPTURE ERROR] Line ${originalLineNumber}: {_trace_err}")`)
+                        instrumentedLines.push(`${indent}finally:`)
+                        instrumentedLines.push(`${indent}    _call_results.clear()  # Clear call results after trace`)
                     }
                 }
             }
@@ -329,7 +517,7 @@ export class PythonInstrumentor {
             appendTerminalDebug(`Instrumentation: ${headerLinesBeforeUserCode} lines before user code, first user line found at position ${actualHeaderLines}`)
             appendTerminalDebug(`Total instrumented lines: ${instrumentedCodeLines.length}, original lines: ${lines.length}`)
 
-            // Debug: show the instrumented code (disabled for cleaner output)
+            // Debug: show the instrumented code (enabled when flag is set or on first few instrumentations)
             if (window.__SSG_DEBUG_INSTRUMENTATION) {
                 console.log('=== INSTRUMENTED CODE ===')
                 console.log(instrumentedCode)
@@ -344,6 +532,8 @@ export class PythonInstrumentor {
 
         } catch (error) {
             appendTerminalDebug('Failed to instrument Python code: ' + error)
+            console.error('Instrumentation error:', error)
+            console.error('Original code:', sourceCode)
             return sourceCode // Return original on error
         }
     }
@@ -356,16 +546,18 @@ export class PythonInstrumentor {
         if (!trimmed || trimmed === '') return false
         if (trimmed.startsWith('#')) return false
 
-        // Skip control flow keywords that don't execute immediately
-        const skipKeywords = ['def ', 'class ', 'if ', 'elif ', 'else:', 'try:', 'except:', 'finally:',
+        // Skip control flow and structural keywords
+        // These will be captured by sys.settrace() when they execute
+        // We only need to instrument lines where we want to capture variable state
+        const skipKeywords = ['def ', 'class ', 'if ', 'elif ', 'else:', 'try:', 'except ', 'except:', 'finally:',
             'with ', 'for ', 'while ', 'global ', 'nonlocal ', 'lambda ', 'assert ']
         for (const keyword of skipKeywords) {
             if (trimmed.startsWith(keyword)) return false
         }
 
-        // Include assignment statements (this is the key fix for input() assignments)
+        // Include assignment statements, function calls, imports, returns
         const includePatterns = [
-            /^\w+\s*=.*/, // assignment statements (including name = input(...))
+            /^\w+\s*=.*/, // assignment statements
             /^print\s*\(/, // print calls  
             /^\w+\(/, // function calls
             /^return\s+/, // return statements
@@ -387,6 +579,96 @@ export class PythonInstrumentor {
     getIndentation(line) {
         const match = line.match(/^(\s*)/)
         return match ? match[1] : ''
+    }
+
+    /**
+     * Wrap function calls in an expression to capture their return values
+     * Example: randint(1, 3) == 1 -> _capture_call("randint", randint, 1, 3) == 1
+     * Example: check_win(move, 1) -> _capture_call("check_win", check_win, move, 1)
+     */
+    wrapFunctionCallsInCondition(expression) {
+        try {
+            // Skip certain built-in functions that we don't want to wrap
+            const skipFunctions = new Set(['int', 'str', 'float', 'bool', 'len', 'list', 'dict', 'set', 'tuple', 
+                                          'isinstance', 'hasattr', 'getattr', 'type', 'repr', 'chr', 'ord',
+                                          'min', 'max', 'abs', 'sum', 'any', 'all', 'sorted', 'reversed',
+                                          'enumerate', 'zip', 'map', 'filter', 'range', 'open', 'round',
+                                          'print', 'input'])  // Don't wrap print/input either
+            
+            // Parse and replace function calls from innermost to outermost
+            // This handles nested calls correctly
+            let result = expression
+            let changed = true
+            let iterations = 0
+            const maxIterations = 10 // Prevent infinite loops
+            
+            while (changed && iterations < maxIterations) {
+                changed = false
+                iterations++
+                
+                // Match function calls with balanced parentheses
+                // Pattern: functionName followed by ( and then match content until balanced )
+                const pattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g
+                let match
+                
+                while ((match = pattern.exec(result)) !== null) {
+                    const funcName = match[1]
+                    const startPos = match.index
+                    const parenStart = result.indexOf('(', startPos)
+                    
+                    // Skip functions we don't want to wrap
+                    if (skipFunctions.has(funcName)) {
+                        continue
+                    }
+                    
+                    // Find the matching closing parenthesis
+                    let depth = 0
+                    let parenEnd = -1
+                    
+                    for (let i = parenStart; i < result.length; i++) {
+                        if (result[i] === '(') depth++
+                        else if (result[i] === ')') {
+                            depth--
+                            if (depth === 0) {
+                                parenEnd = i
+                                break
+                            }
+                        }
+                    }
+                    
+                    if (parenEnd === -1) {
+                        // Unbalanced parentheses, skip
+                        continue
+                    }
+                    
+                    // Extract the full function call
+                    const fullCall = result.substring(startPos, parenEnd + 1)
+                    const args = result.substring(parenStart + 1, parenEnd)
+                    
+                    // Check if this call is already wrapped
+                    if (funcName === '_capture_call' || funcName === '_trace_condition' || funcName === '_trace_and_pass') {
+                        continue
+                    }
+                    
+                    // Create the wrapped version
+                    const wrappedCall = `_capture_call("${funcName}", ${funcName}${args ? ', ' + args : ''})`
+                    
+                    // Replace this occurrence
+                    result = result.substring(0, startPos) + wrappedCall + result.substring(parenEnd + 1)
+                    
+                    changed = true
+                    appendTerminalDebug(`Wrapped function call: ${funcName}()`)
+                    
+                    // Restart the search since we modified the string
+                    break
+                }
+            }
+            
+            return result
+        } catch (e) {
+            appendTerminalDebug(`Error wrapping function calls in condition: ${e}`)
+            return condition // Return original on error
+        }
     }
 
     /**

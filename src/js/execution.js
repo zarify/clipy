@@ -363,6 +363,11 @@ export async function runPythonCode(code, cfg) {
             try { window.ReplayEngine.stopReplay() } catch (_e2) { /* ignore */ }
             appendTerminalDebug('Stopped active replay before run')
         }
+        // Also hide replay UI controls when starting a new run
+        if (typeof window !== 'undefined' && window.ReplayUI && typeof window.ReplayUI.updateReplayControls === 'function') {
+            try { window.ReplayUI.updateReplayControls(false) } catch (_e3) { /* ignore */ }
+            appendTerminalDebug('Hid replay controls before run')
+        }
     } catch (_e) { appendTerminalDebug('Failed to stop replay before run: ' + _e) }
 
     setExecutionRunning(true)
