@@ -391,6 +391,28 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     }
 
     if (!rawText) return
+
+    // Native trace mode: headerLines === 0 means line numbers are already correct
+    // No mapping needed - just display the error as-is
+    if (headerLines === 0) {
+        _safeAppendTerminalDebug('Native trace mode - no line number mapping needed')
+
+        // Highlight the error in the editor
+        try {
+            highlightMappedTracebackInEditor(rawText)
+        } catch (_e) { }
+
+        // Append to terminal if available
+        if (typeof window !== 'undefined' && window.appendTerminal && typeof window.appendTerminal === 'function') {
+            try {
+                window.appendTerminal(rawText, 'stderr')
+                return rawText
+            } catch (_e) { }
+        }
+
+        return rawText
+    }
+
     // Normalize headerLines to a number and attempt a best-effort
     // fallback when callers did not supply a headerLines value. Some
     // call sites historically passed 0; in those cases we can try to

@@ -2,6 +2,126 @@
 import { appendTerminalDebug } from './terminal.js'
 
 /**
+ * Python bridge code for native sys.settrace() integration
+ * This is injected once to enable native tracing via JavaScript callbacks
+ */
+const SETTRACE_BRIDGE_CODE = `
+import sys
+
+def _settrace_js_bridge(frame, event, arg):
+    """Bridge sys.settrace to JavaScript _record_execution_step"""
+    if event != 'line':
+        return _settrace_js_bridge
+    
+    try:
+        # Get execution context
+        line_no = frame.f_lineno
+        filename = frame.f_code.co_filename
+        
+        # Get variables from frame.f_locals
+        # IMPORTANT: Our custom MicroPython implementation returns:
+        # - At module level: globals dict
+        # - Inside functions: parameters (by name) + local variables (as local_0, local_1, etc.)
+        # See plan/MISSION_ACCOMPLISHED.md for details
+        locals_dict = frame.f_locals or {}
+        
+        # Build the variables dictionary
+        vars_dict = {}
+        
+        for name in list(locals_dict.keys()):
+            # Skip internal variables (but NOT local_N which we need!)
+            if name.startswith('_'):
+                continue
+            
+            value = locals_dict[name]
+            
+            # Skip module objects and internal runtime vars
+            try:
+                val_type = str(type(value))
+                if "<class 'module'" in val_type or "<module" in val_type:
+                    continue
+                # Skip common internal runtime names
+                if name in ('js', 'gc', 'sys', 'm', 'has_settrace', 'name'):
+                    continue
+            except:
+                pass
+            
+            # Convert to serializable form
+            try:
+                if isinstance(value, str):
+                    vars_dict[name] = repr(value)
+                elif isinstance(value, (int, float, bool)):
+                    vars_dict[name] = value
+                elif value is None:
+                    vars_dict[name] = None
+                elif isinstance(value, (list, tuple, dict)):
+                    vars_dict[name] = repr(value)
+                else:
+                    vars_dict[name] = repr(value)
+            except:
+                vars_dict[name] = str(type(value))
+        
+        # Call JavaScript callback
+        try:
+            import js
+            if hasattr(js, '_record_execution_step'):
+                js._record_execution_step(line_no, vars_dict, filename)
+        except Exception as e:
+            # Silently ignore JS callback errors
+            pass
+    
+    except Exception as e:
+        # Silently ignore trace errors to avoid breaking user code
+        pass
+    
+    return _settrace_js_bridge
+
+# Enable tracing
+sys.settrace(_settrace_js_bridge)
+`
+
+/**
+ * Enable native sys.settrace() tracing
+ * @param {Object} adapter - Runtime adapter
+ * @returns {Promise<void>}
+ */
+export async function enableNativeTrace(adapter) {
+    if (!adapter || typeof adapter.run !== 'function') {
+        const err = 'Invalid runtime adapter for native trace'
+        appendTerminalDebug(`❌ ${err}`)
+        throw new Error(err)
+    }
+
+    appendTerminalDebug('📝 Installing native sys.settrace bridge code...')
+    try {
+        await adapter.run(SETTRACE_BRIDGE_CODE)
+        appendTerminalDebug('✅ Native sys.settrace bridge installed successfully')
+    } catch (err) {
+        appendTerminalDebug('❌ Failed to install native trace bridge: ' + err)
+        throw err
+    }
+}
+
+/**
+ * Disable native sys.settrace() tracing
+ * @param {Object} adapter - Runtime adapter
+ * @returns {Promise<void>}
+ */
+export async function disableNativeTrace(adapter) {
+    if (!adapter || typeof adapter.run !== 'function') {
+        throw new Error('Invalid runtime adapter for native trace')
+    }
+
+    try {
+        await adapter.run('import sys; sys.settrace(None)')
+        appendTerminalDebug('Native sys.settrace disabled')
+    } catch (err) {
+        appendTerminalDebug('Failed to disable native trace: ' + err)
+        throw err
+    }
+}
+
+/**
  * Data structure representing a single execution step
  */
 export class ExecutionStep {
@@ -132,6 +252,82 @@ export class ExecutionRecorder {
             maxStringLength: 200
         }
         this.executionHooks = null
+    }
+
+    /**
+     * Set up the JavaScript callback for native trace
+     * This is called by Python's sys.settrace bridge
+     * Based on tested implementation from micropython-tracer.js
+     */
+    setupNativeTraceCallback() {
+        const self = this
+
+        // Set up the global callback that Python will invoke
+        if (typeof globalThis !== 'undefined') {
+            try {
+                globalThis._record_execution_step = (lineNo, varsDict, filename) => {
+                    if (!self.isRecording) return
+
+                    try {
+                        // Convert PyProxy/dict to plain JavaScript Map
+                        const varsMap = new Map()
+
+                        if (varsDict && typeof varsDict === 'object') {
+                            // Try to iterate over the dictionary
+                            // Handle both PyProxy objects and plain objects
+                            try {
+                                // If it has entries() method (PyProxy)
+                                if (typeof varsDict.entries === 'function') {
+                                    for (const [key, value] of varsDict.entries()) {
+                                        // Filter out internal variables
+                                        if (!key.startsWith('_') && key !== 'sys') {
+                                            try {
+                                                varsMap.set(key, value)
+                                            } catch (e) {
+                                                // Skip unconvertible values
+                                            }
+                                        }
+                                    }
+                                }
+                                // Otherwise treat as plain object
+                                else {
+                                    for (const key in varsDict) {
+                                        if (!key.startsWith('_') && key !== 'sys') {
+                                            varsMap.set(key, varsDict[key])
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                appendTerminalDebug('Error converting variables: ' + e)
+                            }
+                        }
+
+                        // Record the step
+                        self.recordStep(lineNo, varsMap, 'global', 'line', filename)
+                    } catch (err) {
+                        appendTerminalDebug('Error in native trace callback: ' + err)
+                    }
+                }
+
+                appendTerminalDebug('✅ Native trace callback registered on globalThis')
+            } catch (err) {
+                appendTerminalDebug('❌ Failed to setup native trace callback: ' + err)
+            }
+        }
+    }
+
+    /**
+     * Clean up native trace callback
+     */
+    cleanupNativeTraceCallback() {
+        if (typeof globalThis !== 'undefined') {
+            try {
+                delete globalThis._record_execution_step
+                appendTerminalDebug('✅ Native trace callback cleaned up')
+            } catch (err) {
+                appendTerminalDebug('❌ Failed to cleanup native trace callback: ' + err)
+            }
+        }
     }
 
     /**

@@ -139,74 +139,13 @@ export async function executeWithTimeout(executionPromise, timeoutMs, safetyTime
 }
 
 /**
- * Instrument all Python files in the workspace for execution tracing
- * This must be called AFTER files are synced but BEFORE mounting
+ * Sync VFS files to runtime (no longer needs instrumentation)
+ * Native trace handles all files automatically
  */
-async function instrumentAllPythonFiles(recordingEnabled, recorder, currentRuntimeAdapter) {
-    if (!recordingEnabled || !recorder) {
-        return
-    }
-
-    try {
-        const { getPythonInstrumentor } = await import('./python-instrumentor.js')
-        const instrumentor = getPythonInstrumentor()
-        const FileManager = getFileManager()
-        const fs = window.__ssg_runtime_fs
-
-        if (!FileManager || !fs) {
-            appendTerminalDebug('Cannot instrument files: FileManager or runtime FS not available')
-            return
-        }
-
-        const files = FileManager.list()
-        // Instrument all Python files EXCEPT main.py (which will be instrumented separately from the editor)
-        const pythonFiles = files.filter(f => f.endsWith('.py') && f !== MAIN_FILE)
-
-        appendTerminalDebug(`Found ${pythonFiles.length} Python files to instrument (excluding ${MAIN_FILE}): ${pythonFiles.join(', ')}`)
-
-        for (const filepath of pythonFiles) {
-            try {
-                const sourceCode = FileManager.read(filepath)
-                if (!sourceCode) {
-                    appendTerminalDebug(`Skipping empty file: ${filepath}`)
-                    continue
-                }
-
-                appendTerminalDebug(`Instrumenting ${filepath}...`)
-                const instrResult = await instrumentor.instrumentCode(sourceCode, currentRuntimeAdapter, filepath)
-
-                if (instrResult && typeof instrResult === 'object' && typeof instrResult.code === 'string') {
-                    // Write the instrumented version to the runtime FS
-                    try {
-                        markExpectedWrite(filepath, instrResult.code)
-                        try { window.__ssg_suppress_notifier = true } catch (_e) { }
-                        fs.writeFile(filepath, instrResult.code)
-                        try { window.__ssg_suppress_notifier = false } catch (_e) { }
-                        appendTerminalDebug(`Successfully instrumented and wrote ${filepath} to runtime FS`)
-                    } catch (writeErr) {
-                        appendTerminalDebug(`Failed to write instrumented ${filepath}: ${writeErr}`)
-                    }
-                } else if (typeof instrResult === 'string') {
-                    // Backwards compatibility: instrumentor returned string
-                    try {
-                        markExpectedWrite(filepath, instrResult)
-                        try { window.__ssg_suppress_notifier = true } catch (_e) { }
-                        fs.writeFile(filepath, instrResult)
-                        try { window.__ssg_suppress_notifier = false } catch (_e) { }
-                        appendTerminalDebug(`Successfully instrumented and wrote ${filepath} to runtime FS (legacy)`)
-                    } catch (writeErr) {
-                        appendTerminalDebug(`Failed to write instrumented ${filepath}: ${writeErr}`)
-                    }
-                }
-            } catch (instrErr) {
-                appendTerminalDebug(`Failed to instrument ${filepath}: ${instrErr}`)
-            }
-        }
-
-        appendTerminalDebug('Finished instrumenting all Python files')
-    } catch (error) {
-        appendTerminalDebug('Error instrumenting Python files: ' + error)
-    }
+async function syncFilesToRuntime(currentRuntimeAdapter) {
+    // Native trace doesn't require instrumentation
+    // Files are synced as-is
+    appendTerminalDebug('Native trace enabled - no file instrumentation needed')
 }
 
 // Sync VFS files before execution
@@ -286,8 +225,8 @@ async function syncVFSBeforeRun(recordingEnabled, recorder, currentRuntimeAdapte
             if (!mounted) appendTerminalDebug('Warning: VFS pre-run mount attempts exhausted')
         }
 
-        // NEW: Instrument all Python files for recording AFTER mounting so they don't get overwritten
-        await instrumentAllPythonFiles(recordingEnabled, recorder, currentRuntimeAdapter)
+        // Native trace doesn't require file instrumentation
+        appendTerminalDebug('VFS sync complete (native trace mode)')
     } catch (_m) {
         appendTerminal('VFS pre-run mount error: ' + _sanitizeAppendable(_m), 'runtime')
     }
@@ -385,15 +324,12 @@ export async function runPythonCode(code, cfg) {
         recorder.startRecording(code, cfg)
         appendTerminalDebug('Execution recording enabled for this run')
 
-        // Set up Python code instrumentation for real tracing
+        // Set up native trace callback for recording
         try {
-            const { getPythonInstrumentor } = await import('./python-instrumentor.js')
-            const instrumentor = getPythonInstrumentor()
-            instrumentor.setHooks(recorder.getExecutionHooks())
-            instrumentor.setupTraceCallback()
-            appendTerminalDebug('Python instrumentation enabled for recording')
+            recorder.setupNativeTraceCallback()
+            appendTerminalDebug('Native trace callback registered for recording')
         } catch (e) {
-            appendTerminalDebug('Failed to setup Python instrumentation: ' + e)
+            appendTerminalDebug('Failed to setup native trace callback: ' + e)
         }
     } else {
         appendTerminalDebug(`Recording not enabled - recordReplay: ${cfg?.features?.recordReplay}, supported: ${recorder ? recorder.constructor.isSupported() : 'no recorder'}`)
@@ -651,48 +587,26 @@ except Exception:
                 needsTransformation = true
             }
 
-            // NEW: Instrument code for recording if enabled
+            // Enable native trace for recording if enabled and supported
             if (recordingEnabled && recorder) {
-                try {
-                    const { getPythonInstrumentor } = await import('./python-instrumentor.js')
-                    const instrumentor = getPythonInstrumentor()
-                    const instrResult = await instrumentor.instrumentCode(codeToRun, currentRuntimeAdapter, MAIN_FILE)
-                    // instrumentCode now returns { code, headerLines } on success
-                    if (instrResult && typeof instrResult === 'object' && typeof instrResult.code === 'string') {
-                        codeToRun = instrResult.code
-                        // accumulate headerLines so mapping subtracts the right offset
-                        const instrumentationHeaders = Number(instrResult.headerLines) || 0
-                        // Preserve the headerLines value that came from transformAndWrap
-                        const transformWrapperHeaderLines = Number(headerLines || 0)
-                        headerLines = (headerLines || 0) + instrumentationHeaders
-                        // If the instrumentor provided an explicit line map, adjust
-                        // its values so they refer to the original user source line
-                        // numbers (subtract the transform wrapper header lines).
-                        try {
-                            if (instrResult.lineMap && typeof instrResult.lineMap === 'object') {
-                                const adjusted = {}
-                                for (const [k, v] of Object.entries(instrResult.lineMap || {})) {
-                                    try {
-                                        const orig = Number(v) || 0
-                                        // Subtract the transform wrapper header lines so
-                                        // the resulting map values correspond to the
-                                        // user's original source lines.
-                                        adjusted[String(k)] = Math.max(1, orig - transformWrapperHeaderLines)
-                                    } catch (_e) { adjusted[String(k)] = Number(v) }
-                                }
-                                window.__ssg_instrumented_line_map = adjusted
-                            } else {
-                                window.__ssg_instrumented_line_map = null
-                            }
-                        } catch (_e) { try { window.__ssg_instrumented_line_map = instrResult.lineMap || null } catch (__e) { } }
-                        appendTerminalDebug(`HeaderLines updated: base=${headerLines - instrumentationHeaders}, instrumentation=${instrumentationHeaders}, total=${headerLines}`)
-                    } else if (typeof instrResult === 'string') {
-                        // Backwards compatibility: plugin returned string
-                        codeToRun = instrResult
+                appendTerminalDebug(`🔍 Checking native trace for recording...`)
+                appendTerminalDebug(`   - recordingEnabled: ${recordingEnabled}`)
+                appendTerminalDebug(`   - recorder exists: ${!!recorder}`)
+                appendTerminalDebug(`   - currentRuntimeAdapter exists: ${!!currentRuntimeAdapter}`)
+                appendTerminalDebug(`   - hasNativeTrace: ${currentRuntimeAdapter?.hasNativeTrace}`)
+
+                if (currentRuntimeAdapter.hasNativeTrace) {
+                    try {
+                        const { enableNativeTrace } = await import('./execution-recorder.js')
+                        await enableNativeTrace(currentRuntimeAdapter)
+                        appendTerminalDebug('✅ Native sys.settrace enabled for recording')
+                        // With native trace, headerLines is always 0 (no code transformation)
+                        headerLines = 0
+                    } catch (e) {
+                        appendTerminalDebug('❌ Failed to enable native trace: ' + e)
                     }
-                    appendTerminalDebug('Python code instrumented for execution tracing')
-                } catch (e) {
-                    appendTerminalDebug('Failed to instrument code: ' + e)
+                } else {
+                    appendTerminalDebug('⚠️ Native trace not available - recording will not work without instrumentation')
                 }
             }
 
@@ -1180,30 +1094,29 @@ except Exception:
         }
         try { setTerminalInputEnabled(false) } catch (_e) { }
     } finally {
-        // NEW: Finalize recording and show replay controls
+        // Finalize recording and cleanup
         if (recordingEnabled && recorder) {
-            recorder.finalizeRecording()
-
-            // Clean up Python instrumentation
+            // Disable native trace if it was enabled
             try {
-                const { getPythonInstrumentor } = await import('./python-instrumentor.js')
-                const instrumentor = getPythonInstrumentor()
-                instrumentor.cleanup()
-            } catch (e) {
-                appendTerminalDebug('Failed to cleanup Python instrumentation: ' + e)
-            }
-
-            // Clean up execution monitoring hooks
-            try {
-                if (window.__ssg_execution_intercepted) {
-                    // Call cleanup function from micropython.js
-                    if (typeof window.cleanupExecutionStepMonitoring === 'function') {
-                        window.cleanupExecutionStepMonitoring()
-                    }
+                const currentAdapter = getRuntimeAdapter()
+                if (currentAdapter && currentAdapter.hasNativeTrace) {
+                    const { disableNativeTrace } = await import('./execution-recorder.js')
+                    await disableNativeTrace(currentAdapter)
+                    appendTerminalDebug('Native sys.settrace disabled')
                 }
             } catch (e) {
-                appendTerminalDebug('Failed to cleanup execution monitoring: ' + e)
+                appendTerminalDebug('Failed to disable native trace: ' + e)
             }
+
+            // Cleanup native trace callback
+            try {
+                recorder.cleanupNativeTraceCallback()
+            } catch (e) {
+                appendTerminalDebug('Failed to cleanup native trace callback: ' + e)
+            }
+
+            // Finalize the recording
+            recorder.finalizeRecording()
 
             // Show replay controls if recording is available
             try {

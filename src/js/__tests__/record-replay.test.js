@@ -206,20 +206,20 @@ describe('Replay System', () => {
     })
 
     describe('ReplayEngine', () => {
-        test('should start replay with valid trace', () => {
+        test('should start replay with valid trace', async () => {
             const trace = new ExecutionTrace()
             trace.addStep(new ExecutionStep(1, new Map([['x', 5]])))
             trace.addStep(new ExecutionStep(2, new Map([['y', 10]])))
 
-            const result = replayEngine.startReplay(trace)
+            const result = await replayEngine.startReplay(trace)
             expect(result).toBe(true)
             expect(replayEngine.isReplaying).toBe(true)
             expect(replayEngine.currentStepIndex).toBe(0)
         })
 
-        test('should not start replay with empty trace', () => {
+        test('should not start replay with empty trace', async () => {
             const trace = new ExecutionTrace()
-            const result = replayEngine.startReplay(trace)
+            const result = await replayEngine.startReplay(trace)
             expect(result).toBe(false)
             expect(replayEngine.isReplaying).toBe(false)
         })

@@ -10,19 +10,26 @@ export class ReplayLineDecorator {
         this.codemirror = codemirror
         this.activeWidgets = []
         this.currentExecutionLine = null
+        this.lineReferenceMap = null  // Will be set by ReplayEngine
     }
 
     /**
      * Show variables at a specific line
+     * @param {number} lineNumber - Line number to show variables for
+     * @param {Map} variables - Variables at this step
+     * @param {Object} executionTrace - The execution trace (needed to look ahead for assigned values)
+     * @param {number} currentStepIndex - Current step index (needed to look ahead)
      */
-    showVariablesAtLine(lineNumber, variables) {
+    showVariablesAtLine(lineNumber, variables, executionTrace = null, currentStepIndex = -1) {
         if (!this.codemirror || !variables || variables.size === 0) {
+            appendTerminalDebug(`showVariablesAtLine: skipped - codemirror=${!!this.codemirror}, variables=${variables ? variables.size : 'null'}`)
             return
         }
 
         try {
-            // Get the source text for the given line to filter variables to only those
-            // referenced on the line. Use a word-boundary regex for matching.
+            appendTerminalDebug(`showVariablesAtLine: line ${lineNumber}, ${variables.size} variables total`)
+
+            // Get the source text for the given line
             let lineText = ''
             try {
                 lineText = this.codemirror.getLine(lineNumber - 1) || ''
@@ -30,28 +37,106 @@ export class ReplayLineDecorator {
                 lineText = ''
             }
 
-            // Filter variables to those that appear in the line text
-            const filteredVars = new Map()
-            for (const [name, value] of variables) {
-                try {
-                    const re = new RegExp(`\\b${this.escapeForRegex(name)}\\b`)
-                    if (re.test(lineText)) {
-                        filteredVars.set(name, value)
-                    }
-                } catch (e) {
-                    // If regex fails for some reason, fall back to substring check
-                    if (lineText.includes(name)) {
-                        filteredVars.set(name, value)
-                    }
-                }
+            // Use cached AST analysis to determine which variables are assigned/referenced on this line
+            const displayVars = new Map()
+            const astData = this.getReferencedNamesForLine(lineNumber)
+
+            // Helper: Filter out built-in functions and internal variables
+            const isBuiltinOrInternal = (name, value) => {
+                // Filter out common built-in functions that shouldn't be shown
+                const builtins = ['print', 'input', 'int', 'str', 'float', 'len', 'range', 'list', 'dict', 'set', 'tuple']
+                if (builtins.includes(name)) return true
+
+                // Filter out function objects (unless they're user-defined and assigned on this line)
+                if (typeof value === 'string' && value.startsWith('<function') && !astData?.assigned.has(name)) return true
+
+                return false
             }
 
-            if (filteredVars.size === 0) {
+            // DEBUG: Log complete state for this line
+            console.group(`🔍 Line ${lineNumber}: ${lineText.trim()}`)
+            console.log('Available variables:', Array.from(variables.keys()).join(', '))
+            console.log('AST data exists:', !!astData)
+            if (astData) {
+                console.log('AST assigned size:', astData.assigned.size, 'referenced size:', astData.referenced.size)
+            }
+
+            if (astData && (astData.assigned.size > 0 || astData.referenced.size > 0)) {
+                console.log('AST assigned:', Array.from(astData.assigned))
+                console.log('AST referenced:', Array.from(astData.referenced))
+
+                // Strategy: Show both assigned AND referenced variables
+                // IMPORTANT: sys.settrace 'line' events fire BEFORE the line executes
+                // So we need to look at the NEXT step to get values AFTER this line executes
+
+                // Get the next step's variables (which will have been updated after this line executed)
+                let nextStepVars = null
+                if (executionTrace && currentStepIndex >= 0 && currentStepIndex < executionTrace.getStepCount() - 1) {
+                    const nextStep = executionTrace.getStep(currentStepIndex + 1)
+                    if (nextStep) {
+                        nextStepVars = nextStep.variables
+                        console.log('Next step vars:', Array.from(nextStepVars?.keys() || []).join(', '))
+                        console.log('Next step line:', nextStep.lineNumber)
+                    } else {
+                        console.log('Next step exists but is null')
+                    }
+                } else {
+                    console.log('No next step available - trace:', !!executionTrace, 'stepIndex:', currentStepIndex, 'count:', executionTrace?.getStepCount())
+                }
+
+                // First, add all assigned variables (use next step's values if available)
+                for (const name of astData.assigned) {
+                    // Skip built-ins
+                    if (isBuiltinOrInternal(name, variables.get(name))) {
+                        console.log(`  ⊘ Skipping builtin/internal: ${name}`)
+                        continue
+                    }
+
+                    // For assignments, prefer the next step's value (after execution)
+                    let value = nextStepVars?.get(name) ?? variables.get(name)
+
+                    if (value !== undefined) {
+                        displayVars.set(name, value)
+                        console.log(`  ✓ Added ASSIGNED: ${name} = ${value}`)
+                    } else {
+                        console.log(`  ✗ ASSIGNED var not found: ${name}`)
+                    }
+                }
+
+                // Then, add referenced variables that aren't already in displayVars
+                // For referenced vars, use current step values (the values that were READ by this line)
+                for (const [name, value] of variables) {
+                    if (astData.referenced.has(name) && !displayVars.has(name) && !isBuiltinOrInternal(name, value)) {
+                        displayVars.set(name, value)
+                        console.log(`  ✓ Added REFERENCED: ${name} = ${value}`)
+                    }
+                }
+
+                console.log('Final display vars:', Array.from(displayVars.keys()).join(', '))
+                console.groupEnd()
+                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", AST found ${astData.assigned.size} assigned + ${astData.referenced.size} referenced, displaying ${displayVars.size} variables`)
+            } else if (astData) {
+                // AST data exists but indicates no variables assigned or referenced on this line
+                // Show nothing (e.g., return statement with a constant, pass, etc.)
+                console.log('AST indicates no variables - showing nothing')
+                console.groupEnd()
+                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", AST indicates no variables`)
+            } else {
+                // Fallback: if AST not available at all, show all variables (better than showing nothing)
+                console.log('No AST data - showing all variables as fallback')
+                console.groupEnd()
+                for (const [name, value] of variables) {
+                    displayVars.set(name, value)
+                }
+                appendTerminalDebug(`showVariablesAtLine: line "${lineText.trim()}", no AST data, displaying all ${displayVars.size} variables`)
+            }
+
+            if (displayVars.size === 0) {
                 return
             }
 
             // Create HTML element for variable display (each variable on its own row)
-            const variableDisplay = this.formatVariablesForDisplay(filteredVars)
+            const variableDisplay = this.formatVariablesForDisplay(displayVars)
 
             // Ensure value text doesn't overflow a reasonable width — cap to editor width
             // Add line widget below the specified line
@@ -81,12 +166,42 @@ export class ReplayLineDecorator {
                 this.codemirror.addLineClass(lineNumber - 1, 'background', 'execution-current')
                 this.currentExecutionLine = lineNumber
 
-                // Scroll to the line
-                const coords = this.codemirror.charCoords({ line: lineNumber - 1, ch: 0 }, 'local')
-                this.codemirror.scrollIntoView({ line: lineNumber - 1, ch: 0 })
+                // Scroll to the line with proper margin
+                // CodeMirror's scrollIntoView accepts a margin parameter (in pixels)
+                // We want 3 lines of context above/below, plus space for variable widgets
+                const lineHeight = this.codemirror.defaultTextHeight() || 18
+                const contextLines = 3
+                const widgetEstimate = 100  // Estimate for variable display widget
+                const margin = (contextLines * lineHeight) + widgetEstimate
+
+                this.codemirror.scrollIntoView(
+                    { line: lineNumber - 1, ch: 0 },
+                    margin  // This ensures we have space above AND below
+                )
             }
         } catch (error) {
             appendTerminalDebug('Failed to highlight execution line: ' + error)
+        }
+    }
+
+    /**
+     * Get variable names to display for a specific line (using AST analysis)
+     * Returns an object with { assigned: Set, referenced: Set }
+     * Display logic should prioritize assigned variables
+     */
+    getReferencedNamesForLine(lineNumber) {
+        if (!this.lineReferenceMap || !this.lineReferenceMap.has(lineNumber)) {
+            return null
+        }
+        const lineData = this.lineReferenceMap.get(lineNumber)
+
+        // Return both assigned and referenced sets
+        // Also include function calls in referenced (functions being called are "referenced")
+        const referencedWithCalls = new Set([...lineData.referenced, ...lineData.functionCalls])
+
+        return {
+            assigned: lineData.assigned || new Set(),
+            referenced: referencedWithCalls
         }
     }
 
@@ -259,12 +374,13 @@ export class ReplayEngine {
         this.lineDecorator = null
         this.ui = null
         this.currentFilename = '/main.py'  // Track which file is currently being shown
+        this.lineReferenceMap = null  // Cache for AST-based line references
     }
 
     /**
      * Start replay with an execution trace
      */
-    startReplay(executionTrace) {
+    async startReplay(executionTrace) {
         if (!executionTrace || executionTrace.getStepCount() === 0) {
             appendTerminalDebug('Cannot start replay: no execution trace available')
             return false
@@ -299,9 +415,15 @@ export class ReplayEngine {
             this.currentStepIndex = 0
             this.isReplaying = true
 
-            // Initialize line decorator
+            // Build AST line reference map from source code
+            if (executionTrace.metadata && executionTrace.metadata.sourceCode) {
+                await this.buildLineReferenceMap(executionTrace.metadata.sourceCode)
+            }
+
+            // Initialize line decorator and pass it the AST reference map
             if (window.cm) {
                 this.lineDecorator = new ReplayLineDecorator(window.cm)
+                this.lineDecorator.lineReferenceMap = this.lineReferenceMap
             }
 
             // Before showing replay UI and displaying the first step, ensure
@@ -332,6 +454,61 @@ export class ReplayEngine {
         } catch (error) {
             appendTerminalDebug('Failed to start replay: ' + error)
             return false
+        }
+    }
+
+    /**
+     * Build AST-based line reference map from source code
+     */
+    async buildLineReferenceMap(sourceCode) {
+        try {
+            // Dynamically import AST analyzer
+            const { getASTAnalyzer } = await import('./ast-analyzer.js')
+            const analyzer = await getASTAnalyzer()
+            const ast = await analyzer.parse(sourceCode)
+
+            if (ast) {
+                this.lineReferenceMap = analyzer.getVariablesAndCallsPerLine(ast)
+
+                // Build function local variable maps for translating local_N variables
+                this.functionLocalMaps = analyzer.buildFunctionLocalMaps(ast)
+                this.lineFunctionMap = analyzer.buildLineFunctionMap(ast)
+
+                appendTerminalDebug(`Built AST line reference map: ${this.lineReferenceMap.size} lines analyzed`)
+
+                // DEBUG: Log the complete AST map
+                console.group('📊 Complete AST Line Reference Map')
+                for (const [lineNum, data] of this.lineReferenceMap.entries()) {
+                    const lineText = sourceCode.split('\n')[lineNum - 1] || ''
+                    console.log(`Line ${lineNum}: ${lineText.trim()}`)
+                    console.log(`  Assigned: [${Array.from(data.assigned).join(', ')}]`)
+                    console.log(`  Referenced: [${Array.from(data.referenced).join(', ')}]`)
+                    console.log(`  Function Calls: [${Array.from(data.functionCalls).join(', ')}]`)
+                }
+                console.groupEnd()
+
+                // DEBUG: Log function local maps
+                if (this.functionLocalMaps && Object.keys(this.functionLocalMaps).length > 0) {
+                    console.group('📋 Function Local Variable Maps')
+                    for (const [funcName, localVars] of Object.entries(this.functionLocalMaps)) {
+                        console.log(`${funcName}():`, localVars.join(', '))
+                        localVars.forEach((varName, idx) => {
+                            console.log(`  local_${idx} → ${varName}`)
+                        })
+                    }
+                    console.groupEnd()
+                }
+            } else {
+                appendTerminalDebug('Failed to build AST line reference map: parse returned null')
+                this.lineReferenceMap = null
+                this.functionLocalMaps = null
+                this.lineFunctionMap = null
+            }
+        } catch (error) {
+            appendTerminalDebug('Error building AST line reference map: ' + error)
+            this.lineReferenceMap = null
+            this.functionLocalMaps = null
+            this.lineFunctionMap = null
         }
     }
 
@@ -450,6 +627,50 @@ export class ReplayEngine {
     }
 
     /**
+     * Translate local_N variables to real names using AST-based function maps
+     * @param {Map} variables - Variable map from execution trace
+     * @param {number} lineNumber - Current line number
+     * @returns {Map} Translated variable map
+     */
+    translateLocalVariables(variables, lineNumber) {
+        if (!variables || !this.functionLocalMaps || !this.lineFunctionMap) {
+            return variables;
+        }
+
+        // Determine which function this line belongs to
+        const functionName = this.lineFunctionMap.get(lineNumber);
+        if (!functionName) {
+            // Module level - no translation needed
+            return variables;
+        }
+
+        // Get the local variable map for this function
+        const localVarNames = this.functionLocalMaps[functionName];
+        if (!localVarNames || localVarNames.length === 0) {
+            return variables;
+        }
+
+        // Translate local_N to real names, filtering out unmapped locals (stack temporaries)
+        const translated = new Map();
+        for (const [key, value] of variables) {
+            if (key.startsWith('local_')) {
+                const index = parseInt(key.substring(6));
+                const realName = localVarNames[index];
+                if (realName) {
+                    translated.set(realName, value);
+                    console.log(`  🔄 Translated ${key} → ${realName} = ${value}`);
+                }
+                // else: Skip unmapped local_N (stack temporary) - don't include it
+            } else {
+                // Not a local_N variable - keep as is
+                translated.set(key, value);
+            }
+        }
+
+        return translated;
+    }
+
+    /**
      * Display the current step
      */
     displayCurrentStep() {
@@ -465,6 +686,13 @@ export class ReplayEngine {
 
             appendTerminalDebug(`Displaying step ${this.currentStepIndex}: line ${step.lineNumber} in ${step.filename || '/main.py'}`)
 
+            // DEBUG: Log execution step details
+            console.group(`🎬 Step ${this.currentStepIndex}`)
+            console.log('Line number:', step.lineNumber)
+            console.log('Filename:', step.filename || '/main.py')
+            console.log('Variables at this step:', Array.from(step.variables?.entries() || []).map(([k, v]) => `${k}=${v}`).join(', '))
+            console.groupEnd()
+
             // Ensure we're viewing the correct Python code file for this step.
             // This prevents highlighting lines in non-code files like .txt data files.
             if (step.filename) {
@@ -477,9 +705,12 @@ export class ReplayEngine {
             // Highlight execution line
             this.lineDecorator.highlightExecutionLine(step.lineNumber)
 
+            // Translate local_N variables to real names
+            const translatedVariables = this.translateLocalVariables(step.variables, step.lineNumber)
+
             // Show variables if available
-            if (step.variables && step.variables.size > 0) {
-                this.lineDecorator.showVariablesAtLine(step.lineNumber, step.variables)
+            if (translatedVariables && translatedVariables.size > 0) {
+                this.lineDecorator.showVariablesAtLine(step.lineNumber, translatedVariables, this.executionTrace, this.currentStepIndex)
             }
         } catch (error) {
             appendTerminalDebug('Failed to display current step: ' + error)
