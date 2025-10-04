@@ -820,6 +820,27 @@ export class ReplayEngine {
 
             // Try to switch to the tab using the TabManager
             if (window.TabManager && typeof window.TabManager.selectTab === 'function') {
+                // Persist current editor content to FileManager before switching
+                // so that any unsaved user edits are not lost when replay switches tabs.
+                try {
+                    const FileManager = (window && window.FileManager) || (window && window.getFileManager && window.getFileManager && window.getFileManager()) || null
+                    // Prefer the public API if available
+                    const cm = window.cm
+                    const textarea = document.getElementById && document.getElementById('code')
+                    const activePath = (window.TabManager && typeof window.TabManager.getActive === 'function') ? window.TabManager.getActive() : null
+                    if (FileManager && activePath) {
+                        try {
+                            const cur = (cm ? cm.getValue() : (textarea ? textarea.value : null))
+                            if (typeof FileManager.write === 'function' && cur !== null) {
+                                // Use system write mode wherever callers expect it to bypass read-only checks
+                                try { if (typeof window.setSystemWriteMode === 'function') window.setSystemWriteMode(true) } catch (_e) { }
+                                try { FileManager.write(activePath, cur) } catch (_e) { }
+                                try { if (typeof window.setSystemWriteMode === 'function') window.setSystemWriteMode(false) } catch (_e) { }
+                            }
+                        } catch (_e) { /* swallow persistence errors */ }
+                    }
+                } catch (_e) { }
+
                 appendTerminalDebug(`Switching to file: ${normalizedFilename}`)
                 window.TabManager.selectTab(normalizedFilename)
                 this.currentFilename = normalizedFilename
