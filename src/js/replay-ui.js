@@ -110,6 +110,41 @@ export class ReplayLineDecorator {
                         displayVars.set(name, value)
                     }
                 }
+
+                // Finally, evaluate and add subscript expressions (e.g., beats[h] = 1)
+                if (astData.subscripts && astData.subscripts.length > 0) {
+                    for (const { object, key } of astData.subscripts) {
+                        try {
+                            // Get the object value
+                            const objValue = variables.get(object)
+                            if (!objValue || typeof objValue !== 'string') {
+                                continue
+                            }
+
+                            // Get the key value (could be a variable or a constant)
+                            let keyValue = key
+                            if (typeof key === 'string' && variables.has(key)) {
+                                keyValue = variables.get(key)
+                            }
+
+                            // Try to evaluate the subscript
+                            const result = this.evaluateSubscript(objValue, keyValue)
+                            if (result !== undefined) {
+                                // Add with a special format like "beats[h]"
+                                const displayName = typeof key === 'string' && variables.has(key)
+                                    ? `${object}[${key}]`
+                                    : `${object}[${JSON.stringify(key)}]`
+                                // Format the result: add quotes around strings to match Python repr
+                                const formattedResult = typeof result === 'string'
+                                    ? `'${result}'`
+                                    : result
+                                displayVars.set(displayName, formattedResult)
+                            }
+                        } catch (e) {
+                            // Silently skip subscripts that can't be evaluated
+                        }
+                    }
+                }
             } else if (astData) {
                 // AST data exists but indicates no variables assigned or referenced on this line
                 // Show nothing (e.g., return statement with a constant, pass, etc.)
@@ -137,6 +172,61 @@ export class ReplayLineDecorator {
             this.activeWidgets.push(widget)
         } catch (error) {
             appendTerminalDebug('Failed to show variables at line: ' + error)
+        }
+    }
+
+    /**
+     * Evaluate a subscript expression like dict[key] or list[index]
+     * @param {string} objValue - String representation of the object (e.g., "{1: 2, 3: 4}")
+     * @param {*} keyValue - The key/index to look up
+     * @returns {*} The subscript result, or undefined if evaluation fails
+     */
+    evaluateSubscript(objValue, keyValue) {
+        try {
+            // Parse the object string representation into a JavaScript object
+            let obj
+
+            // Handle dictionary format: {1: 2, 3: 4}
+            if (objValue.startsWith('{') && objValue.endsWith('}')) {
+                // Convert Python dict repr to JSON by replacing single quotes with double quotes
+                // and handling numeric keys properly
+                const jsonStr = objValue
+                    .replace(/'/g, '"')
+                    .replace(/(\d+):/g, '"$1":')  // Wrap numeric keys in quotes
+                obj = JSON.parse(jsonStr)
+            }
+            // Handle list/tuple format: [1, 2, 3] or (1, 2, 3)
+            else if ((objValue.startsWith('[') && objValue.endsWith(']')) ||
+                (objValue.startsWith('(') && objValue.endsWith(')'))) {
+                const jsonStr = objValue
+                    .replace(/'/g, '"')
+                    .replace(/^\(/, '[')
+                    .replace(/\)$/, ']')
+                obj = JSON.parse(jsonStr)
+            }
+            // Handle string format: 'hello' or "hello"
+            else if ((objValue.startsWith("'") && objValue.endsWith("'")) ||
+                (objValue.startsWith('"') && objValue.endsWith('"'))) {
+                obj = objValue.slice(1, -1)
+            }
+            else {
+                return undefined
+            }
+
+            // Look up the key/index
+            // For objects (dicts), convert key to string for lookup
+            if (typeof obj === 'object' && !Array.isArray(obj)) {
+                return obj[String(keyValue)]
+            }
+            // For arrays/strings, use numeric index
+            else if (Array.isArray(obj) || typeof obj === 'string') {
+                const index = parseInt(keyValue)
+                return isNaN(index) ? undefined : obj[index]
+            }
+
+            return undefined
+        } catch (e) {
+            return undefined
         }
     }
 
@@ -190,7 +280,8 @@ export class ReplayLineDecorator {
 
         return {
             assigned: lineData.assigned || new Set(),
-            referenced: referencedWithCalls
+            referenced: referencedWithCalls,
+            subscripts: lineData.subscripts || []
         }
     }
 
@@ -466,29 +557,6 @@ export class ReplayEngine {
                 this.lineFunctionMap = analyzer.buildLineFunctionMap(ast)
 
                 appendTerminalDebug(`Built AST line reference map: ${this.lineReferenceMap.size} lines analyzed`)
-
-                // DEBUG: Log the complete AST map
-                console.group('📊 Complete AST Line Reference Map')
-                for (const [lineNum, data] of this.lineReferenceMap.entries()) {
-                    const lineText = sourceCode.split('\n')[lineNum - 1] || ''
-                    console.log(`Line ${lineNum}: ${lineText.trim()}`)
-                    console.log(`  Assigned: [${Array.from(data.assigned).join(', ')}]`)
-                    console.log(`  Referenced: [${Array.from(data.referenced).join(', ')}]`)
-                    console.log(`  Function Calls: [${Array.from(data.functionCalls).join(', ')}]`)
-                }
-                console.groupEnd()
-
-                // DEBUG: Log function local maps
-                if (this.functionLocalMaps && Object.keys(this.functionLocalMaps).length > 0) {
-                    console.group('📋 Function Local Variable Maps')
-                    for (const [funcName, localVars] of Object.entries(this.functionLocalMaps)) {
-                        console.log(`${funcName}():`, localVars.join(', '))
-                        localVars.forEach((varName, idx) => {
-                            console.log(`  local_${idx} → ${varName}`)
-                        })
-                    }
-                    console.groupEnd()
-                }
             } else {
                 appendTerminalDebug('Failed to build AST line reference map: parse returned null')
                 this.lineReferenceMap = null
@@ -649,7 +717,6 @@ export class ReplayEngine {
                 const realName = localVarNames[index];
                 if (realName) {
                     translated.set(realName, value);
-                    console.log(`  🔄 Translated ${key} → ${realName} = ${value}`);
                 }
                 // else: Skip unmapped local_N (stack temporary) - don't include it
             } else {
@@ -676,13 +743,6 @@ export class ReplayEngine {
             }
 
             appendTerminalDebug(`Displaying step ${this.currentStepIndex}: line ${step.lineNumber} in ${step.filename || '/main.py'}`)
-
-            // DEBUG: Log execution step details
-            console.group(`🎬 Step ${this.currentStepIndex}`)
-            console.log('Line number:', step.lineNumber)
-            console.log('Filename:', step.filename || '/main.py')
-            console.log('Variables at this step:', Array.from(step.variables?.entries() || []).map(([k, v]) => `${k}=${v}`).join(', '))
-            console.groupEnd()
 
             // Ensure we're viewing the correct Python code file for this step.
             // This prevents highlighting lines in non-code files like .txt data files.

@@ -1295,7 +1295,8 @@ export class ASTAnalyzer {
                 perLine.set(lineNo, {
                     assigned: new Set(),      // Variables assigned on this line (Store context)
                     referenced: new Set(),    // Variables referenced on this line (Load context)
-                    functionCalls: new Set()  // Function calls on this line
+                    functionCalls: new Set(), // Function calls on this line
+                    subscripts: []            // Subscript expressions like obj[key]
                 });
             }
             return perLine.get(lineNo);
@@ -1344,6 +1345,31 @@ export class ASTAnalyzer {
                 }
                 if (lineData && funcName) {
                     lineData.functionCalls.add(funcName);
+                }
+            }
+
+            // Collect subscript expressions (e.g., obj[key], list[0], dict[var])
+            if (node.nodeType === 'Subscript' && lineData) {
+                // Extract the object being subscripted
+                let objName = null;
+                if (node.value && node.value.nodeType === 'Name') {
+                    objName = node.value.id;
+                }
+
+                // Extract the subscript key
+                let keyName = null;
+                if (node.slice) {
+                    if (node.slice.nodeType === 'Name') {
+                        keyName = node.slice.id;
+                    } else if (node.slice.nodeType === 'Constant') {
+                        keyName = node.slice.value;
+                    }
+                }
+
+                // Only add if we have both object and key, and it's a Load context (not assignment)
+                const ctx = node.ctx && (node.ctx.nodeType || node.ctx._type || node.ctx.type);
+                if (objName && keyName !== null && ctx === 'Load') {
+                    lineData.subscripts.push({ object: objName, key: keyName });
                 }
             }
 
