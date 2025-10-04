@@ -83,24 +83,13 @@ export class ReplayLineDecorator {
                     if (value === undefined && nextStepVars) {
                         // Check if any local_N exists in next step - if so, try to translate
                         const hasLocalVars = Array.from(nextStepVars.keys()).some(k => k.startsWith('local_'))
-                        if (hasLocalVars) {
-                            console.log(`🔍 Variable "${name}" not found, but next step has local vars`)
-                            console.log('  Next step vars:', Array.from(nextStepVars.keys()).join(', '))
-                            console.log('  this.functionLocalMaps:', this.functionLocalMaps)
-                            console.log('  this.lineDecorator:', this.lineDecorator)
-                            console.log('  this.lineDecorator?.functionLocalMaps:', this.lineDecorator?.functionLocalMaps)
+                        if (hasLocalVars && this.functionLocalMaps) {
                             // Find the function we're in by checking if any function map contains this variable
-                            const functionLocalMaps = this.functionLocalMaps || {}
-                            console.log('  Function local maps:', functionLocalMaps)
-                            for (const [funcName, localVars] of Object.entries(functionLocalMaps)) {
-                                console.log(`  Checking function "${funcName}" with locals:`, localVars)
+                            for (const [funcName, localVars] of Object.entries(this.functionLocalMaps)) {
                                 const index = localVars.indexOf(name)
-                                console.log(`  Index of "${name}" in ${funcName}:`, index)
                                 if (index !== -1) {
                                     const localName = `local_${index}`
-                                    console.log(`  Looking for "${localName}" in next step`)
                                     value = nextStepVars.get(localName)
-                                    console.log(`  Found value:`, value)
                                     if (value !== undefined) {
                                         break
                                     }
