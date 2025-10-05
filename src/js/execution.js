@@ -245,8 +245,47 @@ async function syncVFSAfterRun() {
         const fs = window.__ssg_runtime_fs
 
         if (backend && typeof backend.syncFromEmscripten === 'function' && fs) {
+            // CRITICAL FIX: Do not sync /main.py from runtime FS back to FileManager.
+            // The editor is the authoritative source for /main.py, and the runtime FS
+            // may contain stale or incorrect content that would overwrite user edits.
+            // Only sync other files (like output.txt, data files created by the script).
+            // We'll temporarily mark /main.py in the runtime FS to skip it during sync.
+            const MAIN_TEMP_MARKER = '/.__skip_main_sync__'
+            let mainFileRenamed = false
+
+            try {
+                // Mark /main.py to be skipped by renaming it temporarily
+                if (fs.analyzePath && fs.analyzePath(MAIN_FILE).exists) {
+                    try {
+                        fs.rename(MAIN_FILE, MAIN_TEMP_MARKER)
+                        mainFileRenamed = true
+                    } catch (_e) {
+                        // If rename fails, we'll have to accept the sync
+                        appendTerminalDebug('Could not temporarily rename /main.py for sync skip')
+                    }
+                }
+            } catch (_e) {
+                // Error checking /main.py - continue with sync
+            }
+
             await backend.syncFromEmscripten(fs)
-            appendTerminalDebug('VFS synced from runtime FS after execution')
+
+            // Restore /main.py in runtime FS after sync
+            if (mainFileRenamed) {
+                try {
+                    if (fs.analyzePath && fs.analyzePath(MAIN_TEMP_MARKER).exists) {
+                        try {
+                            fs.rename(MAIN_TEMP_MARKER, MAIN_FILE)
+                        } catch (_e) {
+                            // Failed to restore - not critical
+                        }
+                    }
+                } catch (_e) {
+                    console.error('[KAN-8-FIX] Error restoring /main.py:', _e)
+                }
+            }
+
+            appendTerminalDebug('VFS synced from runtime FS after execution (skipped /main.py)')
         } else {
             // ensure localStorage fallback is updated for MAIN_FILE so tests can read it
             // Only update the legacy localStorage mirror when IndexedDB is not available
