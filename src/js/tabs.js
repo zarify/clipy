@@ -90,6 +90,17 @@ export async function openTab(path, opts = { select: true }) {
     const n = _normalizePath(path)
     // openTab called
 
+    // Diagnostic instrumentation: record every openTab call so we can
+    // later inspect which callers attempted to open pseudo-files like
+    // '<stdin>' during traceback mapping flows. This is intentionally
+    // lightweight and will be removed once root cause is identified.
+    try {
+        if (typeof window !== 'undefined') {
+            try { window.__ssg_tab_open_calls = window.__ssg_tab_open_calls || [] } catch (_e) { }
+            try { window.__ssg_tab_open_calls.push({ when: Date.now(), path: n, stack: (new Error()).stack || null }) } catch (_e) { }
+        }
+    } catch (_e) { }
+
     if (!openTabs.includes(n)) {
         openTabs.push(n)
     }

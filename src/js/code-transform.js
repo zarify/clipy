@@ -397,9 +397,38 @@ export function mapTracebackAndShow(rawText, headerLines, userCode, appendTermin
     if (headerLines === 0) {
         _safeAppendTerminalDebug('Native trace mode - no line number mapping needed')
 
-        // Highlight the error in the editor
+        // Attempt to parse a File "<fname>", line N frame from the raw traceback
+        // and call highlightMappedTracebackInEditor with a proper file path and
+        // line number. This prevents passing the entire traceback string as a
+        // filename which previously caused the TabManager to create an empty
+        // file/tab named with the traceback text.
         try {
-            highlightMappedTracebackInEditor(rawText)
+            const m = /File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/.exec(rawText)
+            if (m) {
+                let rawF = m[1]
+                const ln = Number(m[2]) || 1
+                // If the runtime reports pseudo-filenames like <stdin> or <string>,
+                // prefer the caller-provided userCode when it looks like a path.
+                // Otherwise fall back to the conventional '/main.py'. This ensures
+                // we never call the editor highlight with a pseudo-name which
+                // previously caused a tab to be created named '<stdin>'.
+                try {
+                    if (rawF === '<stdin>' || rawF === '<string>') {
+                        if (typeof userCode === 'string' && userCode.indexOf('\n') === -1 && (userCode.startsWith('/') || userCode.indexOf('.') !== -1)) {
+                            rawF = userCode
+                        } else {
+                            rawF = '/main.py'
+                        }
+                    }
+                } catch (_e) { /* ignore and use rawF as-is */ }
+
+                const norm = (rawF && rawF.startsWith('/')) ? rawF : ('/' + String(rawF || '').replace(/^\/+/, ''))
+                try { highlightMappedTracebackInEditor(norm, ln) } catch (_e) { }
+            } else {
+                // No parsable frame found: avoid calling highlight with rawText
+                // to prevent creating tabs named with the traceback. Just log.
+                _safeAppendTerminalDebug('No file/line frame found in native traceback; skipping highlight')
+            }
         } catch (_e) { }
 
         // Append to terminal if available

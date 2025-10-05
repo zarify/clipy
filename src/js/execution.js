@@ -914,8 +914,28 @@ except Exception:
                             try { window.__ssg_last_mapped_event = { when: Date.now(), headerLines: headerLines || 0, sourcePath: MAIN_FILE || null, mapped: String(mapped || '') } } catch (_e) { }
                             try {
                                 if (mapped) {
-                                    // Attempt editor highlight/open for mapped tracebacks
-                                    try { highlightMappedTracebackInEditor(mapped) } catch (_err) { }
+                                    // Attempt editor highlight/open for mapped tracebacks.
+                                    // `mapped` may be the full mapped traceback string; avoid
+                                    // passing that whole string as a filename to the
+                                    // highlight function (which calls TabManager.openTab).
+                                    try {
+                                        if (typeof mapped === 'string') {
+                                            const m = /File\s+["']([^"']+)["']\s*,\s*line\s+(\d+)/.exec(mapped)
+                                            if (m) {
+                                                const rawF = m[1]
+                                                const ln = Number(m[2]) || 1
+                                                const norm = (rawF && rawF.startsWith('/')) ? rawF : ('/' + String(rawF || '').replace(/^\/+/, ''))
+                                                try { highlightMappedTracebackInEditor(norm, ln) } catch (_err) { }
+                                            } else {
+                                                // If no frame found, avoid calling highlight with the whole mapped text
+                                                // but still allow replaceBufferedStderr below to show the mapped text in terminal.
+                                            }
+                                        } else {
+                                            // For non-string mapped values, try a best-effort call
+                                            try { highlightMappedTracebackInEditor(mapped) } catch (_err) { }
+                                        }
+                                    } catch (_err) { }
+
                                     // Replace buffered stderr with mapped text
                                     try { replaceBufferedStderr(mapped) } catch (_e) { }
                                 }
