@@ -442,6 +442,14 @@ export async function initializeVFS(cfg) {
             const names = await backend.list()
             for (const n of names) {
                 try {
+                    // Skip known runtime/system paths that may have been
+                    // persisted by older versions (e.g. /dev/null from the
+                    // interpreter). Prevent loading them into the in-memory
+                    // mirror so tabs are not opened for these pseudo-files.
+                    if (/^\/dev\//i.test(n) || /^\/proc\//i.test(n) || /^\/tmp\//i.test(n) || /^\/temp\//i.test(n)) {
+                        if (window.__ssg_debug_logs) try { console.info('[VFS] Skipping persisted system file when populating mem:', n) } catch (_e) { }
+                        continue
+                    }
                     mem[n] = await backend.read(n)
                 } catch (e) {
                     mem[n] = null
