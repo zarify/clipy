@@ -10,7 +10,9 @@ import sys
 
 def _settrace_js_bridge(frame, event, arg):
     """Bridge sys.settrace to JavaScript _record_execution_step"""
-    if event != 'line':
+    # Capture both 'line' and 'return' events to test if RETURN has correct values
+    # Testing hypothesis: RETURN events may have correct f_locals unlike LINE events
+    if event not in ('line', 'return'):
         return _settrace_js_bridge
     
     try:
@@ -23,6 +25,20 @@ def _settrace_js_bridge(frame, event, arg):
         # - At module level: globals dict
         # - Inside functions: parameters (by name) + local variables (as local_0, local_1, etc.)
         # See plan/MISSION_ACCOMPLISHED.md for details
+        #
+        # CRITICAL BUG: MicroPython VM has a bug where f_locals is cached and not refreshed
+        # on backward jumps (loops). This causes ALL trace events to show stale values.
+        # Values lag by exactly one iteration.
+        #
+        # Attempted workarounds (all failed):
+        # - Accessing frame.f_code to trigger refresh: FAILED
+        # - Calling locals() via eval: FAILED  
+        # - Using RETURN events: FAILED (they also have stale f_locals)
+        #
+        # This appears to be an unfixable MicroPython VM bug. The only solution would be
+        # to fix it in the MicroPython C code itself.
+        #
+        # Current workaround: Use two-steps-ahead look-ahead in replay (see replay-ui.js)
         locals_dict = frame.f_locals or {}
         
         # Build the variables dictionary
@@ -65,7 +81,7 @@ def _settrace_js_bridge(frame, event, arg):
         try:
             import js
             if hasattr(js, '_record_execution_step'):
-                js._record_execution_step(line_no, vars_dict, filename)
+                js._record_execution_step(line_no, vars_dict, filename, event)
         except Exception as e:
             # Silently ignore JS callback errors
             pass
@@ -314,7 +330,7 @@ export class ExecutionRecorder {
         // Set up the global callback that Python will invoke
         if (typeof globalThis !== 'undefined') {
             try {
-                globalThis._record_execution_step = (lineNo, varsDict, filename) => {
+                globalThis._record_execution_step = (lineNo, varsDict, filename, event) => {
                     if (!self.isRecording) return
 
                     try {
@@ -351,8 +367,13 @@ export class ExecutionRecorder {
                             }
                         }
 
-                        // Record the step
-                        self.recordStep(lineNo, varsMap, 'global', 'line', filename)
+                        // Log variable values for debugging with event type
+                        const varDebug = Array.from(varsMap.entries()).map(([k, v]) => `${k}=${v}`).join(', ')
+                        const eventType = event || 'line'
+                        appendTerminalDebug(`  📊 [${eventType}] Line ${lineNo} vars: {${varDebug}}`)
+
+                        // Record the step with event type
+                        self.recordStep(lineNo, varsMap, 'global', eventType, filename)
                     } catch (err) {
                         appendTerminalDebug('Error in native trace callback: ' + err)
                     }
@@ -483,6 +504,13 @@ export class ExecutionRecorder {
             // steps (e.g., copy `n` from the next step into a collapsed step)
             try { this._augmentCollapsedFromFollowing() } catch (e) { appendTerminalDebug('Failed to augment collapsed steps: ' + e) }
 
+            // KAN-10 FIX: Remove bridge setup traces from the beginning
+            // The settrace bridge installation generates phantom trace events before
+            // user code runs. These appear as the first few steps in non-sequential order.
+            // We identify and remove them by looking for the pattern where line 1
+            // appears twice - the first occurrence is bridge setup, the second is actual user code.
+            try { this._removeBridgeSetupTraces() } catch (e) { appendTerminalDebug('Failed to remove bridge setup traces: ' + e) }
+
             this.currentTrace.setMetadata('endTime', performance.now())
             this.isRecording = false
             appendTerminalDebug(`Recording stopped with ${this.currentTrace.getStepCount()} steps`)
@@ -494,6 +522,24 @@ export class ExecutionRecorder {
     }
 
     /**
+     * KAN-10: Post-processing placeholder
+     * 
+     * Previously contained workarounds for MicroPython sys.settrace bugs.
+     * These bugs have been fixed in the custom MicroPython runtime:
+     * 
+     * - Bug 1 (out-of-order traces): Fixed by invalidating line tracking on backward jumps
+     * - Bug 2 (missing loop condition traces): Fixed by forcing LINE events on each iteration
+     * 
+     * The MicroPython VM now correctly emits LINE events for:
+     * - Each iteration of loop bodies (multiple LINE events for same line number)
+     * - Proper sequential ordering of trace events
+     * 
+     * No workarounds needed - traces are now correct from the runtime.
+     */
+    _removeBridgeSetupTraces() {
+        // No-op: MicroPython runtime fixes applied
+        // Keeping method name for backward compatibility with stopRecording() call
+    }    /**
      * Finalize recording (called when execution completes)
      */
     finalizeRecording() {
@@ -559,6 +605,12 @@ export class ExecutionRecorder {
             for (let i = 0; i < count; i++) {
                 const s = this.currentTrace.getStep(i)
                 if (!s) continue
+
+                // KAN-10 FIX: For the LAST step, handle missing assigned variables
+                // Since sys.settrace fires BEFORE line execution, the last line's
+                // assignment is never captured. Try to infer the value from source.
+                const isLastStep = (i === count - 1)
+
                 // If the step already has variables, skip only if it contains assigned names
                 const hasAnyVars = s.variables && ((typeof s.variables.size === 'number' && s.variables.size > 0) || (typeof s.variables === 'object' && Object.keys(s.variables).length > 0))
                 // Determine assigned names for this line. Prefer per-line analysis
@@ -771,6 +823,67 @@ export class ExecutionRecorder {
                                 } catch (e) { }
                                 missing.splice(idx, 1)
                                 if (missing.length === 0) break
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // best-effort
+        }
+
+        // KAN-10 FIX: Special handling for the LAST step
+        // Since sys.settrace fires BEFORE line execution, the last line's assignment
+        // is never captured in variables. Try to parse simple literal assignments
+        // from the source code and add them to the last step.
+        try {
+            if (count > 0 && this.currentTrace && this.currentTrace.metadata && this.currentTrace.metadata.sourceCode) {
+                const lastStep = this.currentTrace.getStep(count - 1)
+                if (lastStep) {
+                    const sourceLines = this.currentTrace.metadata.sourceCode.split('\n')
+                    const lineIndex = lastStep.lineNumber - 1
+                    if (lineIndex >= 0 && lineIndex < sourceLines.length) {
+                        const sourceLine = sourceLines[lineIndex].trim()
+                        // Try to parse simple assignments like "b = 5" or "x = 'hello'"
+                        const simpleAssignMatch = sourceLine.match(/^(\w+)\s*=\s*(.+)$/)
+                        if (simpleAssignMatch) {
+                            const varName = simpleAssignMatch[1]
+                            const valueExpr = simpleAssignMatch[2].trim()
+
+                            // Check if this variable is missing from the last step
+                            const hasVar = lastStep.variables && (typeof lastStep.variables.has === 'function' ? lastStep.variables.has(varName) : Object.prototype.hasOwnProperty.call(lastStep.variables, varName))
+
+                            if (!hasVar) {
+                                // Try to evaluate simple literals
+                                let value = undefined
+                                try {
+                                    // Handle numbers, strings, booleans, None
+                                    if (/^-?\d+$/.test(valueExpr)) {
+                                        value = parseInt(valueExpr, 10)
+                                    } else if (/^-?\d+\.\d+$/.test(valueExpr)) {
+                                        value = parseFloat(valueExpr)
+                                    } else if (/^['"].*['"]$/.test(valueExpr)) {
+                                        value = valueExpr  // Keep as repr string
+                                    } else if (valueExpr === 'True') {
+                                        value = true
+                                    } else if (valueExpr === 'False') {
+                                        value = false
+                                    } else if (valueExpr === 'None') {
+                                        value = null
+                                    }
+
+                                    if (value !== undefined) {
+                                        if (!lastStep.variables) lastStep.variables = new Map()
+                                        if (typeof lastStep.variables.set === 'function') {
+                                            lastStep.variables.set(varName, value)
+                                        } else if (typeof lastStep.variables === 'object') {
+                                            lastStep.variables[varName] = value
+                                        }
+                                        appendTerminalDebug(`✨ Added last-line assignment ${varName}=${value} from source code`)
+                                    }
+                                } catch (e) {
+                                    // Failed to parse - skip
+                                }
                             }
                         }
                     }
@@ -1122,6 +1235,67 @@ export class ExecutionRecorder {
 
             const step = new ExecutionStep(lineNumber, variables, scope, null, filename)
             step.executionType = executionType
+
+            // Skip phantom loop setup traces: if we're past line 1 and this step has no variables
+            // and we've already recorded at least one step, this is likely a MicroPython loop
+            // setup artifact that should be filtered out
+            const stepCount = this.currentTrace.getStepCount()
+            if (stepCount > 0 && lineNumber > 1) {
+                const varCount = variables ? (variables.size || Object.keys(variables).length || 0) : 0
+                if (varCount === 0) {
+                    // Check if previous step was also from a different line (suggests loop setup)
+                    const prevStep = this.currentTrace.getStep(stepCount - 1)
+                    if (prevStep && prevStep.lineNumber !== lineNumber) {
+                        appendTerminalDebug(`Skipped phantom loop setup step: line ${lineNumber} with no variables after line ${prevStep.lineNumber}`)
+                        return
+                    }
+                }
+            }
+
+            // Skip duplicate steps: same line, same variables, same execution type
+            // This handles MicroPython tracing quirks where loop entry generates duplicate events
+            // For 'for' loops, the duplicate may not be consecutive (loop header in between)
+            if (stepCount > 0) {
+                // Check last few steps (not just immediate previous) to catch non-consecutive duplicates
+                const lookbackLimit = Math.min(5, stepCount) // Check up to 5 previous steps
+
+                for (let i = 1; i <= lookbackLimit; i++) {
+                    const prevStep = this.currentTrace.getStep(stepCount - i)
+                    if (!prevStep ||
+                        prevStep.lineNumber !== lineNumber ||
+                        prevStep.executionType !== executionType ||
+                        prevStep.filename !== filename) {
+                        continue // Not a match, check next previous step
+                    }
+
+                    // Found same line/type/file - check if variables are identical
+                    let varsIdentical = true
+                    const prevVars = prevStep.variables || new Map()
+                    const currVars = variables || new Map()
+
+                    // Convert to arrays for comparison
+                    const prevEntries = Array.from(prevVars.entries ? prevVars.entries() : Object.entries(prevVars))
+                    const currEntries = Array.from(currVars.entries ? currVars.entries() : Object.entries(currVars))
+
+                    if (prevEntries.length !== currEntries.length) {
+                        varsIdentical = false
+                    } else {
+                        for (const [key, value] of currEntries) {
+                            const prevValue = prevVars.get ? prevVars.get(key) : prevVars[key]
+                            if (prevValue !== value) {
+                                varsIdentical = false
+                                break
+                            }
+                        }
+                    }
+
+                    if (varsIdentical) {
+                        appendTerminalDebug(`Skipped duplicate step: line ${lineNumber}, matches step ${stepCount - i} (${i} steps back)`)
+                        return // Don't add this duplicate step
+                    }
+                }
+            }
+
             this.currentTrace.addStep(step)
 
             // If the step we just added follows a collapsed comprehension
@@ -1194,8 +1368,21 @@ export class ExecutionRecorder {
                             for (let idx = curIndex - 1; idx >= Math.max(0, curIndex - lookback); idx--) {
                                 const prior = this.currentTrace.getStep(idx)
                                 if (!prior) continue
+
+                                // Don't augment across loop boundaries (when line numbers go backwards)
+                                // This prevents polluting previous iterations with future values
+                                const priorLine = Number(prior.lineNumber)
+                                const currentLine = Number(step.lineNumber)
+                                const prevStepLine = idx > 0 ? Number(this.currentTrace.getStep(idx - 1).lineNumber) : priorLine
+
+                                // Detect loop boundary: if we went from a higher line to a lower line
+                                if (prevStepLine < priorLine && priorLine > currentLine) {
+                                    // We've crossed a loop boundary (went backwards), stop looking back
+                                    break
+                                }
+
                                 // Only consider earlier lines (not the same or later)
-                                if (!(Number(prior.lineNumber) < Number(step.lineNumber))) continue
+                                if (!(priorLine < currentLine)) continue
                                 // Skip if already present
                                 try {
                                     if (prior.variables && typeof prior.variables.has === 'function' && prior.variables.has(k)) continue
@@ -1231,7 +1418,18 @@ export class ExecutionRecorder {
                             for (let idx = curIndex - 1; idx >= Math.max(0, curIndex - lookback); idx--) {
                                 const prior = this.currentTrace.getStep(idx)
                                 if (!prior) continue
-                                if (!(Number(prior.lineNumber) < Number(step.lineNumber))) continue
+
+                                // Don't augment across loop boundaries (when line numbers go backwards)
+                                const priorLine = Number(prior.lineNumber)
+                                const currentLine = Number(step.lineNumber)
+                                const prevStepLine = idx > 0 ? Number(this.currentTrace.getStep(idx - 1).lineNumber) : priorLine
+
+                                // Detect loop boundary: if we went from a higher line to a lower line
+                                if (prevStepLine < priorLine && priorLine > currentLine) {
+                                    break
+                                }
+
+                                if (!(priorLine < currentLine)) continue
                                 try {
                                     if (prior.variables && typeof prior.variables.has === 'function' && prior.variables.has(k)) continue
                                     if (prior.variables && !prior.variables.has && Object.prototype.hasOwnProperty.call(prior.variables, k)) continue

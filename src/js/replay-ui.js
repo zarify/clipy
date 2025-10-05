@@ -1,6 +1,7 @@
 // Replay engine and UI controls for execution debugging
 import { appendTerminalDebug } from './terminal.js'
 import { $ } from './utils.js'
+import { ExecutionTrace } from './execution-recorder.js'
 
 /**
  * Line decorator for CodeMirror integration
@@ -20,7 +21,7 @@ export class ReplayLineDecorator {
      * @param {Object} executionTrace - The execution trace (needed to look ahead for assigned values)
      * @param {number} currentStepIndex - Current step index (needed to look ahead)
      */
-    showVariablesAtLine(lineNumber, variables, executionTrace = null, currentStepIndex = -1) {
+    showVariablesAtLine(lineNumber, variables, executionTrace = null, currentStepIndex = -1, originalTrace = null) {
         if (!this.codemirror || !variables || variables.size === 0) {
             appendTerminalDebug(`showVariablesAtLine: skipped - codemirror=${!!this.codemirror}, variables=${variables ? variables.size : 'null'}`)
             return
@@ -56,10 +57,49 @@ export class ReplayLineDecorator {
             if (astData && (astData.assigned.size > 0 || astData.referenced.size > 0)) {
 
                 // Strategy: Show both assigned AND referenced variables
-                // IMPORTANT: sys.settrace 'line' events fire BEFORE the line executes
-                // So we need to look at the NEXT step to get values AFTER this line executes
+                // SOLUTION: Use RETURN events for correct final values
+                //
+                // Python's sys.settrace has standard timing behavior:
+                // - LINE events fire BEFORE line execution (show pre-execution state)
+                // - RETURN events fire AFTER function return (show post-execution state)
+                //
+                // For loops, LINE events show stale values because they fire BEFORE the line runs.
+                // But RETURN events capture the final state AFTER all execution completes.
+                //
+                // Evidence from debug logs (KAN-10 Comment #10048):
+                // Execution: i=0 → i+=1 → i+=1 → i+=1 → done (should end with i=3)
+                // Recorded:
+                // - Step 3: [line] Line 3 vars: {i=0}  ← Before 1st i+=1 ✅
+                // - Step 4: [line] Line 3 vars: {i=0}  ← Before 2nd i+=1 (stale by 1)
+                // - Step 5: [line] Line 3 vars: {i=1}  ← Before 3rd i+=1 (stale by 1)  
+                // - Step 6: [line] Line 3 vars: {i=2}  ← Before 4th i+=1 (stale by 1)
+                // - Step 7: [return] Line 3 vars: {i=3} ← RETURN has correct final value! ✅
+                //
+                // Solution: Look for RETURN event in the trace and use its values for final iteration
 
-                // Get the next step's variables (which will have been updated after this line executed)
+                // Find the RETURN event (if any) to get correct final values
+                // Since we filter RETURN events from the replay trace, look in originalTrace
+                let returnEventVars = null
+                if (originalTrace) {
+                    appendTerminalDebug(`  🔍 Searching originalTrace (${originalTrace.getStepCount()} steps) for RETURN event...`)
+                    // Search for a RETURN event in the original (unfiltered) trace
+                    for (let i = 0; i < originalTrace.getStepCount(); i++) {
+                        const step = originalTrace.getStep(i)
+                        if (step && step.executionType === 'return') {
+                            returnEventVars = step.variables
+                            appendTerminalDebug(`  ✅ Found RETURN event at step ${i}: ${Array.from(returnEventVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+                            break
+                        }
+                    }
+                    if (!returnEventVars) {
+                        appendTerminalDebug(`  ❌ No RETURN event found in originalTrace`)
+                    }
+                } else {
+                    appendTerminalDebug(`  ❌ originalTrace parameter is null/undefined`)
+                }
+
+                // Get next step for one-step look-ahead
+                // Since RETURN events are now filtered out, we don't need to check executionType
                 let nextStepVars = null
                 if (executionTrace && currentStepIndex >= 0 && currentStepIndex < executionTrace.getStepCount() - 1) {
                     const nextStep = executionTrace.getStep(currentStepIndex + 1)
@@ -68,15 +108,32 @@ export class ReplayLineDecorator {
                     }
                 }
 
-                // First, add all assigned variables (use next step's values if available)
+                appendTerminalDebug(`  📍 Line ${lineNumber}: assigned=${Array.from(astData.assigned).join(',')}, referenced=${Array.from(astData.referenced).join(',')}`)
+                appendTerminalDebug(`  📍 Current step: ${Array.from(variables.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+                appendTerminalDebug(`  📍 Next step: ${nextStepVars ? Array.from(nextStepVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
+                appendTerminalDebug(`  📍 Return event: ${returnEventVars ? Array.from(returnEventVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
+
+                // First, add all assigned variables
                 for (const name of astData.assigned) {
                     // Skip built-ins
                     if (isBuiltinOrInternal(name, variables.get(name))) {
                         continue
                     }
 
-                    // For assignments, prefer the next step's value (after execution)
-                    let value = nextStepVars?.get(name) ?? variables.get(name)
+                    // For assignments, ALWAYS use one-step look-ahead to show after-execution value
+                    // This is standard debugger behavior: show the result of executing the line
+                    // Fallback chain: next step → RETURN event (if available) → current step
+                    let value = nextStepVars?.get(name)
+
+                    // If no next step but we have a RETURN event, use that (final loop iteration)
+                    if (value === undefined && returnEventVars) {
+                        value = returnEventVars.get(name)
+                    }
+
+                    // Final fallback to current step (shouldn't happen in normal cases)
+                    if (value === undefined) {
+                        value = variables.get(name)
+                    }
 
                     // Special case: if variable not found but next step has local_N variables,
                     // the variable might be a newly assigned local variable inside a function
@@ -104,7 +161,7 @@ export class ReplayLineDecorator {
                 }
 
                 // Then, add referenced variables that aren't already in displayVars
-                // For referenced vars, use current step values (the values that were READ by this line)
+                // For referenced vars, use current step values (the values that were READ by this line, before execution)
                 for (const [name, value] of variables) {
                     if (astData.referenced.has(name) && !displayVars.has(name) && !isBuiltinOrInternal(name, value)) {
                         displayVars.set(name, value)
@@ -449,12 +506,48 @@ export class ReplayLineDecorator {
 export class ReplayEngine {
     constructor() {
         this.executionTrace = null
+        this._originalTrace = null  // Unfiltered trace with RETURN events (private)
         this.currentStepIndex = 0
         this.isReplaying = false
         this.lineDecorator = null
         this.ui = null
         this.currentFilename = '/main.py'  // Track which file is currently being shown
         this.lineReferenceMap = null  // Cache for AST-based line references
+        appendTerminalDebug(`🏗️ ReplayEngine constructed - originalTrace is null`)
+    }
+
+    // Getter/setter to track originalTrace changes
+    get originalTrace() {
+        return this._originalTrace
+    }
+
+    set originalTrace(value) {
+        const stack = new Error().stack.split('\n')[2] // Get caller info
+        appendTerminalDebug(`🔄 originalTrace SETTER called from: ${stack.trim()}`)
+        appendTerminalDebug(`   Old value: ${this._originalTrace ? `${this._originalTrace.getStepCount()} steps` : 'null'}`)
+        appendTerminalDebug(`   New value: ${value ? `${value.getStepCount()} steps` : 'null'}`)
+        this._originalTrace = value
+    }
+
+    /**
+     * Filter out RETURN events from execution trace
+     * RETURN events contain final values but aren't real execution steps
+     */
+    filterReturnEvents(originalTrace) {
+        const filtered = new ExecutionTrace()
+
+        // Copy metadata
+        filtered.metadata = { ...originalTrace.metadata }
+
+        // Copy only LINE events (skip RETURN events)
+        for (let i = 0; i < originalTrace.getStepCount(); i++) {
+            const step = originalTrace.getStep(i)
+            if (step.executionType !== 'return') {
+                filtered.addStep(step)
+            }
+        }
+
+        return filtered
     }
 
     /**
@@ -471,6 +564,14 @@ export class ReplayEngine {
             if (this.isReplaying && this.executionTrace === executionTrace) {
                 appendTerminalDebug('Replay already active — rewinding to start')
                 this.currentStepIndex = 0
+                // Ensure originalTrace is set (might be missing if this is a rewind)
+                appendTerminalDebug(`🔧 Rewind path - originalTrace currently: ${this.originalTrace ? 'exists' : 'null'}`)
+                if (!this.originalTrace) {
+                    this.originalTrace = executionTrace
+                    appendTerminalDebug(`✅ originalTrace SET in rewind path with ${this.originalTrace.getStepCount()} steps`)
+                } else {
+                    appendTerminalDebug(`ℹ️ originalTrace already exists, keeping it`)
+                }
                 // Clear decorations and display first step
                 if (this.lineDecorator) {
                     this.lineDecorator.clearAllDecorations()
@@ -491,7 +592,13 @@ export class ReplayEngine {
                 try { this.lineDecorator.clearAllDecorations() } catch (e) { /* ignore */ }
             }
 
-            this.executionTrace = executionTrace
+            // Filter out RETURN events from the trace - they're metadata only, not execution steps
+            // This ensures the UI (scrubber, step count, etc.) only shows real execution steps
+            const filteredTrace = this.filterReturnEvents(executionTrace)
+            appendTerminalDebug(`Filtered trace: ${executionTrace.getStepCount()} steps → ${filteredTrace.getStepCount()} steps (removed RETURN events)`)
+
+            this.executionTrace = filteredTrace
+            // NOTE: Don't set originalTrace yet - will set after file switch to avoid code change handlers
             this.currentStepIndex = 0
             this.isReplaying = true
 
@@ -516,6 +623,12 @@ export class ReplayEngine {
                 this.ensureCorrectFileIsActive(firstStep.filename)
             }
 
+            // NOW set originalTrace AFTER file switching is complete
+            // This prevents it from being cleared if file switch triggers code change events
+            appendTerminalDebug(`🔧 About to set originalTrace (currently: ${this.originalTrace ? 'exists' : 'null'})...`)
+            this.originalTrace = executionTrace
+            appendTerminalDebug(`✅ originalTrace SET with ${this.originalTrace.getStepCount()} steps`)
+
             // Show replay UI
             this.showReplayUI()
 
@@ -529,6 +642,7 @@ export class ReplayEngine {
             } catch (e) { /* ignore */ }
 
             // Display first step
+            appendTerminalDebug(`🎬 About to display first step - originalTrace: ${this.originalTrace ? `${this.originalTrace.getStepCount()} steps` : 'NULL!'} `)
             this.displayCurrentStep()
 
             appendTerminalDebug(`Replay started with ${executionTrace.getStepCount()} steps`)
@@ -578,6 +692,8 @@ export class ReplayEngine {
         if (!this.isReplaying) {
             return
         }
+
+        appendTerminalDebug(`🛑 stopReplay() called - originalTrace currently: ${this.originalTrace ? 'exists' : 'null'}`)
 
         try {
             this.isReplaying = false
@@ -732,6 +848,7 @@ export class ReplayEngine {
      * Display the current step
      */
     displayCurrentStep() {
+        appendTerminalDebug(`📺 displayCurrentStep() START - originalTrace: ${this.originalTrace ? `${this.originalTrace.getStepCount()} steps` : 'NULL!'}`)
         if (!this.isReplaying || !this.executionTrace || !this.lineDecorator) {
             return
         }
@@ -747,7 +864,9 @@ export class ReplayEngine {
             // Ensure we're viewing the correct Python code file for this step.
             // This prevents highlighting lines in non-code files like .txt data files.
             if (step.filename) {
+                appendTerminalDebug(`📁 About to ensureCorrectFileIsActive - originalTrace: ${this.originalTrace ? `${this.originalTrace.getStepCount()} steps` : 'NULL!'}`)
                 this.ensureCorrectFileIsActive(step.filename)
+                appendTerminalDebug(`📁 After ensureCorrectFileIsActive - originalTrace: ${this.originalTrace ? `${this.originalTrace.getStepCount()} steps` : 'NULL!'}`)
             }
 
             // Clear previous decorations
@@ -761,7 +880,7 @@ export class ReplayEngine {
 
             // Show variables if available
             if (translatedVariables && translatedVariables.size > 0) {
-                this.lineDecorator.showVariablesAtLine(step.lineNumber, translatedVariables, this.executionTrace, this.currentStepIndex)
+                this.lineDecorator.showVariablesAtLine(step.lineNumber, translatedVariables, this.executionTrace, this.currentStepIndex, this.originalTrace)
             }
         } catch (error) {
             appendTerminalDebug('Failed to display current step: ' + error)
