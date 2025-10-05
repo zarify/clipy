@@ -127,7 +127,22 @@ export async function disableNativeTrace(adapter) {
 export class ExecutionStep {
     constructor(lineNumber, variables = new Map(), scope = 'global', timestamp = null, filename = null) {
         this.lineNumber = lineNumber      // 1-based line number
-        this.variables = variables        // Map of variable name -> VariableState
+        // Normalize variables to Map regardless of whether callers pass a Map or plain object
+        if (variables instanceof Map) {
+            this.variables = variables
+        } else if (variables && typeof variables === 'object') {
+            const m = new Map()
+            try {
+                for (const k of Object.keys(variables)) {
+                    m.set(k, variables[k])
+                }
+            } catch (e) {
+                // If conversion fails, fall back to empty Map
+            }
+            this.variables = m
+        } else {
+            this.variables = new Map()
+        }
         this.scope = scope               // 'global', 'function:name', etc.
         this.timestamp = timestamp || performance.now()
         this.stackDepth = 0             // Function call depth
@@ -255,6 +270,40 @@ export class ExecutionRecorder {
     }
 
     /**
+     * Debug helper: return a JSON-serializable snapshot of the current trace
+     * with simplified variable values. Useful for debugging why names like
+     * `n` are not present on collapsed comprehension steps.
+     */
+    dumpCurrentTrace() {
+        if (!this.currentTrace) return null
+        const out = {
+            steps: [],
+            metadata: this.currentTrace.metadata || {}
+        }
+        for (let i = 0; i < this.currentTrace.getStepCount(); i++) {
+            const s = this.currentTrace.getStep(i)
+            const vars = {}
+            try {
+                if (s && s.variables) {
+                    if (s.variables && typeof s.variables.entries === 'function') {
+                        for (const [k, v] of s.variables.entries()) {
+                            vars[k] = VariableStateCapture.simplifyValue(v)
+                        }
+                    } else if (s.variables && typeof s.variables === 'object') {
+                        for (const k of Object.keys(s.variables)) {
+                            vars[k] = VariableStateCapture.simplifyValue(s.variables[k])
+                        }
+                    }
+                }
+            } catch (e) {
+                // best-effort
+            }
+            out.steps.push({ lineNumber: s.lineNumber, filename: s.filename, executionType: s.executionType, collapsedIterations: s.collapsedIterations || 0, variables: vars })
+        }
+        return out
+    }
+
+    /**
      * Set up the JavaScript callback for native trace
      * This is called by Python's sys.settrace bridge
      * Based on tested implementation from micropython-tracer.js
@@ -361,6 +410,54 @@ export class ExecutionRecorder {
             this.currentTrace.setMetadata('sourceCode', sourceCode)
             this.currentTrace.setMetadata('recordingLimits', { ...this.config, ...config })
 
+            // Build a quick comprehension-line map so we can collapse per-iteration
+            // trace events produced by comprehensions into a single logical step.
+            // This keeps recordings concise and avoids showing internal loop
+            // iterations that have no user-visible state.
+            this.comprehensionLineMap = new Map()
+            this._comprehensionBuffer = {}
+
+            // Populate comprehensionLineMap asynchronously so recording start is fast.
+            if (sourceCode && sourceCode.length > 0) {
+                import('./ast-analyzer.js').then(mod => mod.getASTAnalyzer()).then(analyzer => {
+                    return analyzer.parse(sourceCode).then(ast => ({ analyzer, ast }))
+                }).then(({ analyzer, ast }) => {
+                    try {
+                        if (!ast) return
+                        const comps = analyzer.analyzeComprehensions(ast, '*')
+                        const perLine = analyzer.getVariablesAndCallsPerLine(ast)
+                        // Keep per-line variable analysis available for retro-augmentation
+                        // (used to detect assigned names on earlier lines so we can
+                        // populate steps that fired before an assignment executed).
+                        this.perLineMap = perLine
+
+                        if (comps && comps.count) {
+                            for (const c of comps.comprehensions) {
+                                const lineno = Number(c.lineno)
+                                const per = perLine.get(lineno) || {}
+                                const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                                const referenced = per.referenced ? new Set(Array.from(per.referenced)) : new Set()
+                                const targets = new Set(c.targets || [])
+                                this.comprehensionLineMap.set(lineno, { assignedNames: assigned, referencedNames: referenced, compTargets: targets })
+                            }
+                        } else if (Array.isArray(comps) && comps.length > 0) {
+                            for (const c of comps) {
+                                const lineno = Number(c.lineno)
+                                const per = perLine.get(lineno) || {}
+                                const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                                const referenced = per.referenced ? new Set(Array.from(per.referenced)) : new Set()
+                                const targets = new Set(c.targets || [])
+                                this.comprehensionLineMap.set(lineno, { assignedNames: assigned, referencedNames: referenced, compTargets: targets })
+                            }
+                        }
+                    } catch (e) {
+                        appendTerminalDebug('Comprehension analysis failed (inner): ' + e)
+                    }
+                }).catch(err => {
+                    appendTerminalDebug('Comprehension analysis failed: ' + err)
+                })
+            }
+
             this.isRecording = true
             appendTerminalDebug('Execution recording started')
             return true
@@ -379,6 +476,13 @@ export class ExecutionRecorder {
         }
 
         try {
+            // Flush any buffered comprehension iterations
+            try { this._flushComprehensionBuffers() } catch (e) { appendTerminalDebug('Failed to flush comprehension buffers: ' + e) }
+
+            // After flushing, augment collapsed steps with names from following
+            // steps (e.g., copy `n` from the next step into a collapsed step)
+            try { this._augmentCollapsedFromFollowing() } catch (e) { appendTerminalDebug('Failed to augment collapsed steps: ' + e) }
+
             this.currentTrace.setMetadata('endTime', performance.now())
             this.isRecording = false
             appendTerminalDebug(`Recording stopped with ${this.currentTrace.getStepCount()} steps`)
@@ -394,8 +498,387 @@ export class ExecutionRecorder {
      */
     finalizeRecording() {
         if (this.isRecording) {
+            // Ensure buffered comprehension iterations are collapsed before stopping
+            try { this._flushComprehensionBuffers() } catch (e) { appendTerminalDebug('Failed to flush comprehension buffers: ' + e) }
+            try { this._augmentCollapsedFromFollowing() } catch (e) { appendTerminalDebug('Failed to augment collapsed steps: ' + e) }
             this.stopRecording()
         }
+    }
+
+    /**
+     * Post-process the trace: for each collapsed comprehension step, copy
+     * non-internal variable names from the immediately following step if
+     * they are missing. This ensures referenced module-level names (like
+     * `n`) are visible on the collapsed step.
+     */
+    _augmentCollapsedFromFollowing() {
+        if (!this.currentTrace) return
+        const count = this.currentTrace.getStepCount()
+        for (let i = 0; i < count - 1; i++) {
+            const s = this.currentTrace.getStep(i)
+            const next = this.currentTrace.getStep(i + 1)
+            if (!s || !next) continue
+            if (!s.collapsedIterations || s.collapsedIterations <= 0) continue
+
+            // Determine comprehension targets to avoid copying internal names
+            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(s.lineNumber))
+            const targets = (compInfo && compInfo.compTargets) ? compInfo.compTargets : new Set()
+
+            try {
+                if (!s.variables) s.variables = new Map()
+                if (next.variables) {
+                    if (typeof next.variables.entries === 'function') {
+                        for (const [k, v] of next.variables.entries()) {
+                            if (s.variables.has(k)) continue
+                            if (targets.has(k)) continue
+                            if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                            try { s.variables.set(k, v) } catch (e) { }
+                        }
+                    } else if (typeof next.variables === 'object') {
+                        for (const k of Object.keys(next.variables)) {
+                            if (s.variables.has(k)) continue
+                            if (targets.has(k)) continue
+                            if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                            try { s.variables.set(k, next.variables[k]) } catch (e) { }
+                        }
+                    }
+                }
+            } catch (e) {
+                // best-effort
+            }
+        }
+
+        // Additional pass: for earlier non-collapsed steps that are missing
+        // assigned names (e.g. module-level assignments recorded before the
+        // value is visible), try to copy those assigned names from the next
+        // few steps. This specifically ensures lines like `n = 4` show `n` on
+        // the step for that line even if the runtime emitted the value on a
+        // later event.
+        try {
+            const lookahead = 4
+            for (let i = 0; i < count; i++) {
+                const s = this.currentTrace.getStep(i)
+                if (!s) continue
+                // If the step already has variables, skip only if it contains assigned names
+                const hasAnyVars = s.variables && ((typeof s.variables.size === 'number' && s.variables.size > 0) || (typeof s.variables === 'object' && Object.keys(s.variables).length > 0))
+                // Determine assigned names for this line. Prefer per-line analysis
+                // if available; otherwise fall back to a heuristic that treats
+                // names appearing >=2 times in the next few steps as assigned.
+                const perLineMap = this.perLineMap
+                let assigned = new Set()
+                if (perLineMap) {
+                    const per = perLineMap.get(Number(s.lineNumber)) || {}
+                    assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                    // If analyzer provided no assigned names, fall back to heuristic
+                    // so we can still augment steps when the analyzer missed it.
+                    if (!assigned || assigned.size === 0) {
+                        // continue to heuristic below
+                    } else {
+                        // we have assigned names from analyzer
+                    }
+                }
+                if (!perLineMap || !assigned || assigned.size === 0) {
+                    // Heuristic: collect names that appear multiple times ahead
+                    const counts = new Map()
+                    for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
+                        const nxt = this.currentTrace.getStep(j)
+                        if (!nxt || !nxt.variables) continue
+                        if (typeof nxt.variables.entries === 'function') {
+                            for (const [k] of nxt.variables.entries()) {
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                counts.set(k, (counts.get(k) || 0) + 1)
+                            }
+                        } else if (typeof nxt.variables === 'object') {
+                            for (const k of Object.keys(nxt.variables)) {
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                counts.set(k, (counts.get(k) || 0) + 1)
+                            }
+                        }
+                    }
+                    for (const [name, cnt] of counts.entries()) if (cnt >= 2) assigned.add(name)
+                }
+                if (!assigned || assigned.size === 0) continue
+
+                // If step already contains all assigned names, skip
+                let needs = []
+                for (const name of assigned) {
+                    try {
+                        const exists = s.variables && (typeof s.variables.has === 'function' ? s.variables.has(name) : Object.prototype.hasOwnProperty.call(s.variables, name))
+                        if (!exists) needs.push(name)
+                    } catch (e) { needs.push(name) }
+                }
+                if (needs.length === 0) continue
+
+                // Search forward for values. If we have per-line analysis use that
+                // to copy only assigned names. If not, use a heuristic: copy
+                // names that appear in multiple subsequent steps (>=2) within
+                // the lookahead window — this avoids single-step noise.
+                if (perLineMap) {
+                    for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
+                        const nxt = this.currentTrace.getStep(j)
+                        if (!nxt || !nxt.variables) continue
+                        if (typeof nxt.variables.entries === 'function') {
+                            for (const [k, v] of nxt.variables.entries()) {
+                                if (!needs.includes(k)) continue
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                try {
+                                    if (!s.variables) s.variables = new Map()
+                                    if (typeof s.variables.set === 'function') {
+                                        s.variables.set(k, v)
+                                    } else if (typeof s.variables === 'object') {
+                                        s.variables[k] = v
+                                    }
+                                    appendTerminalDebug(`Forward-augmented step at line ${s.lineNumber} with name ${k} from step ${nxt.lineNumber}`)
+                                    const idx = needs.indexOf(k)
+                                    if (idx >= 0) needs.splice(idx, 1)
+                                } catch (e) { }
+                            }
+                        } else if (typeof nxt.variables === 'object') {
+                            for (const k of Object.keys(nxt.variables)) {
+                                if (!needs.includes(k)) continue
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                try {
+                                    if (!s.variables) s.variables = new Map()
+                                    if (typeof s.variables.set === 'function') {
+                                        s.variables.set(k, nxt.variables[k])
+                                    } else if (typeof s.variables === 'object') {
+                                        s.variables[k] = nxt.variables[k]
+                                    }
+                                    appendTerminalDebug(`Forward-augmented step at line ${s.lineNumber} with name ${k} from step ${nxt.lineNumber}`)
+                                    const idx = needs.indexOf(k)
+                                    if (idx >= 0) needs.splice(idx, 1)
+                                } catch (e) { }
+                            }
+                        }
+
+                        if (needs.length === 0) break
+                    }
+                } else {
+                    // Heuristic fallback: count occurrences of each candidate name
+                    // in the next few steps and copy those that appear >=2 times.
+                    const counts = new Map()
+                    for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
+                        const nxt = this.currentTrace.getStep(j)
+                        if (!nxt || !nxt.variables) continue
+                        if (typeof nxt.variables.entries === 'function') {
+                            for (const [k] of nxt.variables.entries()) {
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                counts.set(k, (counts.get(k) || 0) + 1)
+                            }
+                        } else if (typeof nxt.variables === 'object') {
+                            for (const k of Object.keys(nxt.variables)) {
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                counts.set(k, (counts.get(k) || 0) + 1)
+                            }
+                        }
+                    }
+                    for (const [name, cnt] of counts.entries()) {
+                        if (cnt < 2) continue
+                        if (!needs.includes(name)) continue
+                        // copy first-found value
+                        for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
+                            const nxt = this.currentTrace.getStep(j)
+                            if (!nxt || !nxt.variables) continue
+                            const val = (typeof nxt.variables.entries === 'function') ? (nxt.variables.get ? nxt.variables.get(name) : undefined) : nxt.variables[name]
+                            if (val !== undefined) {
+                                try {
+                                    if (!s.variables) s.variables = new Map()
+                                    if (typeof s.variables.set === 'function') {
+                                        s.variables.set(name, val)
+                                    } else if (typeof s.variables === 'object') {
+                                        s.variables[name] = val
+                                    }
+                                    appendTerminalDebug(`Forward-augmented step at line ${s.lineNumber} with name ${name} (heuristic) from later step`)
+                                } catch (e) { }
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // best-effort
+        }
+
+        // Final deterministic pass: for any step whose source-line analysis
+        // indicates assigned names, ensure those assigned names appear on
+        // that step by scanning forward for the first occurrence of a value
+        // and copying it. This fixes cases where a "line" event is emitted
+        // before the assignment actually executed (so the assignment-line
+        // step initially lacks the assigned value). Conservatively copies
+        // only the first-found value for each name.
+        try {
+            const perLineMapFinal = this.perLineMap
+            if (perLineMapFinal) {
+                for (let i = 0; i < count; i++) {
+                    const s = this.currentTrace.getStep(i)
+                    if (!s) continue
+                    // Obtain assigned names for this source line
+                    let assignedSet = new Set()
+                    try {
+                        const per = perLineMapFinal.get(Number(s.lineNumber)) || {}
+                        assignedSet = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                    } catch (e) {
+                        // ignore
+                    }
+                    if (!assignedSet || assignedSet.size === 0) continue
+
+                    // Determine which assigned names are missing on this step
+                    const missing = []
+                    for (const name of assignedSet) {
+                        try {
+                            const exists = s.variables && (typeof s.variables.has === 'function' ? s.variables.has(name) : Object.prototype.hasOwnProperty.call(s.variables, name))
+                            if (!exists) missing.push(name)
+                        } catch (e) { missing.push(name) }
+                    }
+                    if (missing.length === 0) continue
+
+                    // Scan forward for first occurrence of each missing name
+                    for (let j = i + 1; j < count && missing.length > 0; j++) {
+                        const nxt = this.currentTrace.getStep(j)
+                        if (!nxt || !nxt.variables) continue
+                        // iterate Map or object
+                        if (typeof nxt.variables.entries === 'function') {
+                            for (const [k, v] of nxt.variables.entries()) {
+                                const idx = missing.indexOf(k)
+                                if (idx < 0) continue
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                try {
+                                    if (!s.variables) s.variables = new Map()
+                                    if (typeof s.variables.set === 'function') {
+                                        s.variables.set(k, v)
+                                    } else if (typeof s.variables === 'object') {
+                                        s.variables[k] = v
+                                    }
+                                    appendTerminalDebug(`Final-augmented step at line ${s.lineNumber} with name ${k} from step ${nxt.lineNumber}`)
+                                } catch (e) { }
+                                missing.splice(idx, 1)
+                                if (missing.length === 0) break
+                            }
+                        } else if (typeof nxt.variables === 'object') {
+                            for (const k of Object.keys(nxt.variables)) {
+                                const idx = missing.indexOf(k)
+                                if (idx < 0) continue
+                                if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                try {
+                                    if (!s.variables) s.variables = new Map()
+                                    if (typeof s.variables.set === 'function') {
+                                        s.variables.set(k, nxt.variables[k])
+                                    } else if (typeof s.variables === 'object') {
+                                        s.variables[k] = nxt.variables[k]
+                                    }
+                                    appendTerminalDebug(`Final-augmented step at line ${s.lineNumber} with name ${k} (obj) from step ${nxt.lineNumber}`)
+                                } catch (e) { }
+                                missing.splice(idx, 1)
+                                if (missing.length === 0) break
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // best-effort
+        }
+    }
+
+    /**
+     * Internal: flush any buffered comprehension iterations into a single
+     * execution step per comprehension line. Uses the last captured variables
+     * for the final collapsed step and annotates metadata with collapsed count.
+     */
+    _flushComprehensionBuffers() {
+        if (!this._comprehensionBuffer || !this.currentTrace) return
+        for (const lnStr of Object.keys(this._comprehensionBuffer)) {
+            const ln = Number(lnStr)
+            const b = this._comprehensionBuffer[lnStr]
+            if (!b) continue
+            const vars = b.lastVars || new Map()
+            // Try to include referenced and assigned names, but filter out internal
+            // comprehension targets (e.g. the iteration variable `i`).
+            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(ln)
+            const filtered = new Map()
+            if (compInfo) {
+                const assigned = compInfo.assignedNames || new Set()
+                const referenced = compInfo.referencedNames || new Set()
+                const targets = compInfo.compTargets || new Set()
+                // Support both Map and plain object shapes for vars
+                if (vars && typeof vars.entries === 'function') {
+                    for (const [k, v] of vars.entries()) {
+                        if (targets.has(k)) continue
+                        if (assigned.has(k) || referenced.has(k)) filtered.set(k, v)
+                    }
+                } else if (vars && typeof vars === 'object') {
+                    for (const k of Object.keys(vars)) {
+                        if (targets.has(k)) continue
+                        if (assigned.has(k) || referenced.has(k)) filtered.set(k, vars[k])
+                    }
+                }
+                // If nothing matched (conservative fallback), include assigned names if present
+                if (filtered.size === 0 && assigned.size > 0) {
+                    if (vars && typeof vars.entries === 'function') {
+                        for (const [k, v] of vars.entries()) {
+                            if (assigned.has(k)) filtered.set(k, v)
+                        }
+                    } else if (vars && typeof vars === 'object') {
+                        for (const k of Object.keys(vars)) {
+                            if (assigned.has(k)) filtered.set(k, vars[k])
+                        }
+                    }
+                }
+
+                // Ensure referenced names are present when possible: if a referenced
+                // name wasn't found in the buffered vars, try to take it from the
+                // previously recorded step (which may contain module-level values
+                // such as `n`) so the collapsed step shows values the user expects.
+                try {
+                    if (referenced && referenced.size > 0) {
+                        for (const name of referenced) {
+                            if (targets.has(name)) continue
+                            if (filtered.has(name)) continue
+
+                            let val = undefined
+                            // Try: previous recorded step
+                            try {
+                                const prevIndex = this.currentTrace.getStepCount() - 1
+                                if (prevIndex >= 0) {
+                                    const prevStep = this.currentTrace.getStep(prevIndex)
+                                    if (prevStep && prevStep.variables) {
+                                        val = prevStep.variables.get ? prevStep.variables.get(name) : prevStep.variables[name]
+                                    }
+                                }
+                            } catch (e) { }
+
+                            // Try: scan all existing steps for the name
+                            if (val === undefined) {
+                                try {
+                                    for (let si = 0; si < this.currentTrace.getStepCount(); si++) {
+                                        const scheck = this.currentTrace.getStep(si)
+                                        if (!scheck || !scheck.variables) continue
+                                        const maybe = scheck.variables.get ? scheck.variables.get(name) : scheck.variables[name]
+                                        if (maybe !== undefined) { val = maybe; break }
+                                    }
+                                } catch (e) {
+                                    // ignore
+                                }
+                            }
+
+                            if (val !== undefined) filtered.set(name, val)
+                        }
+                    }
+                } catch (e) {
+                    // ignore any lookup errors
+                }
+            }
+
+            const finalVars = (filtered && filtered.size > 0) ? filtered : vars
+            const step = new ExecutionStep(ln, finalVars, 'global', null, b.filename || '/main.py')
+            step.executionType = 'line'
+            // annotate that this step collapsed N iterations
+            step.collapsedIterations = b.iterations || 1
+            this.currentTrace.addStep(step)
+            appendTerminalDebug(`Flushed comprehension at line ${ln}: collapsed ${b.iterations} iterations into one step`)
+        }
+        this._comprehensionBuffer = {}
     }
 
     /**
@@ -423,9 +906,357 @@ export class ExecutionRecorder {
         }
 
         try {
+            // If this line is part of a comprehension we want to collapse
+            // internal iteration steps (which usually have no user-visible
+            // variable assignments) into a single step. We detect this by
+            // consulting comprehensionLineMap built at recording start.
+            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(lineNumber))
+            if (compInfo) {
+                // Buffer iteration: store latest variables and note that we've seen an iteration
+                const buf = this._comprehensionBuffer || (this._comprehensionBuffer = {})
+                const b = buf[lineNumber] || { iterations: 0, lastVars: null, filename: filename }
+                b.iterations++
+                b.lastVars = variables
+                buf[lineNumber] = b
+
+                // If this iteration includes any assignment to names that are
+                // not internal comprehension targets (i.e., assignedNames contains
+                // an actual variable), or the variables map contains those assigned
+                // names, then flush immediately as this represents a visible change.
+                const assignedNames = compInfo.assignedNames || new Set()
+                let flushNow = false
+                for (const n of assignedNames) {
+                    if (variables && variables.has(n)) {
+                        flushNow = true
+                        break
+                    }
+                }
+
+                if (flushNow) {
+                    // Filter variables to include assigned/referenced names and
+                    // exclude internal comprehension targets (e.g. `i`). This makes
+                    // collapsed steps show referenced variables like `n`.
+                    const compInfoNow = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(lineNumber))
+                    let varsToUse = b.lastVars
+                    if (compInfoNow && b.lastVars) {
+                        const filteredNow = new Map()
+                        const assignedNow = compInfoNow.assignedNames || new Set()
+                        const referencedNow = compInfoNow.referencedNames || new Set()
+                        const targetsNow = compInfoNow.compTargets || new Set()
+                        // b.lastVars can be Map or plain object
+                        if (b.lastVars && typeof b.lastVars.entries === 'function') {
+                            for (const [k, v] of b.lastVars.entries()) {
+                                if (targetsNow.has(k)) continue
+                                if (assignedNow.has(k) || referencedNow.has(k)) filteredNow.set(k, v)
+                            }
+                        } else if (b.lastVars && typeof b.lastVars === 'object') {
+                            for (const k of Object.keys(b.lastVars)) {
+                                if (targetsNow.has(k)) continue
+                                if (assignedNow.has(k) || referencedNow.has(k)) filteredNow.set(k, b.lastVars[k])
+                            }
+                        }
+                        // If we found some filtered vars, use them. Otherwise we
+                        // will try to augment referenced names from the previous
+                        // recorded step below so module-level values like `n`
+                        // are not lost when collapsing.
+                        if (filteredNow.size > 0) {
+                            varsToUse = filteredNow
+                        }
+
+                        // Augment referenced names from previous step if they're
+                        // missing in the current buffered vars. This helps show
+                        // referenced values (e.g. `n`) when the comprehension
+                        // iteration variables don't include them.
+                        try {
+                            if (referencedNow && referencedNow.size > 0) {
+                                const prevIndex = this.currentTrace.getStepCount() - 1
+                                if (prevIndex >= 0) {
+                                    const prevStep = this.currentTrace.getStep(prevIndex)
+                                    if (prevStep && prevStep.variables) {
+                                        for (const name of referencedNow) {
+                                            if (targetsNow.has(name)) continue
+                                            if (!filteredNow.has(name)) {
+                                                try {
+                                                    const val = prevStep.variables.get ? prevStep.variables.get(name) : undefined
+                                                    if (val !== undefined) filteredNow.set(name, val)
+                                                } catch (e) {
+                                                    // ignore
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore lookup errors
+                        }
+                        if (filteredNow.size > 0) varsToUse = filteredNow
+                    }
+                    const step = new ExecutionStep(lineNumber, varsToUse, scope, null, filename)
+                    step.executionType = executionType
+                    this.currentTrace.addStep(step)
+                    appendTerminalDebug(`Recorded (comprehension-flush) step ${this.currentTrace.getStepCount()}: line ${lineNumber} in ${filename || '/main.py'}, ${b.lastVars ? b.lastVars.size : 0} vars (collapsed ${b.iterations} iterations)`)
+                    delete buf[lineNumber]
+                } else {
+                    // Otherwise do not add a step for each internal iteration
+                    // (they will be collapsed later in finalizeRecording)
+                    if (this.currentTrace.getStepCount() % 100 === 0) {
+                        appendTerminalDebug(`Recorded ${this.currentTrace.getStepCount()} execution steps (comprehension buffering)`)
+                    }
+                }
+
+                return
+            }
+
+            // Before adding a normal (non-comprehension) step, flush any
+            // buffered comprehension lines that should appear before this
+            // step in execution order. This ensures collapsed comprehension
+            // steps are placed in the trace before subsequent lines (e.g., print).
+            try {
+                if (this._comprehensionBuffer) {
+                    // Flush buffers for any lines that are not the current line
+                    // and which were recorded earlier. We conservatively flush all
+                    // buffered lines here to preserve ordering; buffers are small.
+                    const bufferedLines = Object.keys(this._comprehensionBuffer).map(x => Number(x)).sort((a, b) => a - b)
+                    for (const bl of bufferedLines) {
+                        // If buffered line equals current line skip (recently handled)
+                        if (bl === Number(lineNumber)) continue
+                        const b = this._comprehensionBuffer[String(bl)]
+                        if (!b) continue
+                        const vars2 = b.lastVars || new Map()
+                        // Filter like in _flushComprehensionBuffers
+                        const compInfo2 = this.comprehensionLineMap && this.comprehensionLineMap.get(bl)
+                        let finalVars2 = vars2
+                        if (compInfo2 && vars2) {
+                            const f2 = new Map()
+                            const assigned2 = compInfo2.assignedNames || new Set()
+                            const referenced2 = compInfo2.referencedNames || new Set()
+                            const targets2 = compInfo2.compTargets || new Set()
+                            // vars2 may be Map or plain object
+                            if (vars2 && typeof vars2.entries === 'function') {
+                                for (const [k, v] of vars2.entries()) {
+                                    if (targets2.has(k)) continue
+                                    if (assigned2.has(k) || referenced2.has(k)) f2.set(k, v)
+                                }
+                            } else if (vars2 && typeof vars2 === 'object') {
+                                for (const k of Object.keys(vars2)) {
+                                    if (targets2.has(k)) continue
+                                    if (assigned2.has(k) || referenced2.has(k)) f2.set(k, vars2[k])
+                                }
+                            }
+                            // If we found some filtered vars use them; otherwise
+                            // attempt to augment referenced names from previous
+                            // recorded step so module-level values like `n` are
+                            // preserved when collapsing.
+                            if (f2.size === 0 && referenced2 && referenced2.size > 0) {
+                                // Try to take referenced names from the incoming
+                                // (about-to-be-added) `variables` for this normal step
+                                // — this is the most up-to-date context and will
+                                // contain module-level names like `n` in typical runs.
+                                for (const name of referenced2) {
+                                    if (targets2.has(name)) continue
+                                    if (f2.has(name)) continue
+                                    let val = undefined
+                                    try {
+                                        if (variables) {
+                                            if (typeof variables.get === 'function') {
+                                                val = variables.get(name)
+                                            } else if (Object.prototype.hasOwnProperty.call(variables, name)) {
+                                                val = variables[name]
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // ignore
+                                    }
+
+                                    // Fallback: look into the previous recorded step
+                                    if (val === undefined) {
+                                        try {
+                                            const prevIndex2 = this.currentTrace.getStepCount() - 1
+                                            if (prevIndex2 >= 0) {
+                                                const prevStep2 = this.currentTrace.getStep(prevIndex2)
+                                                if (prevStep2 && prevStep2.variables) {
+                                                    const maybe = prevStep2.variables.get ? prevStep2.variables.get(name) : prevStep2.variables[name]
+                                                    if (maybe !== undefined) val = maybe
+                                                }
+                                            }
+                                        } catch (e) {
+                                            // ignore
+                                        }
+                                    }
+
+                                    if (val === undefined) {
+                                        // Final fallback: scan existing trace steps for the name
+                                        try {
+                                            for (let si = 0; si < this.currentTrace.getStepCount(); si++) {
+                                                const scheck = this.currentTrace.getStep(si)
+                                                if (!scheck || !scheck.variables) continue
+                                                const maybe2 = scheck.variables.get ? scheck.variables.get(name) : scheck.variables[name]
+                                                if (maybe2 !== undefined) {
+                                                    val = maybe2
+                                                    break
+                                                }
+                                            }
+                                        } catch (e) {
+                                            // ignore
+                                        }
+                                    }
+
+                                    if (val !== undefined) f2.set(name, val)
+                                }
+                            }
+                            if (f2.size > 0) finalVars2 = f2
+                        }
+                        const step2 = new ExecutionStep(bl, finalVars2, 'global', null, b.filename || filename)
+                        step2.executionType = 'line'
+                        step2.collapsedIterations = b.iterations || 1
+                        this.currentTrace.addStep(step2)
+                        appendTerminalDebug(`Flushed comprehension (pre-step) at line ${bl}: collapsed ${b.iterations} iterations`)
+                    }
+                    // Clear buffers after flushing
+                    this._comprehensionBuffer = {}
+                }
+            } catch (e) {
+                appendTerminalDebug('Failed to pre-flush comprehension buffers: ' + e)
+            }
+
             const step = new ExecutionStep(lineNumber, variables, scope, null, filename)
             step.executionType = executionType
             this.currentTrace.addStep(step)
+
+            // If the step we just added follows a collapsed comprehension
+            // step, retroactively augment that collapsed step with referenced
+            // names found in this new step. This is a robust fallback for
+            // situations where the referenced value (e.g. `n`) only appears
+            // on the subsequent non-comprehension step.
+            try {
+                const curIndex = this.currentTrace.getStepCount() - 1
+                const prevIndex = curIndex - 1
+                if (prevIndex >= 0) {
+                    const prevStep = this.currentTrace.getStep(prevIndex)
+                    if (prevStep && prevStep.collapsedIterations && prevStep.collapsedIterations > 0) {
+                        const compInfoPrev = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(prevStep.lineNumber))
+                        const targetsPrev = (compInfoPrev && compInfoPrev.compTargets) ? compInfoPrev.compTargets : new Set()
+                        // Copy non-internal names from the new step into the collapsed
+                        // step as a robust fallback. Exclude names that look like
+                        // internal locals (local_\d+) and comprehension targets.
+                        try {
+                            if (step && step.variables) {
+                                // iterate Map or plain object
+                                if (typeof step.variables.entries === 'function') {
+                                    for (const [k, v] of step.variables.entries()) {
+                                        if (prevStep.variables.has(k)) continue
+                                        if (targetsPrev.has(k)) continue
+                                        if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                        try {
+                                            prevStep.variables.set(k, v)
+                                            appendTerminalDebug(`Augmented collapsed step at line ${prevStep.lineNumber} with name ${k}`)
+                                        } catch (e) { }
+                                    }
+                                } else if (typeof step.variables === 'object') {
+                                    for (const k of Object.keys(step.variables)) {
+                                        if (prevStep.variables.has(k)) continue
+                                        if (targetsPrev.has(k)) continue
+                                        if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                                        try {
+                                            prevStep.variables.set(k, step.variables[k])
+                                            appendTerminalDebug(`Augmented collapsed step at line ${prevStep.lineNumber} with name ${k}`)
+                                        } catch (e) { }
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            // Additionally: retroactively augment a small window of earlier
+            // steps (non-collapsed as well) when the newly-added step contains
+            // values assigned on those earlier lines. This covers the common
+            // sys.settrace behavior where a "line" event is emitted before
+            // the assignment executes (so the assignment line's step may be
+            // missing the assigned value). We consult the per-line analysis
+            // (this.perLineMap) to determine which names were assigned on the
+            // earlier line and copy matching values from the new step.
+            try {
+                const lookback = 3
+                const perLineMap = this.perLineMap
+                if (perLineMap && step && step.variables) {
+                    // Iterate variables from the new step
+                    if (typeof step.variables.entries === 'function') {
+                        for (const [k, v] of step.variables.entries()) {
+                            if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                            // Walk back a few steps to find an earlier assignment site
+                            for (let idx = curIndex - 1; idx >= Math.max(0, curIndex - lookback); idx--) {
+                                const prior = this.currentTrace.getStep(idx)
+                                if (!prior) continue
+                                // Only consider earlier lines (not the same or later)
+                                if (!(Number(prior.lineNumber) < Number(step.lineNumber))) continue
+                                // Skip if already present
+                                try {
+                                    if (prior.variables && typeof prior.variables.has === 'function' && prior.variables.has(k)) continue
+                                    if (prior.variables && !prior.variables.has && Object.prototype.hasOwnProperty.call(prior.variables, k)) continue
+                                } catch (e) { }
+
+                                // Check if this name was assigned on that prior line
+                                try {
+                                    const per = perLineMap.get(Number(prior.lineNumber)) || {}
+                                    const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                                    if (!assigned.has(k)) continue
+                                } catch (e) {
+                                    continue
+                                }
+
+                                // Copy the value
+                                try {
+                                    if (!prior.variables) prior.variables = new Map()
+                                    if (typeof prior.variables.set === 'function') {
+                                        prior.variables.set(k, v)
+                                    } else if (typeof prior.variables === 'object') {
+                                        prior.variables[k] = v
+                                    }
+                                    appendTerminalDebug(`Retro-augmented prior step at line ${prior.lineNumber} with name ${k}`)
+                                } catch (e) {
+                                    // best-effort
+                                }
+                            }
+                        }
+                    } else if (typeof step.variables === 'object') {
+                        for (const k of Object.keys(step.variables)) {
+                            if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
+                            for (let idx = curIndex - 1; idx >= Math.max(0, curIndex - lookback); idx--) {
+                                const prior = this.currentTrace.getStep(idx)
+                                if (!prior) continue
+                                if (!(Number(prior.lineNumber) < Number(step.lineNumber))) continue
+                                try {
+                                    if (prior.variables && typeof prior.variables.has === 'function' && prior.variables.has(k)) continue
+                                    if (prior.variables && !prior.variables.has && Object.prototype.hasOwnProperty.call(prior.variables, k)) continue
+                                } catch (e) { }
+                                try {
+                                    const per = perLineMap.get(Number(prior.lineNumber)) || {}
+                                    const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
+                                    if (!assigned.has(k)) continue
+                                } catch (e) { continue }
+                                try {
+                                    if (!prior.variables) prior.variables = new Map()
+                                    if (typeof prior.variables.set === 'function') {
+                                        prior.variables.set(k, step.variables[k])
+                                    } else if (typeof prior.variables === 'object') {
+                                        prior.variables[k] = step.variables[k]
+                                    }
+                                    appendTerminalDebug(`Retro-augmented prior step at line ${prior.lineNumber} with name ${k}`)
+                                } catch (e) { }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // best-effort
+            }
 
             // Log every step for debugging multi-file recording
             appendTerminalDebug(`Recorded step ${this.currentTrace.getStepCount()}: line ${lineNumber} in ${filename || '/main.py'}, ${variables.size} vars`)
@@ -437,7 +1268,6 @@ export class ExecutionRecorder {
             appendTerminalDebug('Failed to record step: ' + error)
         }
     }
-
     /**
      * Get execution hooks for runtime integration
      */
