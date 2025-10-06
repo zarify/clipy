@@ -1358,7 +1358,29 @@ export class ExecutionRecorder {
             const stepCount = this.currentTrace.getStepCount()
             if (this.perLineMap && this.perLineMap.size > 0 && stepCount > 0 && lineNumber > 1) {
                 const varCount = variables ? (variables.size || Object.keys(variables).length || 0) : 0
-                if (varCount === 0) {
+
+                // Determine whether the source line actually has assigned or referenced names
+                // according to the AST analysis. If it does, we must NOT skip the step
+                // even if the runtime emitted no variables on the LINE event, because
+                // the actual assigned value may appear on a subsequent step and we
+                // rely on post-processing to augment the earlier step.
+                let hasAstInterest = false
+                try {
+                    const perKey = makeLineKey(filename, lineNumber)
+                    const lineAst = this.perLineMap.get(perKey)
+                    if (lineAst) {
+                        const assignedSet = lineAst.assigned || new Set()
+                        const referencedSet = lineAst.referenced || new Set()
+                        if ((assignedSet && assignedSet.size > 0) || (referencedSet && referencedSet.size > 0)) {
+                            hasAstInterest = true
+                        }
+                    }
+                } catch (e) {
+                    // ignore AST lookup errors and be conservative
+                    hasAstInterest = false
+                }
+
+                if (!hasAstInterest && varCount === 0) {
                     // Check if previous step was also from a different line (suggests loop setup)
                     const prevStep = this.currentTrace.getStep(stepCount - 1)
                     if (prevStep && prevStep.lineNumber !== lineNumber) {
@@ -1851,6 +1873,14 @@ export function initializeExecutionRecorder() {
     try {
         if (window.cm && typeof window.cm.on === 'function') {
             window.cm.on('change', () => {
+                // Skip invalidation if we're currently replaying - file switches
+                // during replay should not clear the recording we're replaying!
+                try {
+                    if (window.ReplayEngine && window.ReplayEngine.isReplaying) {
+                        return
+                    }
+                } catch (e) { /* ignore */ }
+
                 // Debounce to avoid clearing on every keystroke
                 clearTimeout(window.__ssg_invalidate_timeout)
                 window.__ssg_invalidate_timeout = setTimeout(() => {

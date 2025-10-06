@@ -82,25 +82,66 @@ export class ReplayLineDecorator {
                 //
                 // Solution: Look for RETURN event in the trace and use its values for final iteration
 
-                // Find the RETURN event (if any) to get correct final values
-                // Since we filter RETURN events from the replay trace, look in originalTrace
-                let returnEventVars = null
-                if (originalTrace) {
-                    appendTerminalDebug(`  🔍 Searching originalTrace (${originalTrace.getStepCount()} steps) for RETURN event...`)
-                    // Search for a RETURN event in the original (unfiltered) trace
+                // Prepare to find RETURN event values on a per-variable basis.
+                // Previously we grabbed the first RETURN in the whole trace which
+                // could belong to an unrelated function and produced incorrect
+                // values for other source lines. Instead, search the original
+                // trace near the current original index for a RETURN that contains
+                // the desired variable name.
+                let originalIndex = -1
+                if (originalTrace && currentStepIndex >= 0) {
+                    // Map currentStepIndex (which counts non-RETURN steps) to the
+                    // corresponding index inside originalTrace (which includes RETURNs).
+                    let nonReturnCount = 0
                     for (let i = 0; i < originalTrace.getStepCount(); i++) {
                         const step = originalTrace.getStep(i)
-                        if (step && step.executionType === 'return') {
-                            returnEventVars = step.variables
-                            appendTerminalDebug(`  ✅ Found RETURN event at step ${i}: ${Array.from(returnEventVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
-                            break
+                        if (step.executionType !== 'return') {
+                            if (nonReturnCount === currentStepIndex) {
+                                originalIndex = i
+                                break
+                            }
+                            nonReturnCount++
                         }
                     }
-                    if (!returnEventVars) {
-                        appendTerminalDebug(`  ❌ No RETURN event found in originalTrace`)
+                }
+
+                const findReturnValue = (name, forwardLimit = 50) => {
+                    if (!originalTrace) return undefined
+
+                    // Prefer RETURN events after the current originalIndex (forward search)
+                    const start = originalIndex >= 0 ? originalIndex + 1 : 0
+                    const end = Math.min(originalTrace.getStepCount(), start + forwardLimit)
+                    for (let j = start; j < end; j++) {
+                        const s = originalTrace.getStep(j)
+                        if (!s || s.executionType !== 'return') continue
+                        try {
+                            const vars = s.variables
+                            if (!vars) continue
+                            const val = (typeof vars.get === 'function') ? vars.get(name) : vars[name]
+                            if (val !== undefined) {
+                                appendTerminalDebug(`  ✅ Found RETURN event at step ${j} for '${name}': ${val}`)
+                                return val
+                            }
+                        } catch (e) { /* ignore malformed return step */ }
                     }
-                } else {
-                    appendTerminalDebug(`  ❌ originalTrace parameter is null/undefined`)
+
+                    // Fallback: search all RETURN events for this name (slower but safe)
+                    for (let j = 0; j < originalTrace.getStepCount(); j++) {
+                        const s = originalTrace.getStep(j)
+                        if (!s || s.executionType !== 'return') continue
+                        try {
+                            const vars = s.variables
+                            if (!vars) continue
+                            const val = (typeof vars.get === 'function') ? vars.get(name) : vars[name]
+                            if (val !== undefined) {
+                                appendTerminalDebug(`  ✅ Found RETURN event elsewhere at step ${j} for '${name}': ${val}`)
+                                return val
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    appendTerminalDebug(`  ❌ No RETURN event found for '${name}'`)
+                    return undefined
                 }
 
                 // Get next step for one-step look-ahead
@@ -157,7 +198,7 @@ export class ReplayLineDecorator {
                 appendTerminalDebug(`  📍 Current step: ${Array.from(variables.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
                 appendTerminalDebug(`  📍 Next step: ${nextStepVars ? Array.from(nextStepVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
                 appendTerminalDebug(`  📍 Next step (same file): ${nextStepSameFileVars ? Array.from(nextStepSameFileVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
-                appendTerminalDebug(`  📍 Return event: ${returnEventVars ? Array.from(returnEventVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
+                appendTerminalDebug(`  📍 Return event lookups will be resolved per-variable (anchored near originalIndex ${originalIndex})`)
 
                 // First, add all assigned variables
                 for (const name of astData.assigned) {
@@ -180,9 +221,12 @@ export class ReplayLineDecorator {
                         value = nextStepVars?.get(name)
                     }
 
-                    // If no next step but we have a RETURN event, use that (final loop iteration)
-                    if (value === undefined && returnEventVars) {
-                        value = returnEventVars.get(name)
+                    // If no next step, try to find a RETURN event value for this name
+                    if (value === undefined) {
+                        try {
+                            const rv = findReturnValue(name)
+                            if (rv !== undefined) value = rv
+                        } catch (e) { /* ignore */ }
                     }
 
                     // Final fallback to current step (shouldn't happen in normal cases)
@@ -238,9 +282,9 @@ export class ReplayLineDecorator {
                     }
 
                     // If no next-step value, try RETURN event vars (final values)
-                    if (chosen === undefined && returnEventVars) {
+                    if (chosen === undefined) {
                         try {
-                            const rv = returnEventVars.get ? returnEventVars.get(name) : returnEventVars[name]
+                            const rv = findReturnValue(name)
                             if (rv !== undefined) {
                                 chosen = rv
                                 appendTerminalDebug(`  🔁 Using RETURN event for referenced '${name}': ${chosen}`)
@@ -910,16 +954,21 @@ export class ReplayEngine {
             this.functionLocalMaps = {}
             this.lineFunctionMap = new Map()
 
-            // Get all Python files from workspace
-            const fileManager = getFileManager()
-            const allFiles = await fileManager.list()
-            const pyFiles = allFiles.filter(f => f.endsWith('.py'))
+            // CRITICAL FIX: When building the line reference map during replay startup,
+            // the trace metadata contains the ACTUAL source code that was recorded,
+            // which may differ from the current FileManager files (especially after
+            // config switches). We must seed from trace.metadata.sourceCode FIRST
+            // to ensure replay uses the correct AST analysis that matches the recording.
+            //
+            // Previously we analyzed FileManager files first then seeded from sourceCode
+            // as a fallback, but this caused replay to use stale AST data from a
+            // different config (e.g., variable "bye" from config A when replaying
+            // config B which has "num_dice").
 
-            appendTerminalDebug(`Building AST line reference map for ${pyFiles.length} Python files...`)
+            appendTerminalDebug(`🔍 buildLineReferenceMap called with sourceCode: ${sourceCode ? `${sourceCode.length} chars` : 'NONE'}`)
 
             // If a sourceCode string was provided (from executionTrace.metadata),
-            // seed the /main.py entry so lookups for <stdin> or /main.py lines
-            // succeed even if the FileManager doesn't currently expose the file.
+            // seed the /main.py entry FIRST so lookups use the recorded source.
             if (sourceCode && typeof sourceCode === 'string') {
                 try {
                     const ast = await analyzer.parse(sourceCode)
@@ -953,13 +1002,29 @@ export class ReplayEngine {
                             subscripts: dataCopy.subscripts
                         })
                     }
+
+                    appendTerminalDebug('✅ Seeded /main.py AST from trace metadata sourceCode')
                 } catch (e) {
                     appendTerminalDebug('Failed to seed /main.py from sourceCode: ' + e)
                 }
             }
 
-            // Analyze each Python file
+            // Get all Python files from workspace (these may be from current config,
+            // which could differ from the recording if user switched configs)
+            const fileManager = getFileManager()
+            const allFiles = await fileManager.list()
+            const pyFiles = allFiles.filter(f => f.endsWith('.py'))
+
+            appendTerminalDebug(`Building AST line reference map for ${pyFiles.length} Python files...`)
+
+            // Analyze each Python file, BUT skip /main.py if we already seeded it
+            // from trace metadata (to avoid overwriting with stale data).
             for (const filepath of pyFiles) {
+                // Skip /main.py if we already seeded it from trace metadata
+                if (filepath === '/main.py' && sourceCode && typeof sourceCode === 'string') {
+                    appendTerminalDebug('  ⏭️  Skipping /main.py analysis (already seeded from trace metadata)')
+                    continue
+                }
                 try {
                     const content = await fileManager.read(filepath)
                     const ast = await analyzer.parse(content)
