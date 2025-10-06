@@ -1,7 +1,7 @@
 // Replay UI: Controls and visualization for execution replay
 import { appendTerminalDebug } from './terminal.js'
 import { getFileManager } from './vfs-client.js'
-import { $ } from './utils.js'
+import { $, normalizeFilename, makeLineKey } from './utils.js'
 import { ExecutionTrace } from './execution-recorder.js'
 
 /**
@@ -106,25 +106,57 @@ export class ReplayLineDecorator {
                 // Get next step for one-step look-ahead
                 // Since RETURN events are now filtered out, we don't need to check executionType
                 let nextStepVars = null
-                if (executionTrace && currentStepIndex >= 0 && currentStepIndex < executionTrace.getStepCount() - 1) {
-                    const nextStep = executionTrace.getStep(currentStepIndex + 1)
-                    // CRITICAL: Only use next step if it's in the same file (prevent cross-file pollution)
-                    if (nextStep && nextStep.filename === filename) {
-                        // Normalize special filenames: <stdin> → /main.py
-                        let normalizedFilename = nextStep.filename
-                        if (nextStep.filename === '<stdin>') {
-                            normalizedFilename = '/main.py'
-                        } else if (nextStep.filename && !nextStep.filename.startsWith('/')) {
-                            normalizedFilename = `/${nextStep.filename}`
+                let nextStepSameFileVars = null  // Track next step in same file for assignments
+                if (originalTrace && currentStepIndex >= 0) {
+                    // Find the current step in originalTrace by counting non-return steps
+                    let originalIndex = -1
+                    let nonReturnCount = 0
+                    for (let i = 0; i < originalTrace.getStepCount(); i++) {
+                        const step = originalTrace.getStep(i)
+                        if (step.executionType !== 'return') {
+                            if (nonReturnCount === currentStepIndex) {
+                                originalIndex = i
+                                break
+                            }
+                            nonReturnCount++
                         }
-                        // Translate local_* variables in next step to real names
-                        nextStepVars = this.translateLocalVariables(nextStep.variables, nextStep.lineNumber, normalizedFilename)
+                    }
+                    if (originalIndex >= 0 && originalIndex < originalTrace.getStepCount() - 1) {
+                        const nextStep = originalTrace.getStep(originalIndex + 1)
+                        // For assigned variables, use next step even if different file, to get post-execution value
+                        if (nextStep) {
+                            // Translate local_* variables in next step to real names
+                            const normalizedFilename = normalizeFilename(nextStep.filename)
+                            nextStepVars = this.translateLocalVariables(nextStep.variables, nextStep.lineNumber, normalizedFilename)
+                        }
+
+                        // Also look ahead for next step in SAME file (for function call assignments)
+                        // This handles cases like: rolls = roll(num_dice)
+                        // Where the immediate next step enters the function, but we need the value
+                        // after returning to the same file
+                        const currentFilename = normalizeFilename(filename)
+                        for (let j = originalIndex + 1; j < originalTrace.getStepCount(); j++) {
+                            const futureStep = originalTrace.getStep(j)
+                            if (futureStep.executionType === 'return') continue
+
+                            const futureFilename = normalizeFilename(futureStep.filename)
+                            if (futureFilename === currentFilename) {
+                                // Found next step in same file
+                                nextStepSameFileVars = this.translateLocalVariables(
+                                    futureStep.variables,
+                                    futureStep.lineNumber,
+                                    futureFilename
+                                )
+                                break
+                            }
+                        }
                     }
                 }
 
                 appendTerminalDebug(`  📍 Line ${lineNumber}: assigned=${Array.from(astData.assigned).join(',')}, referenced=${Array.from(astData.referenced).join(',')}`)
                 appendTerminalDebug(`  📍 Current step: ${Array.from(variables.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
                 appendTerminalDebug(`  📍 Next step: ${nextStepVars ? Array.from(nextStepVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
+                appendTerminalDebug(`  📍 Next step (same file): ${nextStepSameFileVars ? Array.from(nextStepSameFileVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
                 appendTerminalDebug(`  📍 Return event: ${returnEventVars ? Array.from(returnEventVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ') : 'none'}`)
 
                 // First, add all assigned variables
@@ -134,10 +166,19 @@ export class ReplayLineDecorator {
                         continue
                     }
 
-                    // For assignments, ALWAYS use one-step look-ahead to show after-execution value
+                    // For assignments, ALWAYS use look-ahead to show after-execution value
                     // This is standard debugger behavior: show the result of executing the line
-                    // Fallback chain: next step → RETURN event (if available) → current step
-                    let value = nextStepVars?.get(name)
+                    // Fallback chain: next-same-file → next step → RETURN event (if available) → current step
+                    //
+                    // Prefer next-same-file for function call assignments like: rolls = roll(num_dice)
+                    // The immediate next step enters the function (different file), but we need
+                    // the value after returning to continue execution in the current file
+                    let value = nextStepSameFileVars?.get(name)
+
+                    // If no same-file lookahead, try immediate next step
+                    if (value === undefined) {
+                        value = nextStepVars?.get(name)
+                    }
 
                     // If no next step but we have a RETURN event, use that (final loop iteration)
                     if (value === undefined && returnEventVars) {
@@ -175,11 +216,94 @@ export class ReplayLineDecorator {
                 }
 
                 // Then, add referenced variables that aren't already in displayVars
-                // For referenced vars, use current step values (the values that were READ by this line, before execution)
-                for (const [name, value] of variables) {
-                    if (astData.referenced.has(name) && !displayVars.has(name) && !isBuiltinOrInternal(name, value)) {
-                        displayVars.set(name, value)
+                // Prefer look-ahead (next step or RETURN event) values when available.
+                // If next-step isn't present (or is in a different file), attempt
+                // a short forward search in the executionTrace for the first
+                // occurrence of the variable. However, DO NOT perform cross-file
+                // lookups for function-local variables (to avoid leaking locals
+                // across frames).
+                for (const name of astData.referenced) {
+                    if (displayVars.has(name)) continue
+                    // Skip built-ins/internal
+                    const currentVal = variables && (variables.get ? variables.get(name) : (variables[name]))
+                    if (isBuiltinOrInternal(name, currentVal)) continue
+
+                    let chosen = undefined
+
+                    // Prefer next-step (translated) values when present - these represent
+                    // post-execution assigned values and avoid showing stale previous values
+                    if (nextStepVars && typeof nextStepVars.get === 'function' && nextStepVars.has(name)) {
+                        chosen = nextStepVars.get(name)
+                        appendTerminalDebug(`  🔁 Using next-step lookahead for referenced '${name}': ${chosen}`)
                     }
+
+                    // If no next-step value, try RETURN event vars (final values)
+                    if (chosen === undefined && returnEventVars) {
+                        try {
+                            const rv = returnEventVars.get ? returnEventVars.get(name) : returnEventVars[name]
+                            if (rv !== undefined) {
+                                chosen = rv
+                                appendTerminalDebug(`  🔁 Using RETURN event for referenced '${name}': ${chosen}`)
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    // If still nothing, attempt a short forward search in executionTrace
+                    // for the first occurrence of this variable (up to a limit). This
+                    // allows lookahead across files when the assigned value occurs in
+                    // a different file (common with helper modules). However, if the
+                    // variable is a function-local in this file, restrict the search
+                    // to the same file only to avoid leaking locals.
+                    if (chosen === undefined && executionTrace && typeof currentStepIndex === 'number') {
+                        try {
+                            const lookaheadLimit = 20
+                            let allowCrossFile = true
+                            try {
+                                // Determine whether this name is function-local at this line
+                                const funcKey = makeLineKey(filename, lineNumber)
+                                const functionName = this.lineFunctionMap && this.lineFunctionMap.get(funcKey)
+                                if (functionName && this.functionLocalMaps && Array.isArray(this.functionLocalMaps[functionName])) {
+                                    const localNames = this.functionLocalMaps[functionName]
+                                    if (localNames && localNames.indexOf(name) !== -1) {
+                                        // It's a function-local; do not search cross-file
+                                        allowCrossFile = false
+                                    }
+                                }
+                            } catch (e) {
+                                // ignore - conservative default allows cross-file
+                            }
+
+                            for (let j = currentStepIndex + 1; j < Math.min(executionTrace.getStepCount(), currentStepIndex + 1 + lookaheadLimit); j++) {
+                                const nxt = executionTrace.getStep(j)
+                                if (!nxt || !nxt.variables) continue
+
+                                if (!allowCrossFile && nxt.filename !== filename) continue
+
+                                // Prefer translated local variables when available
+                                let val = undefined
+                                try {
+                                    if (typeof nxt.variables.get === 'function') {
+                                        val = nxt.variables.get(name)
+                                    } else if (Object.prototype.hasOwnProperty.call(nxt.variables, name)) {
+                                        val = nxt.variables[name]
+                                    }
+                                } catch (e) { val = undefined }
+
+                                if (val !== undefined) {
+                                    chosen = val
+                                    appendTerminalDebug(`  🔎 Found forward-lookahead for '${name}' at step ${j} (file=${nxt.filename}): ${chosen}`)
+                                    break
+                                }
+                            }
+                        } catch (e) {
+                            // ignore search errors
+                        }
+                    }
+
+                    // Final fallback to current step (pre-execution) if still nothing
+                    if (chosen === undefined) chosen = currentVal
+
+                    if (chosen !== undefined) displayVars.set(name, chosen)
                 }
 
                 // Finally, evaluate and add subscript expressions (e.g., beats[h] = 1)
@@ -355,18 +479,35 @@ export class ReplayLineDecorator {
 
         // Normalize special filenames: <stdin> → /main.py
         let normalizedFilename = filename
-        if (filename === '<stdin>') {
-            normalizedFilename = '/main.py'
-        } else if (filename && !filename.startsWith('/')) {
-            // Prepend "/" if missing
-            normalizedFilename = `/${filename}`
-        }
-
+        if (filename === '<stdin>') normalizedFilename = '/main.py'
+        else if (filename && !filename.startsWith('/')) normalizedFilename = `/${filename}`
         // Use filename-qualified key for multi-file support
-        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        const key = makeLineKey(normalizedFilename, lineNumber)
         if (!this.lineReferenceMap.has(key)) {
             appendTerminalDebug(`  ⚠️ getReferencedNamesForLine: key="${key}" NOT FOUND in lineReferenceMap`)
             appendTerminalDebug(`  📋 Available keys: ${Array.from(this.lineReferenceMap.keys()).slice(0, 5).join(', ')}...`)
+
+            // Attempt a one-time rebuild of the lineReferenceMap from the
+            // originalTrace metadata sourceCode (useful after config switches
+            // where files may not yet be materialized). Avoid infinite loops
+            // by checking a flag.
+            try {
+                if (!this._attemptedSeedFromTrace && this.originalTrace && this.originalTrace.metadata && this.originalTrace.metadata.sourceCode) {
+                    this._attemptedSeedFromTrace = true
+                    appendTerminalDebug('  ℹ️ Attempting to rebuild lineReferenceMap from originalTrace.metadata.sourceCode')
+                    // buildLineReferenceMap is async but we can call it and await it synchronously
+                    // within this function by using a synchronous Promise resolution pattern
+                    // Note: buildLineReferenceMap handles its own errors
+                    this.buildLineReferenceMap(this.originalTrace.metadata.sourceCode).catch((e) => {
+                        appendTerminalDebug('  ⚠️ rebuild failed: ' + e)
+                    })
+                    // After scheduling rebuild, return null for now; future calls will use rebuilt map
+                    return null
+                }
+            } catch (e) {
+                appendTerminalDebug('  ⚠️ Error while attempting rebuild: ' + e)
+            }
+
             return null
         }
         const lineData = this.lineReferenceMap.get(key)
@@ -406,7 +547,7 @@ export class ReplayLineDecorator {
         }
 
         // Determine which function this line belongs to (use filename-qualified key)
-        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        const key = makeLineKey(filename, lineNumber)
         const functionName = this.lineFunctionMap.get(key);
 
         // DEBUG: Log translation attempts for dice.py
@@ -776,6 +917,47 @@ export class ReplayEngine {
 
             appendTerminalDebug(`Building AST line reference map for ${pyFiles.length} Python files...`)
 
+            // If a sourceCode string was provided (from executionTrace.metadata),
+            // seed the /main.py entry so lookups for <stdin> or /main.py lines
+            // succeed even if the FileManager doesn't currently expose the file.
+            if (sourceCode && typeof sourceCode === 'string') {
+                try {
+                    const ast = await analyzer.parse(sourceCode)
+                    const perLine = analyzer.getVariablesAndCallsPerLine(ast)
+                    const comps = analyzer.analyzeComprehensions(ast, '*')
+                    const compArray = comps?.comprehensions || (Array.isArray(comps) ? comps : [])
+
+                    // Process perLine into normalized keys for /main.py
+                    for (const [lineNum, lineData] of perLine.entries()) {
+                        const ln = Number(lineNum)
+                        const key = makeLineKey('/main.py', ln)
+                        const dataCopy = {
+                            assigned: new Set(lineData.assigned || []),
+                            referenced: new Set(lineData.referenced || []),
+                            functionCalls: new Set(lineData.functionCalls || []),
+                            subscripts: Array.isArray(lineData.subscripts) ? lineData.subscripts.slice() : []
+                        }
+                        // Remove comprehension iterator targets for this file
+                        const compTargets = new Set()
+                        for (const c of compArray) {
+                            if (Number(c.lineno) === ln) {
+                                for (const t of (c.targets || [])) compTargets.add(t)
+                            }
+                        }
+                        for (const t of compTargets) if (dataCopy.referenced.has(t)) dataCopy.referenced.delete(t)
+
+                        this.lineReferenceMap.set(key, {
+                            assigned: dataCopy.assigned,
+                            referenced: dataCopy.referenced,
+                            functionCalls: dataCopy.functionCalls,
+                            subscripts: dataCopy.subscripts
+                        })
+                    }
+                } catch (e) {
+                    appendTerminalDebug('Failed to seed /main.py from sourceCode: ' + e)
+                }
+            }
+
             // Analyze each Python file
             for (const filepath of pyFiles) {
                 try {
@@ -787,10 +969,49 @@ export class ReplayEngine {
                     // Get per-line analysis for this file
                     const perLine = analyzer.getVariablesAndCallsPerLine(ast)
 
-                    // Store with filename-qualified keys
+                    // Also get comprehensions so we can strip iterator targets
+                    // from the per-line referenced set (they're internal and
+                    // shouldn't be displayed by the UI or used for lookahead).
+                    const comps = analyzer.analyzeComprehensions(ast, '*')
+                    const compArray = comps?.comprehensions || (Array.isArray(comps) ? comps : [])
+                    const compTargetsByLine = new Map()
+                    for (const c of compArray) {
+                        try {
+                            const ln = Number(c.lineno)
+                            const targets = new Set(c.targets || [])
+                            compTargetsByLine.set(ln, targets)
+                        } catch (e) { /* ignore malformed entries */ }
+                    }
+
+                    // Store with normalized filename-qualified keys, filtering
+                    // out comprehension iterator targets from referenced sets.
                     for (const [lineNum, lineData] of perLine.entries()) {
-                        const key = `${filepath}:${lineNum}`
-                        this.lineReferenceMap.set(key, lineData)
+                        const ln = Number(lineNum)
+                        const key = makeLineKey(filepath, ln)
+
+                        // Defensive copy of lineData so we don't mutate analyzer internals
+                        const dataCopy = {
+                            assigned: new Set(lineData.assigned || []),
+                            referenced: new Set(lineData.referenced || []),
+                            functionCalls: new Set(lineData.functionCalls || []),
+                            subscripts: Array.isArray(lineData.subscripts) ? lineData.subscripts.slice() : []
+                        }
+
+                        const compTargets = compTargetsByLine.get(ln) || new Set()
+                        if (compTargets.size > 0) {
+                            // Remove any comprehension iterator targets from referenced
+                            for (const t of compTargets) {
+                                if (dataCopy.referenced.has(t)) dataCopy.referenced.delete(t)
+                            }
+                            appendTerminalDebug(`  🔧 Removed comprehension targets for ${key}: targets={${Array.from(compTargets).join(', ')}}`)
+                        }
+
+                        this.lineReferenceMap.set(key, {
+                            assigned: dataCopy.assigned,
+                            referenced: dataCopy.referenced,
+                            functionCalls: dataCopy.functionCalls,
+                            subscripts: dataCopy.subscripts
+                        })
                     }
 
                     // Build function maps (merge across files)
@@ -802,7 +1023,7 @@ export class ReplayEngine {
 
                     // Merge lineFunctionMap (Map) with filename-qualified keys
                     for (const [lineNum, funcName] of fileLineFunctionMap.entries()) {
-                        const key = `${filepath}:${lineNum}`
+                        const key = makeLineKey(filepath, Number(lineNum))
                         this.lineFunctionMap.set(key, funcName)
                     }
                 } catch (fileErr) {
@@ -874,10 +1095,7 @@ export class ReplayEngine {
      * Step forward in replay
      */
     stepForward() {
-        if (!this.isReplaying || !this.executionTrace) {
-            return false
-        }
-
+        if (!this.isReplaying || !this.executionTrace) return false
         if (this.currentStepIndex < this.executionTrace.getStepCount() - 1) {
             this.currentStepIndex++
             this.displayCurrentStep()
@@ -957,7 +1175,7 @@ export class ReplayEngine {
         }
 
         // Determine which function this line belongs to (use filename-qualified key)
-        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        const key = makeLineKey(filename, lineNumber)
         const functionName = this.lineFunctionMap.get(key);
         if (!functionName) {
             // Module level - no translation needed
