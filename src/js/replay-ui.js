@@ -1,5 +1,6 @@
-// Replay engine and UI controls for execution debugging
+// Replay UI: Controls and visualization for execution replay
 import { appendTerminalDebug } from './terminal.js'
+import { getFileManager } from './vfs-client.js'
 import { $ } from './utils.js'
 import { ExecutionTrace } from './execution-recorder.js'
 
@@ -20,8 +21,9 @@ export class ReplayLineDecorator {
      * @param {Map} variables - Variables at this step
      * @param {Object} executionTrace - The execution trace (needed to look ahead for assigned values)
      * @param {number} currentStepIndex - Current step index (needed to look ahead)
+     * @param {string} filename - The filename for this step (used for multi-file AST lookup)
      */
-    showVariablesAtLine(lineNumber, variables, executionTrace = null, currentStepIndex = -1, originalTrace = null) {
+    showVariablesAtLine(lineNumber, variables, executionTrace = null, currentStepIndex = -1, originalTrace = null, filename = null) {
         if (!this.codemirror || !variables || variables.size === 0) {
             appendTerminalDebug(`showVariablesAtLine: skipped - codemirror=${!!this.codemirror}, variables=${variables ? variables.size : 'null'}`)
             return
@@ -29,6 +31,9 @@ export class ReplayLineDecorator {
 
         try {
             appendTerminalDebug(`showVariablesAtLine: line ${lineNumber}, ${variables.size} variables total`)
+            if (filename && filename.includes('dice')) {
+                appendTerminalDebug(`  🎯 Received variables: ${Array.from(variables.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+            }
 
             // Get the source text for the given line
             let lineText = ''
@@ -40,7 +45,7 @@ export class ReplayLineDecorator {
 
             // Use cached AST analysis to determine which variables are assigned/referenced on this line
             const displayVars = new Map()
-            const astData = this.getReferencedNamesForLine(lineNumber)
+            const astData = this.getReferencedNamesForLine(lineNumber, filename)
 
             // Helper: Filter out built-in functions and internal variables
             const isBuiltinOrInternal = (name, value) => {
@@ -103,8 +108,17 @@ export class ReplayLineDecorator {
                 let nextStepVars = null
                 if (executionTrace && currentStepIndex >= 0 && currentStepIndex < executionTrace.getStepCount() - 1) {
                     const nextStep = executionTrace.getStep(currentStepIndex + 1)
-                    if (nextStep) {
-                        nextStepVars = nextStep.variables
+                    // CRITICAL: Only use next step if it's in the same file (prevent cross-file pollution)
+                    if (nextStep && nextStep.filename === filename) {
+                        // Normalize special filenames: <stdin> → /main.py
+                        let normalizedFilename = nextStep.filename
+                        if (nextStep.filename === '<stdin>') {
+                            normalizedFilename = '/main.py'
+                        } else if (nextStep.filename && !nextStep.filename.startsWith('/')) {
+                            normalizedFilename = `/${nextStep.filename}`
+                        }
+                        // Translate local_* variables in next step to real names
+                        nextStepVars = this.translateLocalVariables(nextStep.variables, nextStep.lineNumber, normalizedFilename)
                     }
                 }
 
@@ -216,6 +230,10 @@ export class ReplayLineDecorator {
                 return
             }
 
+            if (filename && filename.includes('dice')) {
+                appendTerminalDebug(`  🎨 Final displayVars: ${Array.from(displayVars.entries()).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+            }
+
             // Create HTML element for variable display (each variable on its own row)
             const variableDisplay = this.formatVariablesForDisplay(displayVars)
 
@@ -325,11 +343,35 @@ export class ReplayLineDecorator {
      * Returns an object with { assigned: Set, referenced: Set }
      * Display logic should prioritize assigned variables
      */
-    getReferencedNamesForLine(lineNumber) {
-        if (!this.lineReferenceMap || !this.lineReferenceMap.has(lineNumber)) {
+    getReferencedNamesForLine(lineNumber, filename = null) {
+        if (!this.lineReferenceMap) {
             return null
         }
-        const lineData = this.lineReferenceMap.get(lineNumber)
+
+        // Debug: Show what filename we received
+        if (filename) {
+            appendTerminalDebug(`  🔍 getReferencedNamesForLine called with filename="${filename}", lineNumber=${lineNumber}`)
+        }
+
+        // Normalize special filenames: <stdin> → /main.py
+        let normalizedFilename = filename
+        if (filename === '<stdin>') {
+            normalizedFilename = '/main.py'
+        } else if (filename && !filename.startsWith('/')) {
+            // Prepend "/" if missing
+            normalizedFilename = `/${filename}`
+        }
+
+        // Use filename-qualified key for multi-file support
+        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        if (!this.lineReferenceMap.has(key)) {
+            appendTerminalDebug(`  ⚠️ getReferencedNamesForLine: key="${key}" NOT FOUND in lineReferenceMap`)
+            appendTerminalDebug(`  📋 Available keys: ${Array.from(this.lineReferenceMap.keys()).slice(0, 5).join(', ')}...`)
+            return null
+        }
+        const lineData = this.lineReferenceMap.get(key)
+
+        appendTerminalDebug(`  ✅ getReferencedNamesForLine: key="${key}" → assigned={${Array.from(lineData.assigned).join(', ')}}, referenced={${Array.from(lineData.referenced).join(', ')}}`)
 
         // Return both assigned and referenced sets
         // Also include function calls in referenced (functions being called are "referenced")
@@ -340,6 +382,66 @@ export class ReplayLineDecorator {
             referenced: referencedWithCalls,
             subscripts: lineData.subscripts || []
         }
+    }
+
+    /**
+     * Translate local_N variables to real names using AST-based function maps
+     * @param {Map} variables - Variable map from execution trace
+     * @param {number} lineNumber - Current line number
+     * @param {string} filename - Current filename for multi-file support
+     * @returns {Map} Translated variable map
+     */
+    translateLocalVariables(variables, lineNumber, filename = null) {
+        if (!variables || !this.functionLocalMaps || !this.lineFunctionMap) {
+            return variables;
+        }
+
+        // Normalize special filenames: <stdin> → /main.py
+        let normalizedFilename = filename
+        if (filename === '<stdin>') {
+            normalizedFilename = '/main.py'
+        } else if (filename && !filename.startsWith('/')) {
+            // Prepend "/" if missing
+            normalizedFilename = `/${filename}`
+        }
+
+        // Determine which function this line belongs to (use filename-qualified key)
+        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        const functionName = this.lineFunctionMap.get(key);
+
+        // DEBUG: Log translation attempts for dice.py
+        if (filename && filename.includes('dice')) {
+            appendTerminalDebug(`  🔤 translateLocalVariables: key=${key}, functionName=${functionName || 'NONE'}, hasLocalVars=${Array.from(variables.keys()).some(k => k.startsWith('local_'))}`)
+        }
+
+        if (!functionName) {
+            // Module level - no translation needed
+            return variables;
+        }
+
+        // Get the local variable map for this function
+        const localVarNames = this.functionLocalMaps[functionName];
+        if (!localVarNames || localVarNames.length === 0) {
+            return variables;
+        }
+
+        // Translate local_N to real names, filtering out unmapped locals (stack temporaries)
+        const translated = new Map();
+        for (const [key, value] of variables) {
+            if (key.startsWith('local_')) {
+                const index = parseInt(key.substring(6));
+                const realName = localVarNames[index];
+                if (realName) {
+                    translated.set(realName, value);
+                }
+                // else: Skip unmapped local_N (stack temporary) - don't include it
+            } else {
+                // Not a local_N variable - keep as is
+                translated.set(key, value);
+            }
+        }
+
+        return translated;
     }
 
     /**
@@ -654,29 +756,61 @@ export class ReplayEngine {
     }
 
     /**
-     * Build AST-based line reference map from source code
+     * Build AST-based line reference map from all workspace Python files
      */
     async buildLineReferenceMap(sourceCode) {
         try {
             // Dynamically import AST analyzer
             const { getASTAnalyzer } = await import('./ast-analyzer.js')
             const analyzer = await getASTAnalyzer()
-            const ast = await analyzer.parse(sourceCode)
 
-            if (ast) {
-                this.lineReferenceMap = analyzer.getVariablesAndCallsPerLine(ast)
+            // Initialize map for all files
+            this.lineReferenceMap = new Map()
+            this.functionLocalMaps = {}
+            this.lineFunctionMap = new Map()
 
-                // Build function local variable maps for translating local_N variables
-                this.functionLocalMaps = analyzer.buildFunctionLocalMaps(ast)
-                this.lineFunctionMap = analyzer.buildLineFunctionMap(ast)
+            // Get all Python files from workspace
+            const fileManager = getFileManager()
+            const allFiles = await fileManager.list()
+            const pyFiles = allFiles.filter(f => f.endsWith('.py'))
 
-                appendTerminalDebug(`Built AST line reference map: ${this.lineReferenceMap.size} lines analyzed`)
-            } else {
-                appendTerminalDebug('Failed to build AST line reference map: parse returned null')
-                this.lineReferenceMap = null
-                this.functionLocalMaps = null
-                this.lineFunctionMap = null
+            appendTerminalDebug(`Building AST line reference map for ${pyFiles.length} Python files...`)
+
+            // Analyze each Python file
+            for (const filepath of pyFiles) {
+                try {
+                    const content = await fileManager.read(filepath)
+                    const ast = await analyzer.parse(content)
+
+                    if (!ast) continue
+
+                    // Get per-line analysis for this file
+                    const perLine = analyzer.getVariablesAndCallsPerLine(ast)
+
+                    // Store with filename-qualified keys
+                    for (const [lineNum, lineData] of perLine.entries()) {
+                        const key = `${filepath}:${lineNum}`
+                        this.lineReferenceMap.set(key, lineData)
+                    }
+
+                    // Build function maps (merge across files)
+                    const fileFunctionLocalMaps = analyzer.buildFunctionLocalMaps(ast)
+                    const fileLineFunctionMap = analyzer.buildLineFunctionMap(ast)
+
+                    // Merge functionLocalMaps (plain object)
+                    Object.assign(this.functionLocalMaps, fileFunctionLocalMaps)
+
+                    // Merge lineFunctionMap (Map) with filename-qualified keys
+                    for (const [lineNum, funcName] of fileLineFunctionMap.entries()) {
+                        const key = `${filepath}:${lineNum}`
+                        this.lineFunctionMap.set(key, funcName)
+                    }
+                } catch (fileErr) {
+                    appendTerminalDebug(`Failed to analyze ${filepath}: ${fileErr}`)
+                }
             }
+
+            appendTerminalDebug(`Built AST line reference map: ${this.lineReferenceMap.size} entries across ${pyFiles.length} files`)
         } catch (error) {
             appendTerminalDebug('Error building AST line reference map: ' + error)
             this.lineReferenceMap = null
@@ -805,15 +939,26 @@ export class ReplayEngine {
      * Translate local_N variables to real names using AST-based function maps
      * @param {Map} variables - Variable map from execution trace
      * @param {number} lineNumber - Current line number
+     * @param {string} filename - Current filename for multi-file support
      * @returns {Map} Translated variable map
      */
-    translateLocalVariables(variables, lineNumber) {
+    translateLocalVariables(variables, lineNumber, filename = null) {
         if (!variables || !this.functionLocalMaps || !this.lineFunctionMap) {
             return variables;
         }
 
-        // Determine which function this line belongs to
-        const functionName = this.lineFunctionMap.get(lineNumber);
+        // Normalize special filenames: <stdin> → /main.py
+        let normalizedFilename = filename
+        if (filename === '<stdin>') {
+            normalizedFilename = '/main.py'
+        } else if (filename && !filename.startsWith('/')) {
+            // Prepend "/" if missing
+            normalizedFilename = `/${filename}`
+        }
+
+        // Determine which function this line belongs to (use filename-qualified key)
+        const key = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+        const functionName = this.lineFunctionMap.get(key);
         if (!functionName) {
             // Module level - no translation needed
             return variables;
@@ -876,11 +1021,11 @@ export class ReplayEngine {
             this.lineDecorator.highlightExecutionLine(step.lineNumber)
 
             // Translate local_N variables to real names
-            const translatedVariables = this.translateLocalVariables(step.variables, step.lineNumber)
+            const translatedVariables = this.translateLocalVariables(step.variables, step.lineNumber, step.filename)
 
             // Show variables if available
             if (translatedVariables && translatedVariables.size > 0) {
-                this.lineDecorator.showVariablesAtLine(step.lineNumber, translatedVariables, this.executionTrace, this.currentStepIndex, this.originalTrace)
+                this.lineDecorator.showVariablesAtLine(step.lineNumber, translatedVariables, this.executionTrace, this.currentStepIndex, this.originalTrace, step.filename)
             }
         } catch (error) {
             appendTerminalDebug('Failed to display current step: ' + error)
@@ -905,7 +1050,7 @@ export class ReplayEngine {
             const isTargetPythonFile = normalizedTarget.endsWith('.py')
 
             if (!isTargetPythonFile) {
-                appendTerminalDebug(`Target file ${normalizedTarget} is not a Python file, defaulting to /main.py`)
+                // appendTerminalDebug(`Target file ${normalizedTarget} is not a Python file, defaulting to /main.py`)
                 this.switchToFile('/main.py')
                 return
             }
@@ -914,7 +1059,7 @@ export class ReplayEngine {
             const isCurrentPythonFile = currentActiveFile && currentActiveFile.endsWith('.py')
 
             if (!isCurrentPythonFile || currentActiveFile !== normalizedTarget) {
-                appendTerminalDebug(`Switching from ${currentActiveFile || 'unknown'} to ${normalizedTarget} for replay`)
+                // appendTerminalDebug(`Switching from ${currentActiveFile || 'unknown'} to ${normalizedTarget} for replay`)
                 this.switchToFile(normalizedTarget)
             } else {
                 // Already on the correct file, just update our tracker

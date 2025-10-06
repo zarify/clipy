@@ -1,5 +1,6 @@
 // Execution recording and replay system for debugging
 import { appendTerminalDebug } from './terminal.js'
+import { getFileManager } from './vfs-client.js'
 
 /**
  * Python bridge code for native sys.settrace() integration
@@ -437,47 +438,71 @@ export class ExecutionRecorder {
             // iterations that have no user-visible state.
             this.comprehensionLineMap = new Map()
             this._comprehensionBuffer = {}
+            // Also file-aware perLineMap for multi-file support
+            this.perLineMap = new Map()
 
             // Populate comprehensionLineMap asynchronously so recording start is fast.
-            if (sourceCode && sourceCode.length > 0) {
-                import('./ast-analyzer.js').then(mod => mod.getASTAnalyzer()).then(analyzer => {
-                    return analyzer.parse(sourceCode).then(ast => ({ analyzer, ast }))
-                }).then(({ analyzer, ast }) => {
-                    try {
-                        if (!ast) return
-                        const comps = analyzer.analyzeComprehensions(ast, '*')
-                        const perLine = analyzer.getVariablesAndCallsPerLine(ast)
-                        // Keep per-line variable analysis available for retro-augmentation
-                        // (used to detect assigned names on earlier lines so we can
-                        // populate steps that fired before an assignment executed).
-                        this.perLineMap = perLine
+            // For multi-file projects, we need to analyze ALL Python files in the workspace,
+            // not just the main file, so comprehensions in imported modules are collapsed too.
+            const analyzeAllFiles = async () => {
+                try {
+                    const analyzer = await import('./ast-analyzer.js').then(mod => mod.getASTAnalyzer())
 
-                        if (comps && comps.count) {
-                            for (const c of comps.comprehensions) {
+                    // Get all Python files from the workspace
+                    const fileManager = getFileManager()
+                    const allFiles = await fileManager.list()
+                    const pyFiles = allFiles.filter(f => f.endsWith('.py'))
+
+                    appendTerminalDebug(`Analyzing ${pyFiles.length} Python files for comprehensions...`)
+
+                    // Analyze each Python file
+                    for (const filepath of pyFiles) {
+                        try {
+                            const content = await fileManager.read(filepath)
+                            const ast = await analyzer.parse(content)
+
+                            if (!ast) continue
+
+                            const comps = analyzer.analyzeComprehensions(ast, '*')
+                            const perLine = analyzer.getVariablesAndCallsPerLine(ast)
+
+                            // Store per-line analysis with filename-qualified keys
+                            for (const [lineNum, lineData] of perLine.entries()) {
+                                const key = `${filepath}:${lineNum}`
+                                this.perLineMap.set(key, lineData)
+                            }
+
+                            // Process comprehensions with filename-qualified keys
+                            const compArray = comps?.comprehensions || (Array.isArray(comps) ? comps : [])
+                            for (const c of compArray) {
                                 const lineno = Number(c.lineno)
                                 const per = perLine.get(lineno) || {}
                                 const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
                                 const referenced = per.referenced ? new Set(Array.from(per.referenced)) : new Set()
                                 const targets = new Set(c.targets || [])
-                                this.comprehensionLineMap.set(lineno, { assignedNames: assigned, referencedNames: referenced, compTargets: targets })
+
+                                // Use filename:lineNumber as key for multi-file support
+                                const key = `${filepath}:${lineno}`
+                                this.comprehensionLineMap.set(key, {
+                                    assignedNames: assigned,
+                                    referencedNames: referenced,
+                                    compTargets: targets,
+                                    filename: filepath
+                                })
                             }
-                        } else if (Array.isArray(comps) && comps.length > 0) {
-                            for (const c of comps) {
-                                const lineno = Number(c.lineno)
-                                const per = perLine.get(lineno) || {}
-                                const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
-                                const referenced = per.referenced ? new Set(Array.from(per.referenced)) : new Set()
-                                const targets = new Set(c.targets || [])
-                                this.comprehensionLineMap.set(lineno, { assignedNames: assigned, referencedNames: referenced, compTargets: targets })
-                            }
+                        } catch (fileErr) {
+                            appendTerminalDebug(`Failed to analyze ${filepath}: ${fileErr}`)
                         }
-                    } catch (e) {
-                        appendTerminalDebug('Comprehension analysis failed (inner): ' + e)
                     }
-                }).catch(err => {
+
+                    appendTerminalDebug(`Comprehension map built: ${this.comprehensionLineMap.size} comprehensions across ${pyFiles.length} files`)
+                } catch (err) {
                     appendTerminalDebug('Comprehension analysis failed: ' + err)
-                })
+                }
             }
+
+            // Start analysis asynchronously
+            analyzeAllFiles()
 
             this.isRecording = true
             appendTerminalDebug('Execution recording started')
@@ -619,7 +644,9 @@ export class ExecutionRecorder {
                 const perLineMap = this.perLineMap
                 let assigned = new Set()
                 if (perLineMap) {
-                    const per = perLineMap.get(Number(s.lineNumber)) || {}
+                    // Use filename-qualified key for multi-file support
+                    const perKey = s.filename ? `${s.filename}:${s.lineNumber}` : String(s.lineNumber)
+                    const per = perLineMap.get(perKey) || {}
                     assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
                     // If analyzer provided no assigned names, fall back to heuristic
                     // so we can still augment steps when the analyzer missed it.
@@ -669,6 +696,11 @@ export class ExecutionRecorder {
                     for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
                         const nxt = this.currentTrace.getStep(j)
                         if (!nxt || !nxt.variables) continue
+
+                        // CRITICAL: Only copy variables from steps in the SAME file
+                        // This prevents cross-file pollution (e.g., main.py line 1 getting dice.py variables)
+                        if (s.filename !== nxt.filename) continue
+
                         if (typeof nxt.variables.entries === 'function') {
                             for (const [k, v] of nxt.variables.entries()) {
                                 if (!needs.includes(k)) continue
@@ -712,6 +744,10 @@ export class ExecutionRecorder {
                     for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
                         const nxt = this.currentTrace.getStep(j)
                         if (!nxt || !nxt.variables) continue
+
+                        // CRITICAL: Only copy variables from steps in the SAME file
+                        if (s.filename !== nxt.filename) continue
+
                         if (typeof nxt.variables.entries === 'function') {
                             for (const [k] of nxt.variables.entries()) {
                                 if (typeof k === 'string' && /^local_\d+$/.test(k)) continue
@@ -727,10 +763,14 @@ export class ExecutionRecorder {
                     for (const [name, cnt] of counts.entries()) {
                         if (cnt < 2) continue
                         if (!needs.includes(name)) continue
-                        // copy first-found value
+                        // copy first-found value from SAME file only
                         for (let j = i + 1; j < Math.min(count, i + 1 + lookahead); j++) {
                             const nxt = this.currentTrace.getStep(j)
                             if (!nxt || !nxt.variables) continue
+
+                            // CRITICAL: Only copy from same file
+                            if (s.filename !== nxt.filename) continue
+
                             const val = (typeof nxt.variables.entries === 'function') ? (nxt.variables.get ? nxt.variables.get(name) : undefined) : nxt.variables[name]
                             if (val !== undefined) {
                                 try {
@@ -768,7 +808,9 @@ export class ExecutionRecorder {
                     // Obtain assigned names for this source line
                     let assignedSet = new Set()
                     try {
-                        const per = perLineMapFinal.get(Number(s.lineNumber)) || {}
+                        // Use filename-qualified key for multi-file support
+                        const perKey = s.filename ? `${s.filename}:${s.lineNumber}` : String(s.lineNumber)
+                        const per = perLineMapFinal.get(perKey) || {}
                         assignedSet = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
                     } catch (e) {
                         // ignore
@@ -789,6 +831,10 @@ export class ExecutionRecorder {
                     for (let j = i + 1; j < count && missing.length > 0; j++) {
                         const nxt = this.currentTrace.getStep(j)
                         if (!nxt || !nxt.variables) continue
+
+                        // CRITICAL: Only copy variables from steps in the SAME file
+                        if (s.filename !== nxt.filename) continue
+
                         // iterate Map or object
                         if (typeof nxt.variables.entries === 'function') {
                             for (const [k, v] of nxt.variables.entries()) {
@@ -901,14 +947,13 @@ export class ExecutionRecorder {
      */
     _flushComprehensionBuffers() {
         if (!this._comprehensionBuffer || !this.currentTrace) return
-        for (const lnStr of Object.keys(this._comprehensionBuffer)) {
-            const ln = Number(lnStr)
-            const b = this._comprehensionBuffer[lnStr]
+        for (const compKey of Object.keys(this._comprehensionBuffer)) {
+            const b = this._comprehensionBuffer[compKey]
             if (!b) continue
             const vars = b.lastVars || new Map()
             // Try to include referenced and assigned names, but filter out internal
             // comprehension targets (e.g. the iteration variable `i`).
-            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(ln)
+            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(compKey)
             const filtered = new Map()
             if (compInfo) {
                 const assigned = compInfo.assignedNames || new Set()
@@ -917,12 +962,14 @@ export class ExecutionRecorder {
                 // Support both Map and plain object shapes for vars
                 if (vars && typeof vars.entries === 'function') {
                     for (const [k, v] of vars.entries()) {
-                        if (targets.has(k)) continue
+                        // Filter out comprehension targets AND MicroPython local_* internals
+                        if (targets.has(k) || k.startsWith('local_')) continue
                         if (assigned.has(k) || referenced.has(k)) filtered.set(k, v)
                     }
                 } else if (vars && typeof vars === 'object') {
                     for (const k of Object.keys(vars)) {
-                        if (targets.has(k)) continue
+                        // Filter out comprehension targets AND MicroPython local_* internals
+                        if (targets.has(k) || k.startsWith('local_')) continue
                         if (assigned.has(k) || referenced.has(k)) filtered.set(k, vars[k])
                     }
                 }
@@ -930,10 +977,14 @@ export class ExecutionRecorder {
                 if (filtered.size === 0 && assigned.size > 0) {
                     if (vars && typeof vars.entries === 'function') {
                         for (const [k, v] of vars.entries()) {
+                            // Skip local_* even in fallback
+                            if (k.startsWith('local_')) continue
                             if (assigned.has(k)) filtered.set(k, v)
                         }
                     } else if (vars && typeof vars === 'object') {
                         for (const k of Object.keys(vars)) {
+                            // Skip local_* even in fallback
+                            if (k.startsWith('local_')) continue
                             if (assigned.has(k)) filtered.set(k, vars[k])
                         }
                     }
@@ -983,13 +1034,15 @@ export class ExecutionRecorder {
                 }
             }
 
+            // Extract line number from key (format: "filename:lineNumber" or just lineNumber)
+            const ln = compKey.includes(':') ? Number(compKey.split(':').pop()) : Number(compKey)
             const finalVars = (filtered && filtered.size > 0) ? filtered : vars
             const step = new ExecutionStep(ln, finalVars, 'global', null, b.filename || '/main.py')
             step.executionType = 'line'
             // annotate that this step collapsed N iterations
             step.collapsedIterations = b.iterations || 1
             this.currentTrace.addStep(step)
-            appendTerminalDebug(`Flushed comprehension at line ${ln}: collapsed ${b.iterations} iterations into one step`)
+            appendTerminalDebug(`Flushed comprehension at ${compKey}: collapsed ${b.iterations} iterations into one step`)
         }
         this._comprehensionBuffer = {}
     }
@@ -1023,22 +1076,30 @@ export class ExecutionRecorder {
             // internal iteration steps (which usually have no user-visible
             // variable assignments) into a single step. We detect this by
             // consulting comprehensionLineMap built at recording start.
-            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(lineNumber))
+            // Use filename-qualified key for multi-file support
+            // Normalize filename to always have leading slash for consistent map lookups
+            const normalizedFilename = filename && !filename.startsWith('/') ? `/${filename}` : filename
+            const compKey = normalizedFilename ? `${normalizedFilename}:${lineNumber}` : String(lineNumber)
+            const compInfo = this.comprehensionLineMap && this.comprehensionLineMap.get(compKey)
+
             if (compInfo) {
                 // Buffer iteration: store latest variables and note that we've seen an iteration
                 const buf = this._comprehensionBuffer || (this._comprehensionBuffer = {})
-                const b = buf[lineNumber] || { iterations: 0, lastVars: null, filename: filename }
+                const b = buf[compKey] || { iterations: 0, lastVars: null, filename: normalizedFilename }
                 b.iterations++
                 b.lastVars = variables
-                buf[lineNumber] = b
+                buf[compKey] = b
 
                 // If this iteration includes any assignment to names that are
                 // not internal comprehension targets (i.e., assignedNames contains
                 // an actual variable), or the variables map contains those assigned
                 // names, then flush immediately as this represents a visible change.
+                // NOTE: Ignore local_* variables - these are MicroPython internal variables
                 const assignedNames = compInfo.assignedNames || new Set()
                 let flushNow = false
                 for (const n of assignedNames) {
+                    // Skip MicroPython internal local_* variables
+                    if (n.startsWith('local_')) continue
                     if (variables && variables.has(n)) {
                         flushNow = true
                         break
@@ -1049,7 +1110,7 @@ export class ExecutionRecorder {
                     // Filter variables to include assigned/referenced names and
                     // exclude internal comprehension targets (e.g. `i`). This makes
                     // collapsed steps show referenced variables like `n`.
-                    const compInfoNow = this.comprehensionLineMap && this.comprehensionLineMap.get(Number(lineNumber))
+                    const compInfoNow = this.comprehensionLineMap && this.comprehensionLineMap.get(compKey)
                     let varsToUse = b.lastVars
                     if (compInfoNow && b.lastVars) {
                         const filteredNow = new Map()
@@ -1059,12 +1120,14 @@ export class ExecutionRecorder {
                         // b.lastVars can be Map or plain object
                         if (b.lastVars && typeof b.lastVars.entries === 'function') {
                             for (const [k, v] of b.lastVars.entries()) {
-                                if (targetsNow.has(k)) continue
+                                // Filter out comprehension targets AND MicroPython local_* internals
+                                if (targetsNow.has(k) || k.startsWith('local_')) continue
                                 if (assignedNow.has(k) || referencedNow.has(k)) filteredNow.set(k, v)
                             }
                         } else if (b.lastVars && typeof b.lastVars === 'object') {
                             for (const k of Object.keys(b.lastVars)) {
-                                if (targetsNow.has(k)) continue
+                                // Filter out comprehension targets AND MicroPython local_* internals
+                                if (targetsNow.has(k) || k.startsWith('local_')) continue
                                 if (assignedNow.has(k) || referencedNow.has(k)) filteredNow.set(k, b.lastVars[k])
                             }
                         }
@@ -1109,7 +1172,7 @@ export class ExecutionRecorder {
                     step.executionType = executionType
                     this.currentTrace.addStep(step)
                     appendTerminalDebug(`Recorded (comprehension-flush) step ${this.currentTrace.getStepCount()}: line ${lineNumber} in ${filename || '/main.py'}, ${b.lastVars ? b.lastVars.size : 0} vars (collapsed ${b.iterations} iterations)`)
-                    delete buf[lineNumber]
+                    delete buf[compKey]
                 } else {
                     // Otherwise do not add a step for each internal iteration
                     // (they will be collapsed later in finalizeRecording)
@@ -1127,18 +1190,20 @@ export class ExecutionRecorder {
             // steps are placed in the trace before subsequent lines (e.g., print).
             try {
                 if (this._comprehensionBuffer) {
-                    // Flush buffers for any lines that are not the current line
+                    // Flush buffers for any keys that are not the current key
                     // and which were recorded earlier. We conservatively flush all
-                    // buffered lines here to preserve ordering; buffers are small.
-                    const bufferedLines = Object.keys(this._comprehensionBuffer).map(x => Number(x)).sort((a, b) => a - b)
-                    for (const bl of bufferedLines) {
-                        // If buffered line equals current line skip (recently handled)
-                        if (bl === Number(lineNumber)) continue
-                        const b = this._comprehensionBuffer[String(bl)]
+                    // buffered keys here to preserve ordering; buffers are small.
+                    const currentCompKey = filename ? `${filename}:${lineNumber}` : String(lineNumber)
+                    const bufferedKeys = Object.keys(this._comprehensionBuffer)
+
+                    for (const bufKey of bufferedKeys) {
+                        // If buffered key equals current key skip (recently handled)
+                        if (bufKey === currentCompKey) continue
+                        const b = this._comprehensionBuffer[bufKey]
                         if (!b) continue
                         const vars2 = b.lastVars || new Map()
                         // Filter like in _flushComprehensionBuffers
-                        const compInfo2 = this.comprehensionLineMap && this.comprehensionLineMap.get(bl)
+                        const compInfo2 = this.comprehensionLineMap && this.comprehensionLineMap.get(bufKey)
                         let finalVars2 = vars2
                         if (compInfo2 && vars2) {
                             const f2 = new Map()
@@ -1220,11 +1285,13 @@ export class ExecutionRecorder {
                             }
                             if (f2.size > 0) finalVars2 = f2
                         }
-                        const step2 = new ExecutionStep(bl, finalVars2, 'global', null, b.filename || filename)
+                        // Extract line number from key (format: "filename:lineNumber" or just lineNumber)
+                        const lineNumFromKey = bufKey.includes(':') ? Number(bufKey.split(':').pop()) : Number(bufKey)
+                        const step2 = new ExecutionStep(lineNumFromKey, finalVars2, 'global', null, b.filename || filename)
                         step2.executionType = 'line'
                         step2.collapsedIterations = b.iterations || 1
                         this.currentTrace.addStep(step2)
-                        appendTerminalDebug(`Flushed comprehension (pre-step) at line ${bl}: collapsed ${b.iterations} iterations`)
+                        appendTerminalDebug(`Flushed comprehension (pre-step) at ${bufKey}: collapsed ${b.iterations} iterations`)
                     }
                     // Clear buffers after flushing
                     this._comprehensionBuffer = {}
@@ -1369,6 +1436,9 @@ export class ExecutionRecorder {
                                 const prior = this.currentTrace.getStep(idx)
                                 if (!prior) continue
 
+                                // CRITICAL: Only augment steps in the SAME file
+                                if (step.filename !== prior.filename) continue
+
                                 // Don't augment across loop boundaries (when line numbers go backwards)
                                 // This prevents polluting previous iterations with future values
                                 const priorLine = Number(prior.lineNumber)
@@ -1391,7 +1461,9 @@ export class ExecutionRecorder {
 
                                 // Check if this name was assigned on that prior line
                                 try {
-                                    const per = perLineMap.get(Number(prior.lineNumber)) || {}
+                                    // Use filename-qualified key for multi-file support
+                                    const priorKey = prior.filename ? `${prior.filename}:${prior.lineNumber}` : String(prior.lineNumber)
+                                    const per = perLineMap.get(priorKey) || {}
                                     const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
                                     if (!assigned.has(k)) continue
                                 } catch (e) {
@@ -1419,6 +1491,9 @@ export class ExecutionRecorder {
                                 const prior = this.currentTrace.getStep(idx)
                                 if (!prior) continue
 
+                                // CRITICAL: Only augment steps in the SAME file
+                                if (step.filename !== prior.filename) continue
+
                                 // Don't augment across loop boundaries (when line numbers go backwards)
                                 const priorLine = Number(prior.lineNumber)
                                 const currentLine = Number(step.lineNumber)
@@ -1435,7 +1510,9 @@ export class ExecutionRecorder {
                                     if (prior.variables && !prior.variables.has && Object.prototype.hasOwnProperty.call(prior.variables, k)) continue
                                 } catch (e) { }
                                 try {
-                                    const per = perLineMap.get(Number(prior.lineNumber)) || {}
+                                    // Use filename-qualified key for multi-file support
+                                    const priorKey = prior.filename ? `${prior.filename}:${prior.lineNumber}` : String(prior.lineNumber)
+                                    const per = perLineMap.get(priorKey) || {}
                                     const assigned = per.assigned ? new Set(Array.from(per.assigned)) : new Set()
                                     if (!assigned.has(k)) continue
                                 } catch (e) { continue }
