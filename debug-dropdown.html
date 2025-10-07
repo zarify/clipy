@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Debug Dropdown</title>
+    <script type="module">
+        // Simulate the event listener logic
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Simulate single config scenario
+            const items = [
+                'printing-press@1.0.json',
+                './config/playground@1.0.json'
+            ];
+
+            window.__ssg_remote_config_list = { url: null, items };
+
+            // Simulate the event listener
+            const base = null; // url is null for synthetic lists
+            const serverItems = [];
+
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i];
+                let label = String(it);
+
+                try {
+                    let target = null;
+                    if (String(it).startsWith('./')) {
+                        const pathParts = String(it).split('/');
+                        const filename = pathParts.pop();
+                        const dir = pathParts.join('/');
+                        target = dir + '/' + encodeURIComponent(filename);
+                        console.log('Fetching local path:', it, '-> target:', target);
+                    } else {
+                        target = './config/' + encodeURIComponent(String(it));
+                    }
+
+                    const r = await fetch(target);
+                    console.log('Fetch result for', target, ':', r.ok, r.status);
+
+                    if (r && r.ok) {
+                        const parsed = await r.json();
+                        const title = parsed && parsed.title ? String(parsed.title) : null;
+                        const ver = parsed && parsed.version ? String(parsed.version) : null;
+                        if (title) {
+                            label = ver ? (title + ' (v' + ver + ')') : title;
+                            console.log('Updated label to:', label);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error:', e);
+                }
+
+                serverItems.push({ label, value: '__list::' + i });
+            }
+
+            console.log('Final serverItems:', serverItems);
+
+            // Display results
+            const output = document.getElementById('output');
+            output.innerHTML = '<h2>Results:</h2><pre>' + JSON.stringify(serverItems, null, 2) + '</pre>';
+        });
+    </script>
+</head>
+
+<body>
+    <h1>Dropdown Title Debug</h1>
+    <div id="output">Loading...</div>
+</body>
+
+</html>

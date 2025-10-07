@@ -1,0 +1,10 @@
+{
+    "id": "author-demo",
+    "title": "Author Demo",
+    "version": "1.0",
+    "description": "A local author test config",
+    "starter": "# starter",
+    "files": {
+        "/main.py": "print(\"hello from author\")"
+    }
+}

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Bug Test</title>
+</head>
+
+<body>
+    <h1>Testing Config Bugs</h1>
+
+    <h2>Bug 1: Remote List via URL</h2>
+    <p>Test: <a href="/?config=https://raw.githubusercontent.com/example/configs/main/index.json" target="_blank">Remote
+            list URL</a></p>
+    <p>Expected: Playground should appear in dropdown</p>
+
+    <h2>Bug 2: Single Config Switch to Playground</h2>
+    <p>Test: <a href="/?config=printing-press@1.0.json" target="_blank">Load single config</a></p>
+    <p>Expected: Should be able to switch to playground from dropdown</p>
+
+    <h2>Bug 3: Author Upload</h2>
+    <p>Manual test: Upload a config JSON file</p>
+    <p>Expected: Dropdown should update with author config + playground</p>
+
+    <script>
+        // Quick fetch test for playground@1.0.json with different encoding
+        async function testPlaygroundFetch() {
+            console.log('Testing direct fetch of playground...')
+
+            // Test 1: Direct path (as stored in synthetic list)
+            try {
+                const r1 = await fetch('./config/playground@1.0.json')
+                console.log('Direct path fetch:', r1.ok ? 'OK' : 'FAILED', r1.status)
+            } catch (e) {
+                console.error('Direct path error:', e)
+            }
+
+            // Test 2: Encoded @ symbol
+            try {
+                const r2 = await fetch('./config/playground%401.0.json')
+                console.log('Encoded path fetch:', r2.ok ? 'OK' : 'FAILED', r2.status)
+            } catch (e) {
+                console.error('Encoded path error:', e)
+            }
+        }
+
+        testPlaygroundFetch()
+    </script>
+</body>
+
+</html>
