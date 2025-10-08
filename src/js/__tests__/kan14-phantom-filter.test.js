@@ -295,5 +295,56 @@ print(x)`
                 }
             }
         })
+
+        it('should filter phantom nested conditional in while loop', () => {
+            const sourceCode = `i = 0
+while i < 5:
+    i += 1
+    if i > 2:
+        print("bigger than 2")
+print("Done")`
+
+            recorder.startRecording(sourceCode)
+
+            // Initial assignment
+            recorder.recordStep(1, new Map(), 'global', 'line', '/main.py')
+            recorder.recordStep(2, new Map([['i', 0]]), 'global', 'line', '/main.py')
+
+            // PHANTOM: Line 5 traced with i=0 BEFORE Line 3 executes
+            // This should be filtered because the controlling conditional (line 4: if i > 2)
+            // evaluates to FALSE with i=0
+            recorder.recordStep(5, new Map([['i', 0]]), 'global', 'line', '/main.py')
+
+            // First iteration continues
+            recorder.recordStep(3, new Map([['i', 0]]), 'global', 'line', '/main.py')
+            recorder.recordStep(4, new Map([['i', 1]]), 'global', 'line', '/main.py')
+            recorder.recordStep(5, new Map([['i', 1]]), 'global', 'line', '/main.py') // PHANTOM (i=1, condition FALSE)
+
+            // Second iteration
+            recorder.recordStep(3, new Map([['i', 1]]), 'global', 'line', '/main.py')
+            recorder.recordStep(4, new Map([['i', 2]]), 'global', 'line', '/main.py')
+            recorder.recordStep(5, new Map([['i', 2]]), 'global', 'line', '/main.py') // PHANTOM (i=2, condition FALSE)
+
+            // Third iteration - condition becomes TRUE
+            recorder.recordStep(3, new Map([['i', 2]]), 'global', 'line', '/main.py')
+            recorder.recordStep(4, new Map([['i', 3]]), 'global', 'line', '/main.py')
+            recorder.recordStep(5, new Map([['i', 3]]), 'global', 'line', '/main.py') // VALID (i=3, condition TRUE)
+
+            recorder.recordStep(6, new Map([['i', 3]]), 'global', 'line', '/main.py')
+
+            recorder.stopRecording()
+
+            const trace = recorder.getTrace()
+            const steps = []
+            for (let i = 0; i < trace.getStepCount(); i++) {
+                steps.push(trace.getStep(i))
+            }
+
+            // Line 5 should only appear when i > 2 (i.e., i=3)
+            const line5Steps = steps.filter(s => s.lineNumber === 5)
+
+            expect(line5Steps.length).toBe(1)
+            expect(line5Steps[0].variables.get('i')).toBe(3)
+        })
     })
 })
