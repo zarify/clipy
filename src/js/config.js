@@ -33,11 +33,23 @@ export function createConfigManager(opts = {}) {
                 const isRemoteList = /^https?:\/\//i.test(configIndexUrl)
                 const baseUrl = isRemoteList ? new URL('./', configIndexUrl).href : null
 
+                // Detect config prefix based on current page location
+                let configPrefix = './config/'
+                try {
+                    if (typeof window !== 'undefined' && window.location) {
+                        const pathname = window.location.pathname
+                        const href = window.location.href
+                        if (pathname.includes('/author/') || pathname.endsWith('/author') || pathname.includes('/author.html') || href.includes('/author/')) {
+                            configPrefix = '../config/'
+                        }
+                    }
+                } catch (_e) { /* use default prefix */ }
+
                 // Convert each file to an enriched object with all metadata
                 for (const file of body.files) {
                     const item = {
                         id: String(file),
-                        url: isRemoteList ? new URL(String(file), baseUrl).href : ('./config/' + encodeURIComponent(String(file))),
+                        url: isRemoteList ? new URL(String(file), baseUrl).href : (configPrefix + encodeURIComponent(String(file))),
                         title: null,  // Will be fetched on-demand or remain null
                         version: null,
                         source: isRemoteList ? 'remote' : 'local'
@@ -46,7 +58,7 @@ export function createConfigManager(opts = {}) {
                 }
 
                 // Add playground at the end if available (always local)
-                const playgroundPath = './config/playground@1.0.json'
+                const playgroundPath = configPrefix + 'playground@1.0.json'
                 try {
                     const check = await fetchFn(playgroundPath)
                     if (check && check.ok) {
@@ -97,16 +109,45 @@ export function createConfigManager(opts = {}) {
         const trimmed = String(input).trim()
         let urlToLoad = trimmed
         try {
+            // Detect if we're being called from the author page (which is in ./author/ subdirectory)
+            // and needs to use ../config/ instead of ./config/
+            let configPrefix = './config/'
+            try {
+                if (typeof window !== 'undefined' && window.location) {
+                    const pathname = window.location.pathname
+                    const href = window.location.href
+                    // Check if we're in the author subdirectory
+                    // Support both /author/ path and /author (without trailing slash) or author.html
+                    if (pathname.includes('/author/') || pathname.endsWith('/author') || pathname.includes('/author.html') || href.includes('/author/')) {
+                        configPrefix = '../config/'
+                        logDebug('Author page detected, using configPrefix:', configPrefix, 'pathname:', pathname, 'href:', href)
+                    } else {
+                        logDebug('Main app detected, using configPrefix:', configPrefix, 'pathname:', pathname)
+                    }
+                }
+            } catch (_e) { /* use default prefix */ }
+
             // If the input looks like an absolute or network URL, use it as-is.
             if (!/^https?:\/\//i.test(trimmed)) {
-                // For non-URL inputs, allow './config/' paths (for playground and similar) or plain filenames
-                if (trimmed.startsWith('./config/')) {
-                    urlToLoad = trimmed
-                } else if (/[\\/]/.test(trimmed) || trimmed.includes('..') || trimmed.startsWith('.')) {
-                    // Security check: reject other paths with separators or directory traversal
+                // For non-URL inputs, allow config paths (./config/ or ../config/) or plain filenames
+                if (trimmed.startsWith('./config/') || trimmed.startsWith('../config/')) {
+                    // If input starts with ./config/ but we're on author page (configPrefix='../config/'),
+                    // transform it to use the correct prefix
+                    if (trimmed.startsWith('./config/') && configPrefix === '../config/') {
+                        urlToLoad = trimmed.replace('./config/', '../config/')
+                        logDebug('Transformed ./config/ to ../config/ for author page:', urlToLoad)
+                    } else {
+                        urlToLoad = trimmed
+                    }
+                } else if (trimmed.includes('..') || (trimmed.startsWith('.') && !trimmed.startsWith('./'))) {
+                    // Security check: reject directory traversal (..) or paths starting with . but not ./
+                    // This allows ./ paths (which might be ./config/...) while blocking ../
+                    throw new Error('Invalid config name; provide a filename (no path) or a full URL')
+                } else if (/[\\/]/.test(trimmed)) {
+                    // Reject paths with slashes unless they're config paths (already handled above)
                     throw new Error('Invalid config name; provide a filename (no path) or a full URL')
                 } else {
-                    urlToLoad = './config/' + encodeURIComponent(trimmed)
+                    urlToLoad = configPrefix + encodeURIComponent(trimmed)
                 }
             }
             const res = await fetchFn(urlToLoad)
@@ -125,7 +166,7 @@ export function createConfigManager(opts = {}) {
             // When a single config is loaded explicitly (not from a server list), treat it as a list with the playground appended
             try {
                 if (typeof window !== 'undefined') {
-                    const playgroundPath = './config/playground@1.0.json'
+                    const playgroundPath = configPrefix + 'playground@1.0.json'
                     window.__ssg_remote_config_list = window.__ssg_remote_config_list || { url: null, items: [] }
 
                     // Only synthesize a list when:
@@ -192,7 +233,19 @@ export function createConfigManager(opts = {}) {
         // because they represent a completely new user action/context.
         try {
             if (typeof window !== 'undefined') {
-                const playgroundPath = './config/playground@1.0.json'
+                // Detect config prefix based on current page location
+                let configPrefix = './config/'
+                try {
+                    if (window.location) {
+                        const pathname = window.location.pathname
+                        const href = window.location.href
+                        if (pathname.includes('/author/') || pathname.endsWith('/author') || pathname.includes('/author.html') || href.includes('/author/')) {
+                            configPrefix = '../config/'
+                        }
+                    }
+                } catch (_e) { /* use default prefix */ }
+
+                const playgroundPath = configPrefix + 'playground@1.0.json'
                 window.__ssg_remote_config_list = window.__ssg_remote_config_list || { url: null, items: [] }
 
                 // Author configs always create a new synthetic list UNLESS there's a server list

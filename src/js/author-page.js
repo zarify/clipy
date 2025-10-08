@@ -904,13 +904,32 @@ async function handleVerificationFile(file) {
 function setExternalVerificationConfigsFromLoaded(parsed, sourceName) {
     // parsed can be an array (list of configs), or object with .files/listName, or single config object
     const container = { source: sourceName }
+
+    // Helper to check if an item is a playground config
+    const isPlayground = (item) => {
+        if (!item) return false
+        if (typeof item === 'string') {
+            return item === 'playground@1.0.json' || item === './config/playground@1.0.json' || item.includes('playground@1.0')
+        }
+        if (typeof item === 'object') {
+            return item.id === 'playground' || item.id === 'playground@1.0.json'
+        }
+        return false
+    }
+
     if (Array.isArray(parsed)) {
-        container.items = parsed
+        // Filter out playground configs from arrays
+        container.items = parsed.filter(item => !isPlayground(item))
     } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.files)) {
         // New configList shape: { listName?, files: [...] }
-        container.items = parsed.files
+        // Filter out playground configs from the files array
+        container.items = parsed.files.filter(item => !isPlayground(item))
         if (parsed.listName) container.listName = parsed.listName
     } else if (parsed && typeof parsed === 'object') {
+        // Check if the single config is playground - if so, reject it
+        if (isPlayground(parsed)) {
+            throw new Error('Playground configs cannot be used for verification (they have no tests)')
+        }
         container._single = parsed
     } else {
         throw new Error('Unsupported config format')
