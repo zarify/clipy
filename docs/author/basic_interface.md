@@ -138,4 +138,15 @@ The intention is to give the user a good sense of what is being tested
 Verification is a teacher tool rather than an author tool. It provides
 a single place for a teacher to enter a number of student ID values, and
 when different configurations are loaded the list will show the verification
-codes to expect if each of the students passes all of the tests.
+codes to expect when each of the students passes all of the tests.
+
+Verification codes are designed to be an easy to verbalise, low friction way
+of indicating that a particular student has passed the complete test suite
+for a problem. e.g. `GARDEN-INFINITY-17`
+
+> [!INFO]
+> Verification codes are based on the problem configuration, student ID,
+> and day of passing. The same student passing the same tests on a different
+> day will produce a different code.
+
+[Read more about the verification system here](verification.md)

@@ -1,8 +1,13 @@
 # Conditional Test Runs
 
-> [!WARNING]
-> Currently the first test **must** be set to `Always run this test` otherwise the test suite
-> will not run. This will be fixed in a later version.
+> [!NOTE]
+> The run condition of the first ungrouped test, and the first test of any
+> group will be ignored in favour of a sensible default setting. The first
+> ungrouped test should *always* run, and the first test in a group whose
+> conditional run settings indicate it should run should also always run.
+>
+> This override has been put in place to make it easy for authors to reorder
+> tests without worrying too much about their run conditions.
 
 Tests and test groups can be set to either always run, or to only run if the
 previous test or group passes.
