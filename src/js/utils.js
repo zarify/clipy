@@ -206,3 +206,21 @@ export function renderMarkdown(md) {
 
     return s
 }
+
+/**
+ * Sanitize an HTML fragment using DOMPurify when available, or fall
+ * back to escaping angle brackets. This helper centralises sanitization
+ * so other modules can call it when they need to insert HTML into the DOM.
+ */
+export function sanitizeHtml(html) {
+    try {
+        const raw = html == null ? '' : String(html)
+        if (typeof window !== 'undefined' && window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+            return window.DOMPurify.sanitize(raw)
+        }
+        // Fallback: escape angle brackets to avoid active HTML
+        return String(raw).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    } catch (_e) {
+        try { return String(html == null ? '' : html).replace(/</g, '&lt;').replace(/>/g, '&gt;') } catch (_ee) { return '' }
+    }
+}
