@@ -321,6 +321,13 @@ async function saveToLocalStorage() {
         } catch (_e) { /* keep raw string if invalid JSON */ }
         // try to validate/normalize but don't block autosave on failure
         try {
+            // Do not add or modify runtime.url from the authoring UI.
+            // Authors should not be able to change which runtime the app uses.
+            // Ensure any runtime field is removed before validation so the
+            // normalized config uses the app's vendored runtime by default.
+            if (cfg && cfg.runtime) {
+                try { delete cfg.runtime.url } catch (_e) { }
+            }
             const norm = validateAndNormalizeConfig(cfg)
             // Await the async save when unified-storage is available so
             // writes complete before navigation away from the page.

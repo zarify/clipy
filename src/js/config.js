@@ -467,9 +467,13 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         starter: rawConfig.starter || '# Write your Python code here\nprint("Hello, World!")',
         instructions: rawConfig.instructions || 'Write Python code and click Run to execute it.',
         links: Array.isArray(rawConfig.links) ? rawConfig.links : [],
+        // Respect runtime.type when present but do not trust runtime.url from
+        // loaded configs (authoring tool or remote lists). The app should prefer
+        // its vendored runtime loader. If runtime.url is present, ignore it and
+        // fall back to the vendored module to avoid loading arbitrary remote code.
         runtime: {
             type: rawConfig.runtime?.type || 'micropython',
-            url: rawConfig.runtime?.url || './vendor/micropython.mjs'
+            url: './vendor/micropython.mjs'
         },
         execution: {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
@@ -489,9 +493,8 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         fileReadOnlyStatus: (rawConfig && typeof rawConfig.fileReadOnlyStatus === 'object') ? rawConfig.fileReadOnlyStatus : {}
     }
 
-    if (!normalized.runtime.url || typeof normalized.runtime.url !== 'string') {
-        throw new Error('Configuration must specify a valid runtime URL')
-    }
+    // Do not require runtime.url to be provided by configs. The application
+    // always uses the vendored runtime module for security and reproducibility.
 
     if (!/^[a-zA-Z0-9_-]+$/.test(normalized.id)) {
         throw new Error('Configuration ID must contain only alphanumeric characters, hyphens, and underscores')
