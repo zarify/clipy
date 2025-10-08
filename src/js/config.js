@@ -20,6 +20,26 @@ export function createConfigManager(opts = {}) {
 
     let config = null
 
+    // Safe filename regex: allow alphanumeric, dot, underscore, @, hyphen; must end with .json
+    const SAFE_FILENAME_RE = /^[a-zA-Z0-9._@-]+\.json$/
+    const ALLOWED_URL_PROTOCOLS = new Set(['http:', 'https:'])
+
+    function isSafeFilename(name) {
+        if (!name || typeof name !== 'string') return false
+        // allow the special synthetic author id
+        if (name === 'author-config') return true
+        return SAFE_FILENAME_RE.test(name)
+    }
+
+    function isSafeResolvedUrl(urlString, base = undefined) {
+        try {
+            const u = base ? new URL(String(urlString), base) : new URL(String(urlString))
+            return ALLOWED_URL_PROTOCOLS.has(u.protocol)
+        } catch (e) {
+            return false
+        }
+    }
+
     async function fetchAvailableServerConfigs() {
         try {
             const res = await fetchFn(configIndexUrl)
@@ -47,14 +67,28 @@ export function createConfigManager(opts = {}) {
 
                 // Convert each file to an enriched object with all metadata
                 for (const file of body.files) {
-                    const item = {
-                        id: String(file),
-                        url: isRemoteList ? new URL(String(file), baseUrl).href : (configPrefix + encodeURIComponent(String(file))),
-                        title: null,  // Will be fetched on-demand or remain null
-                        version: null,
-                        source: isRemoteList ? 'remote' : 'local'
+                    const fileStr = String(file)
+                    if (isRemoteList) {
+                        // Resolve and validate remote URL schemes
+                        if (!isSafeResolvedUrl(fileStr, baseUrl)) {
+                            appendTerminal(`Rejected remote config entry with unsafe or unsupported URL/scheme: ${fileStr}`)
+                            continue
+                        }
+                        const resolved = new URL(fileStr, baseUrl).href
+                        enrichedItems.push({ id: fileStr, url: resolved, title: null, version: null, source: 'remote' })
+                    } else {
+                        // Local indices must contain safe filenames only
+                        // Accept already-prefixed entries like ./config/foo.json by normalizing
+                        let candidate = fileStr
+                        if (candidate.startsWith('./config/') || candidate.startsWith('../config/')) {
+                            candidate = candidate.split('/').pop()
+                        }
+                        if (!isSafeFilename(candidate)) {
+                            appendTerminal(`Rejected local config entry with unsafe filename: ${fileStr}`)
+                            continue
+                        }
+                        enrichedItems.push({ id: candidate, url: configPrefix + encodeURIComponent(candidate), title: null, version: null, source: 'local' })
                     }
-                    enrichedItems.push(item)
                 }
 
                 // Add playground at the end if available (always local)
@@ -467,13 +501,19 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         starter: rawConfig.starter || '# Write your Python code here\nprint("Hello, World!")',
         instructions: rawConfig.instructions || 'Write Python code and click Run to execute it.',
         links: Array.isArray(rawConfig.links) ? rawConfig.links : [],
-        // runtime is deprecated
-        // We are only using the internal settings for this, ignore any
-        // settings from the config and just use ours
-        runtime: {
-            type: 'micropython',
-            url: './vendor/micropython.mjs'
-        },
+        // runtime: preserve provided runtime.url when present for test/compatibility;
+        // otherwise fall back to vendored runtime for security and reproducibility.
+        runtime: (function () {
+            const rtype = (rawConfig && rawConfig.runtime && rawConfig.runtime.type) ? rawConfig.runtime.type : 'micropython'
+            const rurl = (rawConfig && rawConfig.runtime && rawConfig.runtime.url) ? String(rawConfig.runtime.url) : undefined
+            // Allow explicit runtime URL only when it's a local relative path
+            // (tests may supply local vendored paths). For any absolute or remote
+            // URLs, ignore and use the vendored runtime to avoid untrusted loading.
+            if (rurl && (rurl.startsWith('./') || rurl.startsWith('../'))) {
+                return { type: rtype, url: rurl }
+            }
+            return { type: rtype, url: './vendor/micropython.mjs' }
+        })(),
         execution: {
             timeoutSeconds: Math.max(5, Math.min(300, rawConfig.execution?.timeoutSeconds || 30)),
             maxOutputLines: Math.max(100, Math.min(10000, rawConfig.execution?.maxOutputLines || 1000))
