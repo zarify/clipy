@@ -1072,16 +1072,7 @@ export class ExecutionRecorder {
             return false
         }
 
-        // Pattern 1: Direct jump from conditional to deeper indent with 'pass' or empty line
-        const currentTrimmed = currentLine.trim()
-        const lineJump = lineNumber - prevStep.lineNumber
-
-        if (currentTrimmed === 'pass' || currentTrimmed === '' || currentTrimmed.startsWith('#')) {
-            // If it's just pass or empty, it's likely a phantom
-            return true
-        }
-
-        // Pattern 2: Check if condition evaluates to FALSE based on variable values
+        // Check if condition evaluates to FALSE based on variable values
         // Extract condition from previous line and evaluate
         const ifMatch = prevLine.match(/^(?:if|elif|while)\s+(.+):/)
         if (ifMatch) {
