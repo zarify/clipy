@@ -41,6 +41,22 @@ if (typeof globalThis.fetch === 'undefined') {
     } catch (e) { }
 }
 
+// Polyfill TextEncoder/TextDecoder for environments where they're missing (jsdom/whatwg-url)
+if (typeof globalThis.TextEncoder === 'undefined') {
+    if (typeof Buffer !== 'undefined') {
+        globalThis.TextEncoder = class TextEncoder { encode(s) { return Buffer.from(String(s), 'utf8') } }
+    } else {
+        globalThis.TextEncoder = class TextEncoder { encode(s) { return new Uint8Array(Array.from(String(s)).map(c => c.charCodeAt(0))) } }
+    }
+}
+if (typeof globalThis.TextDecoder === 'undefined') {
+    if (typeof Buffer !== 'undefined') {
+        globalThis.TextDecoder = class TextDecoder { decode(b) { return Buffer.from(b).toString('utf8') } }
+    } else {
+        globalThis.TextDecoder = class TextDecoder { decode(b) { return Array.from(b).map(x => String.fromCharCode(x)).join('') } }
+    }
+}
+
 // Provide a noop appendTerminal and appendTerminalDebug for tests that import UI modules
 globalThis.appendTerminalDebug = globalThis.appendTerminalDebug || (() => { })
 globalThis.appendTerminal = globalThis.appendTerminal || ((content, type) => {

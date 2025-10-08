@@ -46,7 +46,7 @@ function updateTargetOptions(targetSel, whenRadios, currentValue) {
     const validTargets = getValidTargetsForWhen(whenValues)
 
     // Clear existing options
-    targetSel.innerHTML = ''
+    while (targetSel.firstChild) targetSel.removeChild(targetSel.firstChild)
 
     // Add valid options
     validTargets.forEach(t => {
@@ -183,7 +183,10 @@ function buildEditorForm(existing, allItems = []) {
             info.setAttribute('tabindex', '0')
             info.setAttribute('role', 'img')
             info.setAttribute('aria-label', labelText + ' help')
-            info.innerHTML = '<span class="info-symbol">ℹ</span>'
+            const infoSym = document.createElement('span')
+            infoSym.className = 'info-symbol'
+            infoSym.textContent = 'ℹ'
+            info.appendChild(infoSym)
             const tip = document.createElement('span')
             tip.className = 'info-tooltip'
             tip.textContent = helpText
@@ -218,7 +221,7 @@ function buildEditorForm(existing, allItems = []) {
 
     // Helper to render a single dependency chip
     function renderDeps(depIds) {
-        depsList.innerHTML = ''
+        while (depsList.firstChild) depsList.removeChild(depsList.firstChild)
         // Expect an array of dependency objects: { id, requiresMatched }
         const arr = Array.isArray(depIds) ? depIds.slice() : []
         arr.forEach(depObj => {
@@ -288,7 +291,7 @@ function buildEditorForm(existing, allItems = []) {
     depsSelect.style.minWidth = '220px'
     // populate with other items (exclude self)
     function refreshDepsOptions() {
-        depsSelect.innerHTML = ''
+        while (depsSelect.firstChild) depsSelect.removeChild(depsSelect.firstChild)
         const placeholder = document.createElement('option')
         placeholder.value = ''
         placeholder.textContent = '-- select feedback to depend on --'
@@ -593,7 +596,7 @@ export function initAuthorFeedback() {
     let items = parseFeedbackFromTextarea(ta)
 
     function render() {
-        list.innerHTML = ''
+        while (list.firstChild) list.removeChild(list.firstChild)
         items.forEach((it, idx) => {
             const card = createCard(it, idx, (i) => openModalEdit(i), (i) => moveUp(i), (i) => moveDown(i), (i) => deleteItem(i))
             // make draggable
@@ -693,12 +696,12 @@ export function initAuthorFeedback() {
         cancel.textContent = 'Cancel'
 
         // inject Save/Cancel into modal header actions so they're always visible
-        actionHolder && (actionHolder.innerHTML = '')
+        if (actionHolder) { while (actionHolder.firstChild) actionHolder.removeChild(actionHolder.firstChild) }
         actionHolder && actionHolder.appendChild(save)
         actionHolder && actionHolder.appendChild(cancel)
 
         const body = m.querySelector('#author-feedback-modal-body')
-        body.innerHTML = ''
+        while (body.firstChild) body.removeChild(body.firstChild)
         body.appendChild(contentWrapper)
 
         // small inline error area inside modal body for compatibility with tests
@@ -825,12 +828,12 @@ export function initAuthorFeedback() {
         cancel.textContent = 'Cancel'
 
         // inject Save/Cancel into modal header actions so they're always visible
-        actionHolder && (actionHolder.innerHTML = '')
+        if (actionHolder) { while (actionHolder.firstChild) actionHolder.removeChild(actionHolder.firstChild) }
         actionHolder && actionHolder.appendChild(save)
         actionHolder && actionHolder.appendChild(cancel)
 
         const body = m.querySelector('#author-feedback-modal-body')
-        body.innerHTML = ''
+        while (body.firstChild) body.removeChild(body.firstChild)
         body.appendChild(contentWrapper)
 
         // small inline error area inside modal body for compatibility with tests
@@ -950,7 +953,7 @@ export function initAuthorFeedback() {
             const listEl = document.getElementById('dependency-modal-list')
             const msgEl = document.getElementById('dependency-modal-message')
             if (listEl && depModal) {
-                listEl.innerHTML = ''
+                while (listEl.firstChild) listEl.removeChild(listEl.firstChild)
                 dependents.forEach(d => {
                     const row = document.createElement('div')
                     row.style.padding = '6px 0'

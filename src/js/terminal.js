@@ -1,4 +1,4 @@
-import { $ as _$, sanitizeHtml } from './utils.js'
+import { $ as _$, sanitizeHtml, setInnerHTML } from './utils.js'
 import { debug as logDebug } from './logger.js'
 import { mapTracebackAndShow } from './code-transform.js'
 
@@ -820,6 +820,9 @@ export const getTerminalInnerHTML = () => {
 export const setTerminalInnerHTML = (html) => {
     try {
         const out = document && document.getElementById ? document.getElementById('terminal-output') : null
-        if (out) out.innerHTML = html == null ? '' : sanitizeHtml(html)
+        if (out) {
+            // Use centralized helper to ensure consistent sanitization and fallback
+            try { setInnerHTML(out, html == null ? '' : html) } catch (_e) { out.textContent = String(html == null ? '' : html) }
+        }
     } catch (_e) { }
 }

@@ -1,5 +1,5 @@
 // Configuration loading and management
-import { $, renderMarkdown } from './utils.js'
+import { $, renderMarkdown, sanitizeHtml } from './utils.js'
 import { clearTerminal } from './terminal.js'
 import { debug as logDebug, info as logInfo, warn as logWarn, error as logError } from './logger.js'
 import { isTestEnvironment } from './unified-storage.js'
@@ -467,12 +467,11 @@ function validateAndNormalizeConfigInternal(rawConfig) {
         starter: rawConfig.starter || '# Write your Python code here\nprint("Hello, World!")',
         instructions: rawConfig.instructions || 'Write Python code and click Run to execute it.',
         links: Array.isArray(rawConfig.links) ? rawConfig.links : [],
-        // Respect runtime.type when present but do not trust runtime.url from
-        // loaded configs (authoring tool or remote lists). The app should prefer
-        // its vendored runtime loader. If runtime.url is present, ignore it and
-        // fall back to the vendored module to avoid loading arbitrary remote code.
+        // runtime is deprecated
+        // We are only using the internal settings for this, ignore any
+        // settings from the config and just use ours
         runtime: {
-            type: rawConfig.runtime?.type || 'micropython',
+            type: 'micropython',
             url: './vendor/micropython.mjs'
         },
         execution: {
@@ -532,7 +531,8 @@ export function initializeInstructions(cfg) {
     if (instructionsContent) {
         const raw = cfg?.instructions || 'No instructions provided.'
         try {
-            instructionsContent.innerHTML = renderMarkdown(raw)
+            // Render markdown and then ensure the result is sanitized before inserting
+            instructionsContent.innerHTML = sanitizeHtml(renderMarkdown(raw))
             // If highlight.js is available, highlight all code blocks inside the instructions.
             try {
                 if (typeof window !== 'undefined' && window.hljs && typeof window.hljs.highlightElement === 'function') {

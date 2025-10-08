@@ -1615,8 +1615,8 @@ async function main() {
                                     })
                                 }
 
-                                // Populate options
-                                select.innerHTML = ''
+                                // Populate options (use safe DOM operations rather than innerHTML)
+                                while (select.firstChild) select.removeChild(select.firstChild)
                                 const optPlaceholder = document.createElement('option')
                                 optPlaceholder.value = ''
                                 optPlaceholder.textContent = 'Select configuration…'
@@ -1764,7 +1764,8 @@ async function main() {
                             let items = null
                             try {
                                 items = await fetchAvailableServerConfigs()
-                                listContainer.innerHTML = ''
+                                // Clear children safely
+                                while (listContainer.firstChild) listContainer.removeChild(listContainer.firstChild)
 
                                 // If fetchAvailableServerConfigs returned no items, try a direct
                                 // fallback to ./config/index.json (handles environments where
@@ -1816,7 +1817,8 @@ async function main() {
                             } catch (e) {
                                 // Clear the loading placeholder and show an inline error, but
                                 // don't return early — continue to populate any authoring config
-                                listContainer.innerHTML = ''
+                                // Clear children safely
+                                while (listContainer.firstChild) listContainer.removeChild(listContainer.firstChild)
                                 let errorEl = document.getElementById('config-server-error')
                                 if (!errorEl) {
                                     errorEl = document.createElement('div')
