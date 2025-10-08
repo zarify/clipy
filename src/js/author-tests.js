@@ -6,6 +6,7 @@ import { debug as logDebug, warn as logWarn, error as logError } from './logger.
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
 import { buildASTTestForm, createDefaultASTTest } from './ast-test-builder.js'
+import { validateRegexPattern } from './config.js'
 
 function $(sel, root = document) { return root.querySelector(sel) }
 
@@ -1625,6 +1626,25 @@ export function initAuthorTests() {
                     }
                 }
             } catch (_e) { /* ignore DOM-check failures */ }
+            // Validate any expected regex patterns authored in the test
+            try {
+                const expectedOut = val.expected_stdout
+                if (expectedOut && typeof expectedOut === 'object' && expectedOut.type === 'regex') {
+                    const vr = validateRegexPattern(String(expectedOut.expression || ''), { maxLength: 2000 })
+                    if (!vr.ok) {
+                        if (headerMessage) headerMessage.textContent = 'Rejected stdout pattern: ' + (vr.reason || 'unsafe pattern')
+                        return
+                    }
+                }
+                const expectedErr = val.expected_stderr
+                if (expectedErr && typeof expectedErr === 'object' && expectedErr.type === 'regex') {
+                    const vr2 = validateRegexPattern(String(expectedErr.expression || ''), { maxLength: 2000 })
+                    if (!vr2.ok) {
+                        if (headerMessage) headerMessage.textContent = 'Rejected stderr pattern: ' + (vr2.reason || 'unsafe pattern')
+                        return
+                    }
+                }
+            } catch (_e) { /* ignore validation errors */ }
             if (!val.id) val.id = genId()
 
             const selectedGroupId = val._selectedGroupId
@@ -1788,6 +1808,26 @@ export function initAuthorTests() {
                 }
             } catch (_e) { /* ignore DOM-check failures */ }
             if (!val.id) val.id = genId()
+
+            // Validate any expected regex patterns authored in the test (new)
+            try {
+                const expectedOut = val.expected_stdout
+                if (expectedOut && typeof expectedOut === 'object' && expectedOut.type === 'regex') {
+                    const vr = validateRegexPattern(String(expectedOut.expression || ''), { maxLength: 2000 })
+                    if (!vr.ok) {
+                        if (headerMessage) headerMessage.textContent = 'Rejected stdout pattern: ' + (vr.reason || 'unsafe pattern')
+                        return
+                    }
+                }
+                const expectedErr = val.expected_stderr
+                if (expectedErr && typeof expectedErr === 'object' && expectedErr.type === 'regex') {
+                    const vr2 = validateRegexPattern(String(expectedErr.expression || ''), { maxLength: 2000 })
+                    if (!vr2.ok) {
+                        if (headerMessage) headerMessage.textContent = 'Rejected stderr pattern: ' + (vr2.reason || 'unsafe pattern')
+                        return
+                    }
+                }
+            } catch (_e) { /* ignore validation errors */ }
 
             const selectedGroupId = val._selectedGroupId
             delete val._selectedGroupId // Remove the temporary field

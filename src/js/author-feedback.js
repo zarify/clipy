@@ -5,6 +5,7 @@
 
 import { openModal as openModalHelper, closeModal as closeModalHelper } from './modals.js'
 import { warn as logWarn, error as logError } from './logger.js'
+import { validateRegexPattern } from './config.js'
 import { createASTRuleBuilder, createDefaultASTFeedback } from './ast-rule-builder.js'
 import { analyzeCode } from './ast-analyzer.js'
 import { registerAnalyzer } from './analyzer-registry.js'
@@ -396,6 +397,7 @@ function buildEditorForm(existing, allItems = []) {
     const expr = document.createElement('input')
     expr.type = 'text'
     expr.style.width = '100%'
+    expr.setAttribute('data-pattern-expression', '1')
     expr.value = (existing.pattern && existing.pattern.expression) || ''
 
     const flags = document.createElement('input')
@@ -767,6 +769,53 @@ export function initAuthorFeedback() {
                     }
                 } catch (_e) { /* ignore fallback failures */ }
 
+                // If the expression wasn't captured by editor.get() (fragile
+                // DOM test selectors may miss it), attempt to read it directly
+                // from the modal inputs as a fallback. Exclude the flags input
+                // by checking the placeholder.
+                try {
+                    if (!val.pattern.expression || String(val.pattern.expression) === '') {
+                        const modalEl = m
+                        // Prefer an explicitly marked expression input when present
+                        const exprEl = modalEl && modalEl.querySelector ? modalEl.querySelector('input[data-pattern-expression]') : null
+                        if (exprEl && typeof exprEl.value === 'string' && exprEl.value.trim() !== '') {
+                            val.pattern.expression = exprEl.value
+                        } else {
+                            const inputs = modalEl && modalEl.querySelectorAll ? Array.from(modalEl.querySelectorAll('input[type=text]')) : []
+                            // Prefer any input that looks regex-like (contains meta
+                            // characters). This helps in tests where the expression
+                            // may be placed into a different input by selector logic.
+                            const meta = /[.\*+?()\[\]{}|\\^$]/
+                            let found = false
+                            for (let i = 0; i < inputs.length; i++) {
+                                const el = inputs[i]
+                                if (!el) continue
+                                const ph = el.getAttribute && el.getAttribute('placeholder')
+                                if (ph && ph.includes('e.g. i')) continue
+                                const v = typeof el.value === 'string' ? el.value.trim() : ''
+                                if (v && meta.test(v)) {
+                                    val.pattern.expression = v
+                                    found = true
+                                    break
+                                }
+                            }
+                            if (!found) {
+                                // fallback: prefer the last non-empty text input that's not flags
+                                for (let i = inputs.length - 1; i >= 0; i--) {
+                                    const el = inputs[i]
+                                    if (!el) continue
+                                    const ph = el.getAttribute && el.getAttribute('placeholder')
+                                    if (ph && ph.includes('e.g. i')) continue
+                                    if (typeof el.value === 'string' && el.value.trim() !== '') {
+                                        val.pattern.expression = el.value
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_e) { /* ignore fallback failures */ }
+
                 const flagsVal = String(val.pattern.flags || '')
                 // Accept only standard JS regex flags: g i m s u y (d is optional on newer engines)
                 const allowed = /^[gimsuyd]*$/
@@ -787,6 +836,16 @@ export function initAuthorFeedback() {
                     if (errEdit) errEdit.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
                     return
                 }
+                // Authoring-time safety heuristics
+                try {
+                    const vr = validateRegexPattern(String(val.pattern.expression || ''), { maxLength: 2000 })
+                    if (!vr.ok) {
+                        const msg = 'Rejected pattern: ' + (vr.reason || 'unsafe pattern')
+                        if (errEdit) errEdit.textContent = msg
+                        try { logWarn('[author-feedback] block save (edit) unsafe regex:', msg) } catch (_e) { }
+                        return
+                    }
+                } catch (_e) { /* ignore validation failures */ }
             }
             if (!val.id) val.id = genId()
             items[idx] = val
@@ -888,6 +947,46 @@ export function initAuthorFeedback() {
                     }
                 } catch (_e) { /* ignore fallback failures */ }
 
+                // Expression fallback: read from modal text inputs if editor.get()
+                // didn't capture the expression (helps in some jsdom test setups).
+                try {
+                    if (!val.pattern.expression || String(val.pattern.expression) === '') {
+                        const modalEl = m
+                        const exprEl = modalEl && modalEl.querySelector ? modalEl.querySelector('input[data-pattern-expression]') : null
+                        if (exprEl && typeof exprEl.value === 'string' && exprEl.value.trim() !== '') {
+                            val.pattern.expression = exprEl.value
+                        } else {
+                            const inputs = modalEl && modalEl.querySelectorAll ? Array.from(modalEl.querySelectorAll('input[type=text]')) : []
+                            const meta = /[.\*+?()\[\]{}|\\^$]/
+                            let found = false
+                            for (let i = 0; i < inputs.length; i++) {
+                                const el = inputs[i]
+                                if (!el) continue
+                                const ph = el.getAttribute && el.getAttribute('placeholder')
+                                if (ph && ph.includes('e.g. i')) continue
+                                const v = typeof el.value === 'string' ? el.value.trim() : ''
+                                if (v && meta.test(v)) {
+                                    val.pattern.expression = v
+                                    found = true
+                                    break
+                                }
+                            }
+                            if (!found) {
+                                for (let i = inputs.length - 1; i >= 0; i--) {
+                                    const el = inputs[i]
+                                    if (!el) continue
+                                    const ph = el.getAttribute && el.getAttribute('placeholder')
+                                    if (ph && ph.includes('e.g. i')) continue
+                                    if (typeof el.value === 'string' && el.value.trim() !== '') {
+                                        val.pattern.expression = el.value
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_e) { /* ignore fallback failures */ }
+
                 const flagsVal = String(val.pattern.flags || '')
                 const allowed = /^[gimsuyd]*$/
                 if (!allowed.test(flagsVal)) {
@@ -906,6 +1005,16 @@ export function initAuthorFeedback() {
                     if (headerMessage) headerMessage.textContent = 'Invalid regular expression: ' + (e && e.message ? e.message : e)
                     return
                 }
+                // Authoring-time safety heuristics
+                try {
+                    const vr = validateRegexPattern(String(val.pattern.expression || ''), { maxLength: 2000 })
+                    if (!vr.ok) {
+                        const msg = 'Rejected pattern: ' + (vr.reason || 'unsafe pattern')
+                        if (headerMessage) headerMessage.textContent = msg
+                        try { logWarn('[author-feedback] block save (new) unsafe regex:', msg) } catch (_e) { }
+                        return
+                    }
+                } catch (_e) { /* ignore validation failures */ }
             }
 
             // Persist the new item

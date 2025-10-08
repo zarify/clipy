@@ -468,6 +468,50 @@ function convertLegacyFeedbackToArray(legacyFeedback) {
     return arr
 }
 
+// Utility: validate a regex pattern string for authoring-time safety.
+// Returns { ok: boolean, reason?: string }
+export function validateRegexPattern(expression, opts = {}) {
+    const maxLength = typeof opts.maxLength === 'number' ? opts.maxLength : 2000
+    try {
+        if (typeof expression !== 'string') return { ok: false, reason: 'Pattern must be a string' }
+        const expr = expression.trim()
+        if (expr.length === 0) return { ok: false, reason: 'Pattern is empty' }
+        if (expr.length > maxLength) return { ok: false, reason: `Pattern too long (${expr.length} > ${maxLength})` }
+
+        // Heuristic checks for catastrophic/backtracking-prone constructs
+        // Common problematic constructs: (.+)+, (.*)+, (a+)+, nested quantifiers and large unbounded repeats
+        const nestedQuantifiers = /(\(.{0,200}?([+*]|\{\s*\d+,?)\).{0,10}?([+*]|\{\s*\d+,?\}))/
+        const simpleCatastrophic = /(\(\.\+\)\+)|(\(\.\*\)\+)|(\(\?:\.\+\)\+)|(\(\?:\.\*\)\+)/
+        if (simpleCatastrophic.test(expr) || nestedQuantifiers.test(expr)) {
+            return { ok: false, reason: 'Pattern contains nested quantifiers or constructs that can cause catastrophic backtracking' }
+        }
+
+        // Detect very large numeric repetition like {100000,} or {100000,200000}
+        const repeatRe = /\{\s*(\d+)\s*,\s*(\d+)?\s*\}/g
+        let m
+        while ((m = repeatRe.exec(expr)) !== null) {
+            try {
+                const low = parseInt(m[1], 10)
+                if (!isNaN(low) && low >= 10000) {
+                    return { ok: false, reason: 'Pattern contains very large repetition counts which may be unsafe' }
+                }
+            } catch (_e) { }
+        }
+
+        // Try to compile the pattern to ensure it's syntactically valid
+        try {
+            // We compile without flags here; actual runtime may supply flags elsewhere
+            new RegExp(expr)
+        } catch (e) {
+            return { ok: false, reason: 'Invalid regex: ' + e.message }
+        }
+
+        return { ok: true }
+    } catch (e) {
+        return { ok: false, reason: 'Validation failure: ' + String(e && e.message ? e.message : e) }
+    }
+}
+
 // Shared validation helper used by both the factory and legacy top-level API
 function validateAndNormalizeConfigInternal(rawConfig) {
     // Parse feedback and tests if they are JSON strings (from author storage)
