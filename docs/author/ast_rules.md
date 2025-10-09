@@ -25,7 +25,7 @@ To use AST rules it is helpful to have:
 | Function count | Similar to function exists, but more general information on how many and what functions are defined. |
 | Variable usage | Information on what (non-parameter) variables have been defined, whether they have been modified, and where they have been used. |
 | Control flow | Details about what control flows have been defined in the code and where they are used. |
-| Has docstrings | **currently broken** |
+| Has docstrings | Check class or function docstrings and their contents. |
 | Code quality | Broad set of stats around code complexity. Combines many other rules. |
 | Class analysis | Information on defined classes such as methods, method parameters, and info on individual methods like docstrings. |
 | Import statements | Information on imports, type of import (`import`, `from X import Y`, wildcard) |
