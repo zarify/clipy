@@ -793,12 +793,12 @@ async function main() {
                                         try {
                                             const { saveSuccessSnapshotForCurrentConfig } = await import('./js/snapshots.js')
                                             await saveSuccessSnapshotForCurrentConfig(snap)
-                                            appendTerminal('Success snapshot saved for ' + (snap.config || ''), 'runtime')
+                                            logDebug('Success snapshot saved for ' + (snap.config || ''), 'runtime')
                                         } catch (e) {
                                             // Non-fatal: log and continue
-                                            try { appendTerminal('Failed to save success snapshot: ' + e, 'runtime') } catch (_e) { }
+                                            try { logDebug('Failed to save success snapshot: ' + e, 'runtime') } catch (_e) { }
                                         }
-                                    } catch (e) { try { appendTerminal('Failed to create success snapshot: ' + e, 'runtime') } catch (_e) { } }
+                                    } catch (e) { try { logDebug('Failed to create success snapshot: ' + e, 'runtime') } catch (_e) { } }
                                 }
                             } catch (_e) { }
                         } catch (_e) { }
