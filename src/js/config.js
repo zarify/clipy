@@ -684,20 +684,44 @@ export function initializeInstructions(cfg) {
             document.title = cfg.title
         }
 
-        // If we have a remote config list with a listName provided, show the
-        // list name AND the individual config title so users can see both
-        // the collection and the problem they're working on. For example:
-        // "Authoring Demos — printing-press". If either side is missing,
-        // fall back to whichever is available.
+        // Update app-title structure to show list name and config title
+        // The app-title has a two-line structure:
+        // Line 1: [indicator] List Name (larger font)
+        // Line 2: Config Title (subtitle font)
+        // The indicator is managed by updateSuccessIndicators() in app.js
         try {
             if (typeof window !== 'undefined' && window.__ssg_remote_config_list && window.__ssg_remote_config_list.listName) {
                 const ln = String(window.__ssg_remote_config_list.listName || '')
                 const cfgTitle = String(cfg?.title || '')
                 const combined = ln && cfgTitle ? (ln + ' — ' + cfgTitle) : (ln || cfgTitle || document.title || 'Client-side Python Playground')
-                try { if (appTitle) appTitle.textContent = combined } catch (_e) { }
+
+                // Update list name in app-title structure (preserve existing elements)
+                if (appTitle) {
+                    const listName = appTitle.querySelector('.list-name')
+                    const subtitle = appTitle.querySelector('.app-title-subtitle')
+                    if (listName) {
+                        listName.textContent = ln || 'Client-side Python Playground'
+                    }
+                    if (subtitle && cfgTitle) {
+                        subtitle.textContent = cfgTitle
+                    }
+                }
+
                 try { document.title = combined } catch (_e) { }
             } else {
-                try { if (appTitle) appTitle.textContent = cfg?.title || document.title || 'Client-side Python Playground' } catch (_e) { }
+                // Single config: just show the title
+                const cfgTitle = cfg?.title || document.title || 'Client-side Python Playground'
+                if (appTitle) {
+                    const listName = appTitle.querySelector('.list-name')
+                    const subtitle = appTitle.querySelector('.app-title-subtitle')
+                    if (listName) {
+                        listName.textContent = cfgTitle
+                    }
+                    if (subtitle) {
+                        subtitle.textContent = ''
+                    }
+                }
+                try { document.title = cfgTitle } catch (_e) { }
             }
         } catch (_e) { }
     } catch (_e) { }
