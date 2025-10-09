@@ -38,7 +38,7 @@ import { transformAndWrap, highlightMappedTracebackInEditor, highlightFeedbackLi
 import { setupSnapshotSystem } from './js/snapshots.js'
 import { setupDownloadSystem } from './js/download.js'
 import { showStorageInfo } from './js/storage-manager.js'
-import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
+import { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, evaluateFeedbackOnFileEvent, on as feedbackOn, off as feedbackOff } from './js/feedback.js'
 import { initializeFeedbackUI, setFeedbackMatches, setFeedbackConfig } from './js/feedback-ui.js'
 
 // Record/Replay debugging system
@@ -561,7 +561,7 @@ async function main() {
         try { window.runtimeAdapter = runtimeAdapter } catch (e) { }
 
         // Expose minimal Feedback API for tests and wire UI
-        try { window.Feedback = { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, on: feedbackOn, off: feedbackOff } } catch (_e) { }
+        try { window.Feedback = { resetFeedback, evaluateFeedbackOnEdit, evaluateFeedbackOnRun, evaluateFeedbackOnFileEvent, on: feedbackOn, off: feedbackOff } } catch (_e) { }
         try {
             initializeFeedbackUI();
             feedbackOn('matches', (m) => { try { setFeedbackMatches(m) } catch (_e) { } })
@@ -586,6 +586,49 @@ async function main() {
             const content = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
             const path = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || '/main.py'
             try { if (window.Feedback && window.Feedback.evaluateFeedbackOnEdit) window.Feedback.evaluateFeedbackOnEdit(content, path) } catch (_e) { }
+        } catch (_e) { }
+
+        // Wire the VFS notifier to also notify the Feedback subsystem about
+        // create/delete events. VFS sets `window.__ssg_notify_file_written`; wrap
+        // it so feedback rules can be evaluated immediately when files change.
+        try {
+            const orig = (typeof window !== 'undefined') ? window.__ssg_notify_file_written : null
+            try {
+                window.__ssg_notify_file_written = function (path, content) {
+                    try { if (typeof orig === 'function') orig(path, content) } catch (_e) { }
+                    try {
+                        if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnFileEvent === 'function') {
+                            const ev = { type: content == null ? 'delete' : 'create', filename: path }
+                            try { window.Feedback.evaluateFeedbackOnFileEvent(ev) } catch (_e) { }
+                        }
+
+                        // Also re-run edit-time feedback for the active tab without
+                        // clearing runMatches. This avoids feedback produced by a
+                        // recent Run being immediately removed when programmatic
+                        // file updates (mounts, backend syncs) trigger editor
+                        // refreshes which would treat them as edits.
+                        try {
+                            if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnEdit === 'function') {
+                                const active = (window.TabManager && window.TabManager.getActive && window.TabManager.getActive()) || null
+                                if (active) {
+                                    // Prefer FileManager read if available
+                                    let contentForActive = ''
+                                    try {
+                                        if (typeof FileManager !== 'undefined' && FileManager && typeof FileManager.read === 'function') {
+                                            const v = FileManager.read(active)
+                                            if (v != null) contentForActive = String(v)
+                                        } else if (typeof window !== 'undefined' && window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, active)) {
+                                            contentForActive = String(window.__ssg_mem[active])
+                                        }
+                                    } catch (_e) { }
+
+                                    try { window.Feedback.evaluateFeedbackOnEdit(contentForActive, active, { clearRunMatches: false }) } catch (_e) { }
+                                }
+                            }
+                        } catch (_e) { }
+                    } catch (_e) { }
+                }
+            } catch (_e) { }
         } catch (_e) { }
 
         // Wire feedback UI clicks to open/select files and apply highlights.
