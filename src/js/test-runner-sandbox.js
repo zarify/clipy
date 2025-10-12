@@ -36,15 +36,50 @@ export function createSandboxedRunFn({ runtimeUrl = './vendor/micropython.mjs', 
                     // parent short-circuit for AST test
                     // proceed using astRuleObj (may be empty object)
                     try {
-                        // Determine code to analyze: prefer test.main, then filesSnapshot['/main.py'] or similar
+                        // Determine code to analyze: prefer test.main, then read from current in-memory state
+                        // to ensure we always test against the latest workspace state, not a stale snapshot (KAN-25).
                         let code = ''
                         if (typeof test.main === 'string' && test.main.trim()) {
                             code = test.main
                         } else {
-                            // Use provided snapshot keys; support both '/main.py' and 'main.py'
-                            const mainKeys = ['/main.py', 'main.py', '/main', 'main']
-                            for (const k of mainKeys) {
-                                if (Object.prototype.hasOwnProperty.call(filesSnapshot || {}, k)) { code = String(filesSnapshot[k] || ''); break }
+                            // Read from current in-memory workspace (window.__ssg_mem or window.mem) to avoid stale snapshot issues.
+                            // The FileManager.read() method reads from mem, but we want to access it DIRECTLY to ensure
+                            // we're getting the absolute latest state, bypassing any potential caching or stale references.
+                            try {
+                                // Access the global in-memory file storage directly (KAN-25 fix)
+                                const mem = (typeof window !== 'undefined') ? (window.__ssg_mem || window.mem) : null
+                                const mainFile = '/main.py'
+
+                                if (mem && typeof mem === 'object' && Object.prototype.hasOwnProperty.call(mem, mainFile)) {
+                                    code = String(mem[mainFile] || '')
+                                } else {
+                                    // Fallback to FileManager if mem not available
+                                    try {
+                                        const { getFileManager, MAIN_FILE } = await import('./vfs-client.js')
+                                        const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+                                        if (FileManager && typeof FileManager.read === 'function') {
+                                            code = FileManager.read(MAIN_FILE || '/main.py') || ''
+                                        } else {
+                                            // Final fallback to snapshot
+                                            const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                                            for (const k of mainKeys) {
+                                                if (Object.prototype.hasOwnProperty.call(filesSnapshot || {}, k)) { code = String(filesSnapshot[k] || ''); break }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // Import failed - fallback to snapshot
+                                        const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                                        for (const k of mainKeys) {
+                                            if (Object.prototype.hasOwnProperty.call(filesSnapshot || {}, k)) { code = String(filesSnapshot[k] || ''); break }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                // Access to mem failed - fallback to snapshot
+                                const mainKeys = ['/main.py', 'main.py', '/main', 'main']
+                                for (const k of mainKeys) {
+                                    if (Object.prototype.hasOwnProperty.call(filesSnapshot || {}, k)) { code = String(filesSnapshot[k] || ''); break }
+                                }
                             }
                         }
                         // Import analyzer and evaluate
