@@ -4,7 +4,7 @@ describe('AST matcher auto-eval', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
     })
 
     test('auto-evaluate sets nonBoolean dataset when matcher returns non-boolean truthy', async () => {

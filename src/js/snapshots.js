@@ -20,7 +20,7 @@ export async function restoreCurrentSnapshotIfExists() {
 }
 // Snapshot management system
 import { $ } from './utils.js'
-import { getFileManager, MAIN_FILE, getBackendRef, getMem, setSystemWriteMode } from './vfs-client.js'
+import { getFileManager, MAIN_FILE, getBackendRef, setSystemWriteMode } from './vfs-client.js'
 import { openModal, closeModal, showConfirmModal } from './modals.js'
 import { appendTerminal, activateSideTab } from './terminal.js'
 import { getConfigKey, getConfigIdentity, getConfig } from './config.js'
@@ -268,7 +268,6 @@ async function saveSnapshot() {
         }
 
         const FileManager = getFileManager()
-        const mem = getMem()
         const backendRef = getBackendRef()
 
         // Use the global FileManager as the authoritative source for snapshot contents
@@ -281,8 +280,6 @@ async function saveSnapshot() {
                         if (v != null) snap.files[n] = v
                     } catch (_e) { }
                 }
-            } else if (mem && Object.keys(mem).length) {
-                for (const k of Object.keys(mem)) snap.files[k] = mem[k]
             } else if (backendRef && typeof backendRef.list === 'function') {
                 const names = await backendRef.list()
                 for (const n of names) {
@@ -293,7 +290,10 @@ async function saveSnapshot() {
             } else {
                 // No backend/FileManager available; avoid using localStorage.
                 // Leave snap.files empty rather than writing/reading legacy mirrors.
-                // Tests may populate window.__ssg_mem or provide a backend.
+                // Tests should not rely on the legacy global `window.__ssg_mem`.
+                // Instead, provide a FileManager test shim (via
+                // `createFileManager(host)`) or mock the backend so snapshot
+                // reads/writes are deterministic and do not depend on a global.
             }
         } catch (e) {
             // On error, avoid touching localStorage; just continue with what we have.
@@ -555,7 +555,8 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         const snap = s
 
         const backend = window.__ssg_vfs_backend
-        const { mem } = await window.__ssg_vfs_ready.catch(() => ({ mem: window.__ssg_mem }))
+        // Do not fall back to legacy global mem; if VFS isn't ready, mem will be undefined.
+        const { mem } = await window.__ssg_vfs_ready.catch(() => ({ mem: undefined }))
         const FileManager = window.FileManager
 
         if (backend && typeof backend.write === 'function') {

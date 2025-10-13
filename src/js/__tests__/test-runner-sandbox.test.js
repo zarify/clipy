@@ -25,9 +25,9 @@ describe('createSandboxedRunFn', () => {
         // Mock the in-memory workspace to return current workspace code
         const currentCode = 'print("Problem B code")'
 
-        // Set up global mem (simulating current workspace state)
+        // Set up a test FileManager (simulating current workspace state)
         global.window = global.window || {}
-        global.window.__ssg_mem = { '/main.py': currentCode }
+        global.window.FileManager = { read: (p) => p === '/main.py' ? currentCode : null, list: () => ['/main.py'] }
 
         await jest.unstable_mockModule('../vfs-client.js', () => ({
             getFileManager: () => ({
@@ -53,6 +53,6 @@ describe('createSandboxedRunFn', () => {
         expect(res.astResult.receivedCode).toContain('Problem B')
 
         // Cleanup
-        delete global.window.__ssg_mem
+        try { delete global.window.FileManager } catch (_e) { }
     })
 })

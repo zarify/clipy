@@ -4,8 +4,9 @@ describe('feedback edge-case tests', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        // clear any global mem
-        try { delete window.__ssg_mem } catch (_) { }
+        // clear any legacy global mem or FileManager artifacts
+        try { window.__ssg_mem = undefined } catch (_) { }
+        try { window.FileManager = undefined } catch (_) { }
     })
 
     test('bad regex expression is ignored (no crash)', async () => {
@@ -47,9 +48,10 @@ describe('feedback edge-case tests', () => {
 
     test('fileTarget reads from window.__ssg_mem when FileManager absent', async () => {
         jest.unstable_mockModule('../logger.js', () => ({ debug: () => { }, info: () => { }, warn: () => { }, error: () => { } }))
-        // ensure no FileManager
+        // ensure no FileManager and provide legacy mem via FileManager shim if needed
         try { delete window.FileManager } catch (_) { }
-        window.__ssg_mem = { '/other.py': 'hello from other' }
+        // Provide a temporary FileManager shim to simulate mem for this test
+        try { window.FileManager = { read: async (p) => p === '/other.py' ? 'hello from other' : null, list: async () => ['/other.py'] } } catch (_) { }
         const cfg = { feedback: [{ id: 'ft1', title: 't', when: ['edit'], pattern: { type: 'string', target: 'code', fileTarget: 'other.py', expression: 'hello from' }, message: 'm', severity: 'info' }] }
         const mod = await import('../feedback.js')
         const { resetFeedback, evaluateFeedbackOnEdit } = mod

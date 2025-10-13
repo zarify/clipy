@@ -7,8 +7,7 @@ describe('VFS Read-Only File Creation Bug', () => {
         delete window.currentConfig;
         delete window.FileManager;
         delete window.__ssg_vfs_backend;
-        delete window.__ssg_mem;
-        delete window.mem;
+        // Avoid touching legacy mem globals; tests should use returned mem/FileManager
         setSystemWriteMode(false);
     });
 

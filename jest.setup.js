@@ -24,7 +24,13 @@ window.Config = window.Config || {}
 // Provide simple placeholders used by vfs-client
 window.__ssg_expected_writes = window.__ssg_expected_writes || new Map()
 window.__ssg_pending_tabs = window.__ssg_pending_tabs || []
-window.__ssg_mem = window.__ssg_mem || {}
+// Do NOT provide the legacy in-memory mirror here. Tests should use a
+// `FileManager` test-shim (via `createFileManager(host)`) or mock the
+// runtime fs when synchronous access is required. Intentionally omitting
+// a global `window.__ssg_mem` helps tests fail early if they accidentally
+// depend on the legacy mirror while we migrate to the unified storage
+// model.
+// Note: window.__ssg_mem is intentionally not initialized in tests.
 window.__ssg_suppress_notifier = false
 
 // Minimal safeSetItem used by storage-manager expectations (if imported)

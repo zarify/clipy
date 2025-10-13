@@ -15,8 +15,9 @@ describe('Feedback filename rules (create/delete)', () => {
 
     beforeEach(() => {
         // reset environment
-        try { delete window.__ssg_mem } catch (_e) { }
-        try { window.__ssg_mem = {} } catch (_e) { }
+        // Tests should not rely on legacy window.__ssg_mem; use FileManager shim below.
+        // Provide a test FileManager shim for sync reads used by feedback
+        try { window.FileManager = { read: async (p) => { return null }, list: async () => [] } } catch (_e) { }
         try { if (typeof window.__ssg_notify_file_written === 'function') delete window.__ssg_notify_file_written } catch (_e) { }
         resetFeedback({ feedback: rule })
     })
@@ -27,11 +28,10 @@ describe('Feedback filename rules (create/delete)', () => {
     })
 
     test('rule matches after create event (mem)', async () => {
-        // simulate a file being written to in-memory store
-        window.__ssg_mem = window.__ssg_mem || {}
-        window.__ssg_mem['/foo.py'] = 'print(1)'
+        // simulate a file being written to the workspace via FileManager shim
+        try { window.FileManager = { read: async (p) => p === '/foo.py' ? 'print(1)' : null, list: async () => ['/foo.py'] } } catch (_e) { }
 
-        // call evaluateFeedbackOnEdit to pick up existence via mem
+        // call evaluateFeedbackOnEdit to pick up existence via FileManager
         const matches = await evaluateFeedbackOnEdit('', '/main.py')
         expect(matches.find(m => m.id === 'fb-create-foo')).toBeDefined()
     })

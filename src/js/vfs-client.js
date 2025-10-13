@@ -69,6 +69,36 @@ export const MAIN_FILE = '/main.py'
 // VFS runtime references (populated during async VFS init)
 let backendRef = null
 let mem = null
+// Internal in-memory mirror (private).
+// NOTE: the legacy global mirror (`window.__ssg_mem`) and the exported
+// `getMem()` accessor were intentionally removed to prevent accidental
+// reliance on a synchronous global. Tests or other code that require
+// synchronous, in-memory access should use `createFileManager(host)` or
+// the `FileManager` returned by `initializeVFS()` instead of depending on
+// an exported `mem` object.
+
+function scheduleMirrorSave(path, content, host = window) {
+    try {
+        if (typeof window !== 'undefined' && window.indexedDB) {
+            import('./unified-storage.js').then(mod => {
+                try { if (mod && typeof mod.saveFile === 'function') mod.saveFile(path, content).catch(() => { }) } catch (_e) { }
+            }).catch(() => { /* ignore import failures */ })
+            return { success: true }
+        }
+
+        try {
+            const map = JSON.parse((host.localStorage.getItem('ssg_files_v1') || '{}'))
+            map[path] = content
+            const result = safeSetItem('ssg_files_v1', JSON.stringify(map))
+            if (!result.success) logWarn('Failed to update localStorage mirror:', result.error)
+            return result
+        } catch (err) {
+            return { success: false, error: err && err.message }
+        }
+    } catch (e) {
+        return { success: false, error: e && e.message }
+    }
+}
 
 // Expose a promise that resolves when the VFS/mem/backend has been initialized
 let vfsReadyResolve = null
@@ -457,11 +487,10 @@ export async function initializeVFS(cfg) {
             }
         } catch (e) { /* ignore if list/read fail */ }
 
-        // Expose mem for debugging/tests
-        try {
-            window.__ssg_mem = mem
-            window.mem = mem
-        } catch (_e) { }
+        // Do NOT expose the internal mem mirror as a global. Tests should
+        // interact with the FileManager or use createFileManager(host) to
+        // obtain a test-scoped in-memory view. Hiding mem prevents accidental
+        // reliance on the legacy global mirror.
 
         // Replace FileManager with backend-integrated version (pure IndexedDB, no mem cache)
         FileManager = {
@@ -572,9 +601,7 @@ export function getBackendRef() {
     return backendRef
 }
 
-export function getMem() {
-    return mem
-}
+// getMem removed: internal mem mirror is intentionally not exposed anymore.
 
 export { settleVfsReady }
 
@@ -672,7 +699,7 @@ export function createVfsClient(options = {}) {
         initializeVFS: (cfg) => initializeVFS(cfg),
         getFileManager: () => getFileManager(),
         getBackendRef: () => getBackendRef(),
-        getMem: () => getMem(),
+        // getMem intentionally removed; do not expose internal mem mirror.
         settleVfsReady: () => settleVfsReady()
     }
 }

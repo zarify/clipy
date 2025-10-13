@@ -4,7 +4,7 @@ describe('author-feedback AST matcher non-boolean warning UI', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
     })
 
     test('modal AST tester shows warning when matcher returns non-boolean truthy', async () => {
@@ -86,7 +86,7 @@ describe('author-feedback AST matcher non-boolean warning UI', () => {
     test('modal Save succeeds when matcher returns strict boolean true', async () => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
         jest.unstable_mockModule('../ast-analyzer.js', () => ({ analyzeCode: async () => ({ ok: true }), getASTAnalyzer: async () => ({}) }))
         jest.unstable_mockModule('../logger.js', () => ({ debug: () => { }, info: () => { }, warn: () => { }, error: () => { } }))
 

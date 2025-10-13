@@ -259,9 +259,6 @@ async function evaluateFeedbackOnEdit(code, path, opts = {}) {
                         if (typeof window !== 'undefined' && window.FileManager && typeof window.FileManager.read === 'function') {
                             const readVal = await window.FileManager.read(normalizedTarget)
                             if (readVal != null) contentToCheck = String(readVal)
-                        } else {
-                            // No FileManager available; if mem is present try window.__ssg_mem
-                            try { if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, normalizedTarget)) contentToCheck = String(window.__ssg_mem[normalizedTarget]) } catch (_e) { }
                         }
                     }
                 } catch (_e) { }
@@ -315,11 +312,7 @@ async function evaluateFeedbackOnEdit(code, path, opts = {}) {
                         }
                     } catch (_e) { }
 
-                    // Try in-memory store
-                    try {
-                        if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, normDesired)) found = true
-                        else if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, normDesired.replace(/^\//, ''))) found = true
-                    } catch (_e) { }
+                    // No legacy in-memory fallback: rely on FileManager or Node fs.
                 }
 
                 // Try Node fs for server-side
@@ -432,11 +425,13 @@ async function evaluateFeedbackOnRun(ioCapture) {
                             }
                         } catch (_e) { }
 
-                        // Try in-memory store
+                        // Rely on FileManager for existence checks in browser.
                         try {
-                            const key = normDesired
-                            if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, key)) found = key
-                            else if (window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, key.replace(/^\//, ''))) found = key.replace(/^\//, '')
+                            const normalizedTarget = normDesired
+                            if (window.FileManager && typeof window.FileManager.read === 'function') {
+                                const readVal = await window.FileManager.read(normalizedTarget)
+                                if (readVal != null) found = normalizedTarget
+                            }
                         } catch (_e) { }
                     }
                 }

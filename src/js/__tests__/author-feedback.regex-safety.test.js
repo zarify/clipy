@@ -4,7 +4,7 @@ describe('author-feedback regex safety UI', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
     })
 
     test('unsafe regex entered in new feedback modal shows rejection and prevents save', async () => {

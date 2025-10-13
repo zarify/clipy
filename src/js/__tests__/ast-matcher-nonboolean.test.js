@@ -4,7 +4,7 @@ describe('AST matcher non-boolean handling', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
     })
 
     test('AST tester UI shows warning when matcher returns non-boolean truthy', async () => {

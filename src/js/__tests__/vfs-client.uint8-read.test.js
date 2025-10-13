@@ -19,7 +19,6 @@ test('vfs-client decodes Uint8Array reads from backend or FS', async () => {
 
     // Mock runtime FS on window and backendRef
     window.__ssg_runtime_fs = { readFile: (p) => utf8 }
-    window.__ssg_mem = {}
 
     // Use waitForFile to detect the file via FS read
     const found = await window.waitForFile('/fake.txt', 200).catch(() => null)

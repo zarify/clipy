@@ -646,8 +646,6 @@ async function main() {
                                         if (typeof FileManager !== 'undefined' && FileManager && typeof FileManager.read === 'function') {
                                             const v = await FileManager.read(active)
                                             if (v != null) contentForActive = String(v)
-                                        } else if (typeof window !== 'undefined' && window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, active)) {
-                                            contentForActive = String(window.__ssg_mem[active])
                                         }
                                     } catch (_e) { }
 

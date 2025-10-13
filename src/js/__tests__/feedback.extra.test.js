@@ -4,7 +4,7 @@ describe('feedback extra tests', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        try { delete window.__ssg_mem } catch (_) { }
+        // Do not rely on legacy __ssg_mem; tests should use FileManager or runtime fs
     })
 
     test('invalid regex flags are ignored and do not crash', async () => {
