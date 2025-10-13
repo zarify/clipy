@@ -304,17 +304,23 @@ async function syncVFSAfterRun() {
                             const textarea = document.getElementById('code')
                             mainContent = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
                         }
-                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                        map[MAIN_FILE] = mainContent || ''
-                        localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                        // Prefer FileManager/unified storage; do not write legacy localStorage mirror.
+                        try {
+                            const FileManager = getFileManager()
+                            if (FileManager && typeof FileManager.write === 'function' && mainContent != null) {
+                                await FileManager.write(MAIN_FILE, mainContent)
+                            }
+                        } catch (_e) {
+                            // best-effort no-op if FileManager unavailable
+                        }
                     } catch (_e) {
-                        // Best-effort fallback: write current editor content if anything fails
-                        const cm = window.cm
-                        const textarea = document.getElementById('code')
-                        const cur = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
-                        const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                        map['/main.py'] = cur
-                        localStorage.setItem('ssg_files_v1', JSON.stringify(map))
+                        // Best-effort fallback: write current editor content into in-memory shim
+                        try {
+                            const cm = window.cm
+                            const textarea = document.getElementById('code')
+                            const cur = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
+                            try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = window.__ssg_unified_inmemory['ssg_files_v1'] || {}; window.__ssg_unified_inmemory['ssg_files_v1']['/main.py'] = cur } catch (_e) { }
+                        } catch (_e) { }
                     }
                 }
             } catch (_e) { }
@@ -1106,8 +1112,8 @@ except Exception:
                             }
                         } catch (_e) {
                             try {
-                                const map = JSON.parse(localStorage.getItem('ssg_files_v1') || '{}')
-                                filenamesArr = Object.keys(map || {})
+                                // No localStorage fallback: if FileManager isn't available, return empty filenames list
+                                filenamesArr = []
                             } catch (_e2) { filenamesArr = [] }
                         }
                         window.Feedback.evaluateFeedbackOnRun({ stdout: stdoutFull, stderr: stderrFull, stdin: stdinFull, filename: filenamesArr })

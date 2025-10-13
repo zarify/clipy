@@ -555,8 +555,8 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         const snap = s
 
         const backend = window.__ssg_vfs_backend
-        // Do not fall back to legacy global mem; if VFS isn't ready, mem will be undefined.
-        const { mem } = await window.__ssg_vfs_ready.catch(() => ({ mem: undefined }))
+        // Do not fall back to legacy global mem; rely on backend/FileManager for state.
+        await window.__ssg_vfs_ready.catch(() => ({}))
         const FileManager = window.FileManager
 
         if (backend && typeof backend.write === 'function') {
@@ -588,23 +588,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
                 }
             }
 
-            // Replace in-memory mirror with snapshot contents for synchronous reads
-            try {
-                if (mem) {
-                    Object.keys(mem).forEach(k => delete mem[k])
-                    for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
-                }
-            } catch (e) {
-                logError('Failed to update mem:', e)
-            }
-        } else if (mem) {
-            // Replace mem entirely so files from other snapshots are removed
-            try {
-                Object.keys(mem).forEach(k => delete mem[k])
-                for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
-            } catch (e) {
-                logError('Failed to update mem directly:', e)
-            }
+            // No internal mem to update; rely on backend/FileManager for read paths.
         }
 
         // Reconcile via FileManager to ensure mem/localStorage/backend are consistent
@@ -638,20 +622,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
             logError('FileManager reconciliation failed:', e)
         }
 
-        // Definitively replace in-memory map with snapshot contents to avoid any stale entries
-        try {
-            if (mem) {
-                Object.keys(mem).forEach(k => delete mem[k])
-                for (const p of Object.keys(snap.files || {})) mem[p] = snap.files[p]
-                try {
-                    // Do not update legacy localStorage mirror.
-                } catch (e) {
-                    logError('Final localStorage update failed:', e)
-                }
-            }
-        } catch (e) {
-            logError('Final mem update failed:', e)
-        }
+        // No internal mem mirror to update in this process.
 
         const modal = $('snapshot-modal')
         closeModal(modal)
@@ -924,35 +895,10 @@ async function clearStorage() {
             } catch (_e) { }
         }
 
-        // Legacy localStorage fallback: remove `ssg_files_v1` if it exists and count its files
-        try {
-            if (typeof localStorage !== 'undefined') {
-                const legacy = localStorage.getItem('ssg_files_v1')
-                if (legacy) {
-                    try {
-                        const parsed = JSON.parse(legacy)
-                        if (parsed && typeof parsed === 'object') {
-                            const fileCount = Object.keys(parsed).length
-                            if (fileCount > 0) {
-                                actuallyDeleted += fileCount
-                                try { localStorage.removeItem('ssg_files_v1') } catch (_e) { }
-                            }
-                        }
-                    } catch (_e) { }
-                }
-                // Remove any legacy snapshots_* keys from localStorage too
-                try {
-                    const toRemove = []
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i)
-                        if (key && key.startsWith('snapshots_')) toRemove.push(key)
-                    }
-                    for (const k of toRemove) {
-                        try { localStorage.removeItem(k) } catch (_e) { }
-                    }
-                } catch (_e) { }
-            }
-        } catch (_e) { }
+        // Legacy localStorage mirror removal is intentionally skipped here.
+        // Unified storage clear operations above are authoritative. Tests
+        // that install a localStorage shim or in-memory fallback should
+        // manage their own cleanup. Avoid touching browser localStorage.
 
         // Report that snapshot data was cleared. Use a simple, generic
         // message instead of attempting to report exact counts which can

@@ -16,7 +16,7 @@ export function setupCodeArea(code = '') {
 }
 
 export function clearLocalStorageMirror() {
-    try { localStorage.removeItem('ssg_files_v1') } catch (_e) { }
+    try { if (typeof window !== 'undefined') { try { delete window.__ssg_unified_inmemory } catch (_e) { } } } catch (_e) { }
 }
 
 export async function setRuntimeAdapter(adapter) {

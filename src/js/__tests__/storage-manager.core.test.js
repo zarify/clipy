@@ -5,7 +5,7 @@ test('safeSetItem saves to storage and getStorageUsage reflects size', async () 
     const mgr = await makeMgr(storage)
 
     const kv = { a: 'hello', b: 'world' }
-    const key = 'ssg_files_v1'
+    const key = 'test_files_key'
     const value = JSON.stringify(kv)
 
     const res = mgr.safeSetItem(key, value)

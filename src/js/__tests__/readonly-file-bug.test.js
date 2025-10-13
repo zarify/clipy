@@ -33,9 +33,8 @@ describe('VFS Read-Only File Creation Bug', () => {
         window.currentConfig = cfg;
 
         // Initialize VFS like the main app does
-        const { FileManager, mem } = await initializeVFS(cfg);
+        const { FileManager } = await initializeVFS(cfg);
 
-        console.log('Initial VFS state - mem keys:', Object.keys(mem));
         console.log('Initial VFS state - FileManager files:', await FileManager.list());
 
         // Now populate files from config (mimicking what app.js does)
@@ -51,7 +50,6 @@ describe('VFS Read-Only File Creation Bug', () => {
         }
 
         // Check final state
-        console.log('Final mem keys:', Object.keys(mem));
         console.log('Final FileManager files:', await FileManager.list());
 
         // Verify all files exist

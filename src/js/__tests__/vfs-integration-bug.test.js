@@ -7,8 +7,6 @@ describe('VFS Config Loading Integration Bug', () => {
         delete window.currentConfig;
         delete window.FileManager;
         delete window.__ssg_vfs_backend;
-        try { window.__ssg_mem = undefined } catch (_e) { }
-        try { window.mem = undefined } catch (_e) { }
         setSystemWriteMode(false);
     });
 

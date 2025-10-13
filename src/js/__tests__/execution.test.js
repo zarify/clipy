@@ -46,7 +46,8 @@ test('safety timeout uses VM interrupt when available', async () => {
 test('mapTracebackAndShow + replaceBufferedStderr produce mapped traceback output', async () => {
     setupTerminalDOM()
     setMAIN_FILE('/main.py')
-    localStorage.setItem('ssg_files_v1', JSON.stringify({ '/main.py': 'print(1)' }))
+    // Use in-memory unified shim instead of legacy localStorage mirror
+    try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['legacy_files'] = { '/main.py': 'print(1)' } } catch (_e) { }
     window.__ssg_stderr_buffering = true
     window.__ssg_stderr_buffer = [
         'Traceback (most recent call last):',
@@ -68,7 +69,7 @@ test('mapTracebackAndShow + replaceBufferedStderr produce mapped traceback outpu
 test('regression: mixed python+js traceback shows only python traceback (no vendor/js frames)', async () => {
     setupTerminalDOM()
     setMAIN_FILE('/main.py')
-    localStorage.setItem('ssg_files_v1', JSON.stringify({ '/main.py': 'print(1)' }))
+    try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = { '/main.py': 'print(1)' } } catch (_e) { }
     window.__ssg_stderr_buffering = true
     // Simulate a runtime that emits a Python traceback followed by JS vendor frames
     window.__ssg_stderr_buffer = [
@@ -97,7 +98,7 @@ test('regression: mixed python+js traceback shows only python traceback (no vend
 test('mixed traceback: debug flag shows vendor frames when enabled', async () => {
     setupTerminalDOM()
     setMAIN_FILE('/main.py')
-    localStorage.setItem('ssg_files_v1', JSON.stringify({ '/main.py': 'print(1)' }))
+    try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = { '/main.py': 'print(1)' } } catch (_e) { }
     window.__ssg_stderr_buffering = true
     window.__ssg_stderr_buffer = [
         'Traceback (most recent call last):',
@@ -124,7 +125,7 @@ test('mixed traceback: debug flag shows vendor frames when enabled', async () =>
 test('mixed traceback: header-less python exception followed by js frames hides vendor frames', async () => {
     setupTerminalDOM()
     setMAIN_FILE('/main.py')
-    localStorage.setItem('ssg_files_v1', JSON.stringify({ '/main.py': 'print(1)' }))
+    try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = { '/main.py': 'print(1)' } } catch (_e) { }
     window.__ssg_stderr_buffering = true
     // No Traceback header; just a python exception line then JS frames
     window.__ssg_stderr_buffer = [
@@ -150,7 +151,7 @@ test('regression: instrumented code maps traceback to original user line', async
     setMAIN_FILE('/main.py')
     // put a simple user program with an error on line 1
     const userCode = `ix = 10\nfor i in range(5):\n    print(f"x + i = {x + i}")\nprint(\"OK Done\")\n`
-    localStorage.setItem('ssg_files_v1', JSON.stringify({ '/main.py': userCode }))
+    try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = { '/main.py': userCode } } catch (_e) { }
 
     // Transform and instrument the user code to compute the real header offset
     ensureAppendTerminalDebug()

@@ -217,6 +217,33 @@ describe('Replay System', () => {
             expect(replayEngine.currentStepIndex).toBe(0)
         })
 
+        test('should preserve original trace and filter RETURN events', async () => {
+            const trace = new ExecutionTrace()
+            // Simulate a LINE event
+            const lineStep = new ExecutionStep(1, new Map())
+            lineStep.executionType = 'line'
+            lineStep.filename = '<stdin>'
+            trace.addStep(lineStep)
+
+            // Simulate a RETURN event for the same line
+            const returnStep = new ExecutionStep(1, new Map())
+            returnStep.executionType = 'return'
+            returnStep.filename = '<stdin>'
+            trace.addStep(returnStep)
+
+            // Provide sourceCode metadata to avoid async analyzer interference
+            trace.metadata = trace.metadata || {}
+            trace.metadata.sourceCode = 'print("Hello")'
+
+            const result = await replayEngine.startReplay(trace)
+            expect(result).toBe(true)
+            // originalTrace should be the unfiltered trace with 2 steps
+            expect(replayEngine.originalTrace).toBe(trace)
+            expect(replayEngine.originalTrace.getStepCount()).toBe(2)
+            // executionTrace should have RETURN events filtered out (1 step)
+            expect(replayEngine.executionTrace.getStepCount()).toBe(1)
+        })
+
         test('should not start replay with empty trace', async () => {
             const trace = new ExecutionTrace()
             const result = await replayEngine.startReplay(trace)

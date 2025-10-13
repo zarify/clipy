@@ -15,14 +15,9 @@ test('initializeVFS provides FileManager and mem snapshot', async () => {
     expect(typeof fm.list === 'function').toBe(true)
     expect(typeof fm.read === 'function').toBe(true)
 
-    // initializeVFS returns an object that may include a mem snapshot; prefer that
-    const maybeMem = res && res.mem
-    if (maybeMem !== undefined) {
-        expect(typeof maybeMem === 'object').toBe(true)
-    } else {
-        // If mem is not returned (internal mirror not exposed), ensure FileManager exists
-        expect(typeof fm.list === 'function').toBe(true)
-    }
+    // initializeVFS should return FileManager; internal mem mirror is no longer exposed
+    expect(res).not.toHaveProperty('mem')
+    expect(typeof fm.list === 'function').toBe(true)
 
     // settleVfsReady should be a function we can call safely
     expect(typeof settleVfsReady === 'function').toBe(true)

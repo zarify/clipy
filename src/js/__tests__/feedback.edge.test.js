@@ -4,8 +4,7 @@ describe('feedback edge-case tests', () => {
     beforeEach(() => {
         jest.resetModules()
         document.body.innerHTML = ''
-        // clear any legacy global mem or FileManager artifacts
-        try { window.__ssg_mem = undefined } catch (_) { }
+        // clear any legacy FileManager artifacts
         try { window.FileManager = undefined } catch (_) { }
     })
 

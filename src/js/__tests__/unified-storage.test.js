@@ -110,19 +110,18 @@ describe('unified-storage', () => {
             getItem: jest.fn((key) => {
                 if (key === 'current_config') return JSON.stringify({ id: 'test', version: '1.0' })
                 if (key === 'snapshots_test@1.0') return JSON.stringify([{ ts: 123, config: 'test@1.0' }])
-                if (key === 'ssg_files_v1') return JSON.stringify({ '/main.py': 'print("migrated")' })
                 return null
             }),
             setItem: jest.fn(),
             removeItem: jest.fn(),
-            length: 3,
-            key: jest.fn((i) => ['current_config', 'snapshots_test@1.0', 'ssg_files_v1'][i])
+            length: 2,
+            key: jest.fn((i) => ['current_config', 'snapshots_test@1.0'][i])
         }
 
         global.window.localStorage = mockLocalStorage
 
         const { migrateFromLocalStorage } = await import('../unified-storage.js')
-        // Just ensure migration runs without throwing in this environment.
+        // Ensure migration runs safely and does not throw when legacy key is absent
         await migrateFromLocalStorage()
         expect(true).toBeTruthy()
     })

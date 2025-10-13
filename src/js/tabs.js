@@ -14,6 +14,14 @@ let currentConfig = null // current loaded config for read-only status
 let overflowManager = null // TabOverflowManager instance
 
 function _normalizePath(p) {
+    // Normalize incoming path values:
+    // - Map legacy '<stdin>' (from MicroPython tracebacks) to the canonical
+    //   '/main.py' so we never create a '/<stdin>' tab.
+    // - Ensure a leading slash for all file paths so internal maps are
+    //   consistent (other code expects leading-slash form).
+    try {
+        if (p === '<stdin>') return '/main.py'
+    } catch (_e) { }
     return String(p).startsWith('/') ? p : `/${p}`
 }
 
