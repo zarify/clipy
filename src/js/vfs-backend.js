@@ -219,7 +219,7 @@ async function createIndexedDBBackend() {
             } else {
                 // Quick sync: only sync known files that might have changed
                 // Focus on commonly modified files like /main.py
-                const priorityFiles = ['/main.py', '/output.txt', '/data.txt']
+                const priorityFiles = ['/main.py']
 
                 for (const p of priorityFiles) {
                     try {
@@ -272,7 +272,7 @@ function createInMemoryBackend() {
                     } catch (e) { console.warn('VFS: sync skip', p, e) }
                 }
             } else {
-                const priorityFiles = ['/main.py', '/output.txt', '/data.txt']
+                const priorityFiles = ['/main.py']
                 for (const p of priorityFiles) {
                     try { try { FS.lookupPath(p) } catch (_) { continue } const raw = typeof FS.readFile === 'function' ? FS.readFile(p, { encoding: 'utf8' }) : null; const content = raw != null ? decodeToString(raw) : null; if (content != null) await this.write(p, content) } catch (_e) { }
                 }
