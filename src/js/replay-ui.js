@@ -1452,7 +1452,7 @@ export class ReplayEngine {
     /**
      * Switch to a different file tab
      */
-    switchToFile(filename) {
+    async switchToFile(filename) {
         try {
             // Normalize the filename
             const normalizedFilename = filename.startsWith('/') ? filename : `/${filename}`
@@ -1473,7 +1473,7 @@ export class ReplayEngine {
                             if (typeof FileManager.write === 'function' && cur !== null) {
                                 // Use system write mode wherever callers expect it to bypass read-only checks
                                 try { if (typeof window.setSystemWriteMode === 'function') window.setSystemWriteMode(true) } catch (_e) { }
-                                try { FileManager.write(activePath, cur) } catch (_e) { }
+                                try { await FileManager.write(activePath, cur) } catch (_e) { }
                                 try { if (typeof window.setSystemWriteMode === 'function') window.setSystemWriteMode(false) } catch (_e) { }
                             }
                         } catch (_e) { /* swallow persistence errors */ }

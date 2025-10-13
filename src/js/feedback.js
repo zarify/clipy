@@ -257,7 +257,7 @@ async function evaluateFeedbackOnEdit(code, path, opts = {}) {
                     const currentPathNorm = path && (path.startsWith('/') ? path : ('/' + path))
                     if (normalizedTarget !== currentPathNorm) {
                         if (typeof window !== 'undefined' && window.FileManager && typeof window.FileManager.read === 'function') {
-                            const readVal = window.FileManager.read(normalizedTarget)
+                            const readVal = await window.FileManager.read(normalizedTarget)
                             if (readVal != null) contentToCheck = String(readVal)
                         } else {
                             // No FileManager available; if mem is present try window.__ssg_mem
@@ -310,7 +310,7 @@ async function evaluateFeedbackOnEdit(code, path, opts = {}) {
                 if (!found && typeof window !== 'undefined') {
                     try {
                         if (window.FileManager && typeof window.FileManager.read === 'function') {
-                            const readVal = window.FileManager.read(normDesired)
+                            const readVal = await window.FileManager.read(normDesired)
                             if (readVal != null) found = true
                         }
                     } catch (_e) { }
@@ -427,7 +427,7 @@ async function evaluateFeedbackOnRun(ioCapture) {
                         try {
                             const normalizedTarget = normDesired
                             if (window.FileManager && typeof window.FileManager.read === 'function') {
-                                const readVal = window.FileManager.read(normalizedTarget)
+                                const readVal = await window.FileManager.read(normalizedTarget)
                                 if (readVal != null) found = normalizedTarget
                             }
                         } catch (_e) { }

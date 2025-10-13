@@ -185,7 +185,14 @@ async function main() {
                                     dbg('dbg: loaded config from ?config parameter (plain filename)')
                                 } catch (e) {
                                     logWarn('Failed to load config from ?config= parameter (plain filename):', e)
-                                    try { showConfigError('Failed to load configuration: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                    // Surface a generic, non-sensitive message to non-authoring users
+                                    try {
+                                        if (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function' && window.isAuthoringEnabled()) {
+                                            showConfigError('Failed to load configuration: ' + (e && e.message ? e.message : e), document.getElementById('config-modal'))
+                                        } else {
+                                            showGeneralErrorModal('Failed to load configuration from URL parameter. Please check the link or contact the instructor.')
+                                        }
+                                    } catch (_e) { }
                                 }
                             } else {
                                 const r = await fetch(toLoad)
@@ -255,7 +262,13 @@ async function main() {
                                                 dbg('dbg: loaded first config from ?config (list resource)')
                                             } catch (e) {
                                                 logWarn('Failed to load first config from remote list:', e)
-                                                try { showConfigError('Failed to load first configuration from list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                                try {
+                                                    if (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function' && window.isAuthoringEnabled()) {
+                                                        showConfigError('Failed to load first configuration from list: ' + (e && e.message ? e.message : e), document.getElementById('config-modal'))
+                                                    } else {
+                                                        showGeneralErrorModal('Failed to load configuration list. Please try again later or contact the instructor.')
+                                                    }
+                                                } catch (_e) { }
                                             }
                                         } else {
                                             throw new Error('Config list is empty')
@@ -269,15 +282,31 @@ async function main() {
                                             dbg('dbg: loaded config from ?config parameter')
                                         } catch (e) {
                                             logWarn('Failed to load config from ?config= parameter:', e)
-                                            try { showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
+                                            try {
+                                                if (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function' && window.isAuthoringEnabled()) {
+                                                    showConfigError('Failed to load configuration from URL: ' + (e && e.message ? e.message : e), document.getElementById('config-modal'))
+                                                } else {
+                                                    showGeneralErrorModal('Failed to load configuration from URL parameter. The resource could not be loaded or parsed.')
+                                                }
+                                            } catch (_e) { }
                                         }
                                     }
                                 } else {
-                                    throw new Error('Failed to fetch: ' + (r && r.status))
+                                    try {
+                                        if (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function' && window.isAuthoringEnabled()) {
+                                            throw new Error('Failed to fetch: ' + (r && r.status))
+                                        } else {
+                                            showGeneralErrorModal('Failed to load configuration from URL parameter. The resource could not be fetched (network or permissions issue).')
+                                        }
+                                    } catch (e) {
+                                        // still log the original warning
+                                        logWarn('Failed to load config from ?config= parameter:', e)
+                                    }
                                 }
                             }
                         } catch (e) {
                             logWarn('Failed to load config from ?config= parameter:', e)
+                            try { showConfigError('Failed to load configuration from URL parameter: ' + (e && e.message ? e.message : e), document.getElementById('config-modal')) } catch (_e) { }
                         }
                     }
                 } catch (_e) { }
@@ -370,7 +399,7 @@ async function main() {
         // 4. Initialize file system and tabs
         const { FileManager } = await initializeVFS(cfg)
         try { dbg('dbg: after initializeVFS', !!FileManager) } catch (_e) { }
-        const TabManager = initializeTabManager(cm, textarea)
+        const TabManager = await initializeTabManager(cm, textarea)
 
         // Ensure MAIN_FILE exists in the FileManager. If it doesn't, populate
         // it with the config starter so tests that rely on the starter output
@@ -378,9 +407,9 @@ async function main() {
         try {
             const { MAIN_FILE } = await import('./js/vfs-client.js')
             try {
-                const exists = !!(FileManager && FileManager.read && FileManager.read(MAIN_FILE))
+                const exists = !!(FileManager && FileManager.read && (await FileManager.read(MAIN_FILE)))
                 if (!exists && FileManager && typeof cfg.starter === 'string') {
-                    try { FileManager.write(MAIN_FILE, cfg.starter) } catch (_e) { }
+                    try { await FileManager.write(MAIN_FILE, cfg.starter) } catch (_e) { }
                 }
             } catch (_e) { }
         } catch (_e) { }
@@ -438,7 +467,7 @@ async function main() {
                     const { setSystemWriteMode } = await import('./js/vfs-client.js')
                     try {
                         setSystemWriteMode(true)
-                        const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                        const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                         for (const p of existing) {
                             try {
                                 if (!p) continue
@@ -452,7 +481,7 @@ async function main() {
                 } catch (_e) {
                     // Fallback: try deleting without system write mode
                     try {
-                        const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                        const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                         for (const p of existing) {
                             try {
                                 if (!p) continue
@@ -594,7 +623,7 @@ async function main() {
         try {
             const orig = (typeof window !== 'undefined') ? window.__ssg_notify_file_written : null
             try {
-                window.__ssg_notify_file_written = function (path, content) {
+                window.__ssg_notify_file_written = async function (path, content) {
                     try { if (typeof orig === 'function') orig(path, content) } catch (_e) { }
                     try {
                         if (window.Feedback && typeof window.Feedback.evaluateFeedbackOnFileEvent === 'function') {
@@ -615,7 +644,7 @@ async function main() {
                                     let contentForActive = ''
                                     try {
                                         if (typeof FileManager !== 'undefined' && FileManager && typeof FileManager.read === 'function') {
-                                            const v = FileManager.read(active)
+                                            const v = await FileManager.read(active)
                                             if (v != null) contentForActive = String(v)
                                         } else if (typeof window !== 'undefined' && window.__ssg_mem && Object.prototype.hasOwnProperty.call(window.__ssg_mem, active)) {
                                             contentForActive = String(window.__ssg_mem[active])
@@ -720,10 +749,10 @@ async function main() {
                                 const snapshot = {}
                                 if (FileManager) {
                                     try {
-                                        const allFiles = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                        const allFiles = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                                         for (const filePath of allFiles) {
                                             try {
-                                                const content = FileManager.read(filePath)
+                                                const content = await FileManager.read(filePath)
                                                 if (content !== null) {
                                                     snapshot[filePath] = content
                                                 }
@@ -734,7 +763,7 @@ async function main() {
                                     } catch (e) {
                                         logWarn('[app] failed to list files for snapshot:', e)
                                         // Fallback to just main file
-                                        const mainContent = FileManager.read(MAIN_FILE) || ''
+                                        const mainContent = (await FileManager.read(MAIN_FILE)) || ''
                                         snapshot[MAIN_FILE] = mainContent
                                     }
                                 } else {
@@ -827,9 +856,9 @@ async function main() {
                                         const snap = { ts: Date.now(), files: {}, config: (window.Config && window.Config.current) ? `${window.Config.current.id}@${window.Config.current.version}` : null, metadata: { configVersion: (window.Config && window.Config.current) ? window.Config.current.version : null } }
                                         if (FileManager && typeof FileManager.list === 'function') {
                                             try {
-                                                const names = FileManager.list()
+                                                const names = await FileManager.list()
                                                 for (const n of names) {
-                                                    try { const v = await Promise.resolve(FileManager.read(n)); if (v != null) snap.files[n] = v } catch (_e) { }
+                                                    try { const v = await FileManager.read(n); if (v != null) snap.files[n] = v } catch (_e) { }
                                                 }
                                             } catch (_e) { }
                                         }
@@ -992,7 +1021,7 @@ async function main() {
                     // accidentally overwriting /main.py with the contents of another open tab
                     // (e.g. when a traceback caused the editor to open a different file).
                     try {
-                        const mainExists = !!FileManager.read(MAIN_FILE)
+                        const mainExists = !!(await FileManager.read(MAIN_FILE))
                         if (activePath === MAIN_FILE || !mainExists) {
                             const currentMain = (cm ? cm.getValue() : (textarea ? textarea.value : ''))
                             await FileManager.write(MAIN_FILE, currentMain)
@@ -1003,7 +1032,7 @@ async function main() {
                 } catch (_) { /* ignore write errors */ }
 
                 // Get the main file content and run it
-                const code = FileManager.read(MAIN_FILE) || ''
+                const code = (await FileManager.read(MAIN_FILE)) || ''
                 // Get current config for execution
                 const currentConfig = (window.Config && window.Config.current) ? window.Config.current : {}
                 // DEBUG: print tests shapes so we can see ast rule presence
@@ -1089,7 +1118,7 @@ async function main() {
 
                             // Delete all files except MAIN_FILE
                             try {
-                                const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                                 for (const p of existing) {
                                     try {
                                         if (p === MAIN_FILE) continue
@@ -1118,7 +1147,7 @@ async function main() {
                     } catch (_e) {
                         // If setSystemWriteMode import fails just attempt writes normally
                         try {
-                            const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                            const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                             for (const p of existing) {
                                 try {
                                     if (p === MAIN_FILE) continue
@@ -1190,7 +1219,7 @@ async function main() {
                                         const { setSystemWriteMode } = await import('./js/vfs-client.js')
                                         try {
                                             setSystemWriteMode(true)
-                                            const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                            const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                                             for (const p of existing) {
                                                 try {
                                                     if (!p) continue
@@ -1204,7 +1233,7 @@ async function main() {
                                     } catch (_e) {
                                         // Fallback deletion without system mode
                                         try {
-                                            const existing = (typeof FileManager.list === 'function') ? FileManager.list() : []
+                                            const existing = (typeof FileManager.list === 'function') ? (await FileManager.list()) : []
                                             for (const p of existing) {
                                                 try {
                                                     if (!p) continue
@@ -1316,11 +1345,147 @@ async function main() {
                 }
                 // Also write to terminal for visibility in logs
                 try { appendTerminal(message, 'runtime') } catch (_e) { }
-                // If we have a modal element, ensure it's visible so the user can act
-                if (openModalEl) {
-                    try { openModal(openModalEl) } catch (_e) { }
+                // If we have a modal element and authoring is enabled, ensure
+                // it's visible so the author can act. For non-authoring users
+                // surface a generic error via the general error modal instead
+                // of opening the full config modal (avoid exposing author hints).
+                let authoring = false
+                try { authoring = (typeof window !== 'undefined' && typeof window.isAuthoringEnabled === 'function' && window.isAuthoringEnabled()) } catch (_e) { authoring = false }
+                if (authoring) {
+                    if (openModalEl) {
+                        try { openModal(openModalEl) } catch (_e) { }
+                    }
+                } else {
+                    try { showGeneralErrorModal(message) } catch (_e) { }
                 }
             } catch (_e) { }
+        }
+
+        // Create or return a general-purpose error modal for non-authoring users
+        function ensureGeneralErrorModal() {
+            try {
+                let modal = document.getElementById('general-error-modal')
+                if (modal) return modal
+
+                // Minimal modal structure: container, message area, close button
+                modal = document.createElement('div')
+                modal.id = 'general-error-modal'
+                modal.className = 'modal'
+                modal.setAttribute('role', 'dialog')
+                // Start hidden; openModal is responsible for making it visible
+                modal.setAttribute('aria-hidden', 'true')
+                // Ensure focusability and predictable display behavior
+                if (!modal.hasAttribute('tabindex')) modal.setAttribute('tabindex', '-1')
+                modal.style.display = 'none'
+
+                const content = document.createElement('div')
+                content.className = 'modal-content'
+                content.style.maxWidth = '720px'
+                content.style.margin = '40px auto'
+                content.style.padding = '16px'
+                content.style.background = 'var(--bg, #fff)'
+                content.style.border = '1px solid #ccc'
+
+                const title = document.createElement('h2')
+                title.textContent = 'Configuration error'
+                title.style.marginTop = '0'
+                content.appendChild(title)
+
+                const msg = document.createElement('div')
+                msg.id = 'general-error-message'
+                msg.style.whiteSpace = 'pre-wrap'
+                msg.style.marginBottom = '12px'
+                content.appendChild(msg)
+
+                const btn = document.createElement('button')
+                btn.className = 'btn'
+                btn.textContent = 'Close'
+                btn.addEventListener('click', () => {
+                    try { closeModal(modal) } catch (_e) { modal.style.display = 'none'; modal.setAttribute && modal.setAttribute('aria-hidden', 'true') }
+                })
+                content.appendChild(btn)
+
+                // (Removed: manual 'Clear link' button) URL-clearing is handled
+                // automatically when the general error modal is shown.
+
+
+                modal.appendChild(content)
+                // Ensure body exists and append; if body is not present, insert to documentElement as fallback
+                try {
+                    if (document && document.body) document.body.appendChild(modal)
+                    else document.documentElement.appendChild(modal)
+                } catch (_e) {
+                    // Last-resort: try setTimeout to append later
+                    setTimeout(() => {
+                        try { if (document && document.body) document.body.appendChild(modal) } catch (_e2) { try { document.documentElement.appendChild(modal) } catch (_e3) { } }
+                    }, 0)
+                }
+                return modal
+            } catch (e) {
+                return null
+            }
+        }
+
+        // Show a sanitized general error to users. Do not reveal raw URLs or author flags.
+        function showGeneralErrorModal(message, opts = {}) {
+            try {
+                // By default remove the ?config= parameter to avoid repeated failed loads
+                try {
+                    if (!opts || opts.removeConfigParam !== false) {
+                        try {
+                            const u = new URL(window.location.href)
+                            if (u.searchParams.has('config')) {
+                                u.searchParams.delete('config')
+                                const newUrl = u.pathname + (u.search && u.search !== '?' ? u.search : '') + (u.hash || '')
+                                history.replaceState(null, document.title, newUrl)
+                            }
+                        } catch (_e) { }
+                    }
+                } catch (_e) { }
+                const modal = ensureGeneralErrorModal()
+                if (!modal) {
+                    try { appendTerminal(message, 'runtime') } catch (_e) { }
+                    return
+                }
+                const msg = document.getElementById('general-error-message')
+                // Prefer a short, user-friendly message. Allow detail when opts.detail === true
+                if (msg) {
+                    if (opts && opts.detail) msg.textContent = String(message)
+                    else msg.textContent = String(message).split('\n')[0]
+                }
+                try {
+                    // Prefer the centralized openModal for accessibility handling
+                    openModal(modal)
+                } catch (_e) {
+                    // Fallback: make visible directly
+                    try { modal.style.display = ''; modal.setAttribute && modal.setAttribute('aria-hidden', 'false') } catch (_e2) { }
+                }
+                try { appendTerminal(message, 'runtime') } catch (_e) { }
+
+                // Defensive fallback: if modal did not become visible (CSS or environment
+                // may hide it), show a temporary inline banner so the user sees the error.
+                try {
+                    setTimeout(() => {
+                        try {
+                            const m = document.getElementById('general-error-modal')
+                            const visible = m && m.getAttribute && m.getAttribute('aria-hidden') === 'false' && (m.offsetParent !== null)
+                            if (!visible) {
+                                // Create a transient banner near top of viewport
+                                let banner = document.getElementById('general-error-inline')
+                                if (!banner) {
+                                    banner = document.createElement('div')
+                                    banner.id = 'general-error-inline'
+                                    banner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#fff3cd;border:1px solid #ffeeba;padding:8px 12px;z-index:99999;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.15);max-width:90%;cursor:default;'
+                                    banner.textContent = (opts && opts.detail) ? String(message) : String(message).split('\n')[0]
+                                    try { document.body.appendChild(banner) } catch (_e) { document.documentElement.appendChild(banner) }
+                                    // Auto-remove after 8s
+                                    setTimeout(() => { try { banner.parentElement && banner.parentElement.removeChild(banner) } catch (_e) { } }, 8000)
+                                }
+                            }
+                        } catch (_e) { }
+                    }, 50)
+                } catch (_e) { }
+            } catch (e) { /* ignore */ }
         }
 
         // Wire config header and modal UI (header dropdown/open on header click, server list population, URL load, file upload/drop)

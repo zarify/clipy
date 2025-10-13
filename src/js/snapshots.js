@@ -274,7 +274,7 @@ async function saveSnapshot() {
         // Use the global FileManager as the authoritative source for snapshot contents
         try {
             if (FileManager && typeof FileManager.list === 'function') {
-                const names = FileManager.list()
+                const names = await FileManager.list()
                 for (const n of names) {
                     try {
                         const v = await Promise.resolve(FileManager.read(n))
@@ -609,7 +609,7 @@ async function restoreSnapshot(index, snapshots, suppressSideTab = false) {
         // Reconcile via FileManager to ensure mem/localStorage/backend are consistent
         try {
             if (FileManager && typeof FileManager.list === 'function') {
-                const existing = FileManager.list() || []
+                const existing = (await FileManager.list()) || []
                 for (const p of existing) {
                     try {
                         if (p === MAIN_FILE) continue

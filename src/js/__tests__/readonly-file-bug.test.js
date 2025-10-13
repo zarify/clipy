@@ -37,7 +37,7 @@ describe('VFS Read-Only File Creation Bug', () => {
         const { FileManager, mem } = await initializeVFS(cfg);
 
         console.log('Initial VFS state - mem keys:', Object.keys(mem));
-        console.log('Initial VFS state - FileManager files:', FileManager.list());
+        console.log('Initial VFS state - FileManager files:', await FileManager.list());
 
         // Now populate files from config (mimicking what app.js does)
         setSystemWriteMode(true);
@@ -53,26 +53,26 @@ describe('VFS Read-Only File Creation Bug', () => {
 
         // Check final state
         console.log('Final mem keys:', Object.keys(mem));
-        console.log('Final FileManager files:', FileManager.list());
+        console.log('Final FileManager files:', await FileManager.list());
 
         // Verify all files exist
-        const files = FileManager.list();
+        const files = await FileManager.list();
         expect(files).toContain('/main.py');
         expect(files).toContain('/read-only.txt');
         expect(files).toContain('/read-write.txt');
 
         // Verify file contents
-        expect(FileManager.read('/main.py')).toBe('"Hello!"\n');
-        expect(FileManager.read('/read-only.txt')).toBe('This is a read-only file.');
-        expect(FileManager.read('/read-write.txt')).toBe('we can nuke this');
+        expect(await FileManager.read('/main.py')).toBe('"Hello!"\n');
+        expect(await FileManager.read('/read-only.txt')).toBe('This is a read-only file.');
+        expect(await FileManager.read('/read-write.txt')).toBe('we can nuke this');
 
         // Test read-only protection works after creation
         await FileManager.write('/read-only.txt', 'modified');
         // Should still have original content due to read-only protection
-        expect(FileManager.read('/read-only.txt')).toBe('This is a read-only file.');
+        expect(await FileManager.read('/read-only.txt')).toBe('This is a read-only file.');
 
         // Test writable file can be modified  
         await FileManager.write('/read-write.txt', 'modified');
-        expect(FileManager.read('/read-write.txt')).toBe('modified');
+        expect(await FileManager.read('/read-write.txt')).toBe('modified');
     });
 });

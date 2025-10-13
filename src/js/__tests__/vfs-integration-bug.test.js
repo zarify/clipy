@@ -38,7 +38,7 @@ describe('VFS Config Loading Integration Bug', () => {
         const { FileManager, backend } = await initializeVFS(cfg);
 
         console.log('After initializeVFS:');
-        console.log('  - FileManager files:', FileManager.list());
+        console.log('  - FileManager files:', await FileManager.list());
         console.log('  - Backend files:', await backend.list());
 
         // Step 2: Populate files from config (mimicking what app.js does)
@@ -55,16 +55,16 @@ describe('VFS Config Loading Integration Bug', () => {
         }
 
         console.log('After populating from config:');
-        console.log('  - FileManager files:', FileManager.list());
+        console.log('  - FileManager files:', await FileManager.list());
         console.log('  - Backend files:', await backend.list());
 
         // Step 3: Simulate syncVFSBeforeRun() - sync FileManager → backend
         console.log('=== STEP 3: Sync FileManager → backend ===');
         setSystemWriteMode(true);
         try {
-            const files = FileManager.list();
+            const files = await FileManager.list();
             for (const p of files) {
-                const content = FileManager.read(p);
+                const content = await FileManager.read(p);
                 console.log('Syncing to backend:', p, 'content length:', (content || '').length);
                 await backend.write(p, content == null ? '' : content);
             }

@@ -463,14 +463,17 @@ export async function initializeVFS(cfg) {
             window.mem = mem
         } catch (_e) { }
 
-        // Replace FileManager with backend-integrated version
+        // Replace FileManager with backend-integrated version (pure IndexedDB, no mem cache)
         FileManager = {
-            list() { return Object.keys(mem).sort() },
-            read(path) {
+            async list() {
+                try {
+                    return await backend.list()
+                } catch (_e) { return [] }
+            },
+            async read(path) {
                 try {
                     const n = _normPath(path)
-                    const v = mem[n]
-                    return v == null ? null : v
+                    return await backend.read(n)
                 } catch (_e) { return null }
             },
             write(path, content) {
@@ -489,19 +492,7 @@ export async function initializeVFS(cfg) {
                         return Promise.resolve()
                     }
 
-                    const prev = mem[n]
-                    // If content didn't change, return early
-                    try { if (prev === content) return Promise.resolve() } catch (_e) { }
-
-                    // update in-memory copy first
-                    mem[n] = content
-
-                    // update localStorage mirror for tests and fallbacks
-                    try {
-                        scheduleMirrorSave(n, content)
-                    } catch (_e) { }
-
-                    // mark expected write so the notifier can ignore the echo
+                    // Mark expected write so the notifier can ignore the echo
                     try { markExpectedWrite(n, content) } catch (_e) { }
 
                     return backend.write(n, content).then(res => {
@@ -533,13 +524,7 @@ export async function initializeVFS(cfg) {
                         }
                     } catch (_e) { }
 
-                    delete mem[n]
-
-                    try {
-                        scheduleMirrorDelete(n)
-                    } catch (_e) { }
-
-                    // also attempt to remove from interpreter FS
+                    // Also attempt to remove from interpreter FS
                     try {
                         const fs = window.__ssg_runtime_fs
                         if (fs) {
@@ -631,8 +616,8 @@ export function createFileManager(host = window) {
 
     return {
         key: KEY,
-        list() { try { return Object.keys(_load()).sort() } catch (e) { return [] } },
-        read(path) { try { const m = _load(); const v = m[_norm(path)]; return v == null ? null : v } catch (e) { return null } },
+        async list() { try { return Object.keys(_load()).sort() } catch (e) { return [] } },
+        async read(path) { try { const m = _load(); const v = m[_norm(path)]; return v == null ? null : v } catch (e) { return null } },
         write(path, content) {
             try {
                 const n = _norm(path)

@@ -10,12 +10,12 @@ test('createFileManager basic CRUD and protected MAIN_FILE', async () => {
     const fm = createFileManager(host)
 
     // initially empty
-    expect(fm.list()).toEqual([])
+    expect(await fm.list()).toEqual([])
 
     // write and read
     await fm.write('/a.txt', 'A')
     expect(await fm.read('/a.txt')).toBe('A')
-    expect(fm.list()).toContain('/a.txt')
+    expect(await fm.list()).toContain('/a.txt')
 
     // delete non-main
     await fm.delete('/a.txt')

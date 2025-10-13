@@ -160,10 +160,10 @@ async function syncVFSBeforeRun(recordingEnabled, recorder, currentRuntimeAdapte
             if (backend && typeof backend.write === 'function' && typeof FileManager?.list === 'function') {
                 try {
                     setSystemWriteMode(true)
-                    const files = FileManager.list()
+                    const files = await FileManager.list()
                     for (const p of files) {
                         try {
-                            const c = FileManager.read(p)
+                            const c = await FileManager.read(p)
                             // suppress notifier echoes while we push UI files into backend
                             try { window.__ssg_suppress_notifier = true } catch (_e) { }
                             await backend.write(p, c == null ? '' : c)
@@ -176,10 +176,10 @@ async function syncVFSBeforeRun(recordingEnabled, recorder, currentRuntimeAdapte
                 appendTerminalDebug('Synced UI FileManager -> backend (pre-run)')
             } else if (fs && typeof fs.writeFile === 'function' && typeof FileManager?.list === 'function') {
                 // no async backend available; write directly into runtime FS from UI FileManager
-                const files = FileManager.list()
+                const files = await FileManager.list()
                 for (const p of files) {
                     try {
-                        const content = FileManager.read(p) || ''
+                        const content = (await FileManager.read(p)) || ''
                         try { markExpectedWrite(p, content) } catch (_e) { }
                         try { window.__ssg_suppress_notifier = true } catch (_e) { }
                         fs.writeFile(p, content)
@@ -296,7 +296,7 @@ async function syncVFSAfterRun() {
                         const FileManager = getFileManager()
                         let mainContent = null
                         if (FileManager && typeof FileManager.read === 'function') {
-                            mainContent = FileManager.read(MAIN_FILE)
+                            mainContent = await FileManager.read(MAIN_FILE)
                         }
                         // Fallback to the current editor content only if FileManager doesn't have MAIN_FILE
                         if (mainContent == null) {
@@ -1101,7 +1101,7 @@ except Exception:
                         try {
                             const FileManager = getFileManager()
                             if (FileManager && typeof FileManager.list === 'function') {
-                                const files = FileManager.list() || []
+                                const files = (await FileManager.list()) || []
                                 if (Array.isArray(files)) filenamesArr = files.slice()
                             }
                         } catch (_e) {
