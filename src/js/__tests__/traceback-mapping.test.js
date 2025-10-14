@@ -1,16 +1,26 @@
 test('map traceback maps instrumented line to original line for IndexError example', async () => {
     const mod = await import('../code-transform.js')
-    const instrMod = await import('../python-instrumentor.js')
     const { transformAndWrap, mapTracebackAndShow } = mod
-    const { getPythonInstrumentor } = instrMod
 
     const userCode = `x = [1,2,3,4,5,6,7,8,9]\nfor i in range(20):\n    print(x[i])\n`
 
     // Simulate transform wrapper (non-asyncify path)
     const transformed = transformAndWrap(userCode)
-    // Instrument using our instrumentor
-    const instr = getPythonInstrumentor()
-    const result = await instr.instrumentCode(transformed.code, null)
+    // The legacy instrumentor has been removed; compute a compatible
+    // instrumentation metadata shape directly from the transform result.
+    // We emulate the instrumentor's identity lineMap and headerLines
+    // heuristic used by the previous implementation.
+    const result = {}
+    result.code = transformed.code
+    // Build identity lineMap (instrumented line -> original line)
+    const lines = String(transformed.code || '').split('\n')
+    const lineMap = {}
+    for (let i = 0; i < lines.length; i++) {
+        lineMap[i + 1] = i + 1
+    }
+    result.lineMap = lineMap
+    // Heuristic headerLines: reuse transform.headerLines when present
+    result.headerLines = Number(transformed.headerLines) || 0
 
     // Store global map similar to runtime behavior. The runtime subtracts
     // the transform wrapper's headerLines when exposing the map to callers,

@@ -153,19 +153,18 @@ test('regression: instrumented code maps traceback to original user line', async
     const userCode = `ix = 10\nfor i in range(5):\n    print(f"x + i = {x + i}")\nprint(\"OK Done\")\n`
     try { window.__ssg_unified_inmemory = window.__ssg_unified_inmemory || {}; window.__ssg_unified_inmemory['ssg_files_v1'] = { '/main.py': userCode } } catch (_e) { }
 
-    // Transform and instrument the user code to compute the real header offset
+    // Transform the user code to compute the wrapper header offset
     ensureAppendTerminalDebug()
     const ct = await import('../code-transform.js')
     const { transformAndWrap, mapTracebackAndShow } = ct
     const transformed = transformAndWrap(userCode)
 
-    // Instrument the transformed code so we account for instrumentor header lines
-    const pi = await import('../python-instrumentor.js')
-    const instr = pi.getPythonInstrumentor()
-    const instrResult = await instr.instrumentCode(transformed.code)
-
-    // instrResult may be {code, headerLines} or a string for backwards compat
-    const instrHeader = (instrResult && typeof instrResult === 'object') ? (Number(instrResult.headerLines) || 0) : 0
+    // Legacy instrumentor removed: emulate its minimal metadata shape.
+    // instrHeader is represented by any additional header lines the
+    // (now-removed) instrumentor would have added. We assume identity
+    // behavior so instrHeader is zero. The total header is therefore the
+    // transform's headerLines only.
+    const instrHeader = 0
     const totalHeader = (Number(transformed.headerLines) || 0) + instrHeader
 
     // Simulate that stderr was buffered by the runtime with a traceback

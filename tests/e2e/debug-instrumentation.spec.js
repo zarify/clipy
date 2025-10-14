@@ -26,14 +26,21 @@ print(z)  # Line 4 - should error here`
     // Get instrumentation results before running
     const instrumentationResult = await page.evaluate(async (code) => {
         try {
-            // Import the instrumentor
-            const { getPythonInstrumentor } = await import('./js/python-instrumentor.js')
-            const instrumentor = getPythonInstrumentor()
+            // Compute instrumentation metrics in-browser without the
+            // legacy instrumentor. Use the client-side transformAndWrap
+            // to estimate headerLines and the transformed code.
+            const ct = await import('./js/code-transform.js')
+            const { transformAndWrap } = ct
+            const transformed = transformAndWrap(code)
 
-            // Test with raw code (no asyncify base)
-            const rawResult = await instrumentor.instrumentCode(code, window.runtimeAdapter)
+            // Emulate instrumentor behavior: identity lineMap, no extra
+            // instrumentation header lines beyond the transform wrapper.
+            const rawResult = {
+                code: transformed.code,
+                headerLines: Number(transformed.headerLines) || 0
+            }
 
-            // Test with asyncify base
+            // Test with asyncify base (same constant as before)
             const asyncifyBase = 21
             const totalResult = {
                 rawInstrumentation: rawResult,
@@ -41,16 +48,12 @@ print(z)  # Line 4 - should error here`
                 totalHeaderLines: asyncifyBase + (rawResult?.headerLines || 0)
             }
 
-            // Count actual lines
             const originalLines = code.split('\n').length
             const instrumentedLines = rawResult?.code ? rawResult.code.split('\n').length : 0
             const addedLines = instrumentedLines - originalLines
 
             return {
-                original: {
-                    code: code,
-                    lines: originalLines
-                },
+                original: { code: code, lines: originalLines },
                 instrumented: {
                     code: rawResult?.code || 'ERROR',
                     lines: instrumentedLines,
