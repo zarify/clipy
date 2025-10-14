@@ -603,10 +603,24 @@ async function main() {
 
         // Now initialize Feedback subsystem with the config so it can evaluate and emit matches
         try {
-            if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg)
+            // Prefer the centralized event so the Feedback module can both reset
+            // its internal state and re-evaluate workspace files. If dispatch is
+            // unavailable for any reason, fall back to calling resetFeedback
+            // directly to preserve previous behavior.
+            try {
+                const ev = new CustomEvent('ssg:feedback-config-changed', { detail: { config: cfg } })
+                if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(ev)
+                else {
+                    if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg)
+                }
+            } catch (_e) {
+                try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') window.Feedback.resetFeedback(cfg) } catch (_e2) { }
+            }
+
             // Re-apply full configuration to the UI after Feedback.resetFeedback
-            // because resetFeedback emits a 'reset' event with a normalized feedback-only
-            // payload which would otherwise overwrite the UI's full config (including tests).
+            // because resetFeedback may emit a 'reset' event with a normalized
+            // feedback-only payload which would otherwise overwrite the UI's
+            // full config (including tests).
             try { setFeedbackConfig(cfg) } catch (_e) { }
         } catch (_e) { }
 
@@ -1301,12 +1315,28 @@ async function main() {
                     if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg)
                 } catch (_e) { }
                 try {
-                    if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') await window.Feedback.resetFeedback(newCfg)
-                    // Re-apply the full config to the feedback UI after resetFeedback
-                    // completes so tests (and other fields) remain present in the UI.
+                    // Notify Feedback subsystem of the new config via event so it
+                    // can reset and re-evaluate workspace files. Fall back to
+                    // calling resetFeedback directly if dispatch isn't available.
+                    try {
+                        const ev = new CustomEvent('ssg:feedback-config-changed', { detail: { config: newCfg } })
+                        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(ev)
+                        else {
+                            if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') await window.Feedback.resetFeedback(newCfg)
+                        }
+                    } catch (_e) {
+                        try { if (window.Feedback && typeof window.Feedback.resetFeedback === 'function') await window.Feedback.resetFeedback(newCfg) } catch (_e2) { }
+                    }
+                    // Re-apply the full config to the feedback UI after the
+                    // Feedback module has been notified so tests (and other fields)
+                    // remain present in the UI.
                     try { if (typeof setFeedbackConfig === 'function') setFeedbackConfig(newCfg) } catch (_e) { }
+
+                    // Feedback subsystem has already been notified above; do not
+                    // dispatch a duplicate event here. The Feedback module will
+                    // perform workspace re-evaluation when it receives the event.
                     // Restore previous behavior: when a new config is applied programmatically
-                    // evaluate edit-time feedback immediately so feedback entries appear
+                    // evaluate edit-time feedback for the active tab so feedback entries appear
                     // without requiring a manual user edit. Use the current editor/tab
                     // helpers to obtain content and path (best-effort fallbacks).
                     try {

@@ -77,6 +77,54 @@ function resetFeedback(config) {
     // Do not auto-emit matches here; the UI will initialize from the 'reset' event
 }
 
+// When the application applies a new feedback config, allow the host to notify
+// the Feedback subsystem so it can re-evaluate workspace files and emit
+// matches immediately. This avoids duplicating file traversal logic in the
+// app layer and centralizes evaluation here.
+try {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('ssg:feedback-config-changed', async (ev) => {
+            try {
+                // Optionally update internal config if provided
+                const payload = ev && ev.detail ? ev.detail : null
+                if (payload && payload.config) {
+                    try { resetFeedback(payload.config) } catch (_e) { }
+                }
+
+                // Best-effort: enumerate workspace files and run file-event and
+                // edit evaluations so filename and code/AST patterns are
+                // evaluated immediately. Use FileManager.list/read when
+                // available; otherwise fallback to no-op.
+                try {
+                    const vfs = await import('./vfs-client.js')
+                    const getFileManager = vfs.getFileManager
+                    const FileManager = (typeof getFileManager === 'function') ? getFileManager() : null
+
+                    const files = (FileManager && typeof FileManager.list === 'function') ? (await FileManager.list()) : []
+                    for (const f of files) {
+                        try {
+                            // Trigger filename-target logic
+                            try { await evaluateFeedbackOnFileEvent({ type: 'create', filename: f }) } catch (_e) { }
+
+                            // Trigger code/AST/regex evaluations for the file
+                            try {
+                                let contentForFile = ''
+                                try {
+                                    if (FileManager && typeof FileManager.read === 'function') {
+                                        const v = await FileManager.read(f)
+                                        if (v != null) contentForFile = String(v)
+                                    }
+                                } catch (_e) { }
+                                try { await evaluateFeedbackOnEdit(contentForFile, f, { clearRunMatches: false }) } catch (_e) { }
+                            } catch (_e) { }
+                        } catch (_e) { }
+                    }
+                } catch (_e) { }
+            } catch (_e) { }
+        })
+    }
+} catch (_e) { }
+
 function _applyRegex(expr, flags) {
     try { return new RegExp(expr, flags || '') } catch (e) { return null }
 }
